@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as curve from "./curve";
-import { Engine } from "./engine";
+import { Engine, type BigOutcome } from "./engine";
 import { DIFFICULTIES } from "./difficulty";
 import { Rng } from "./rng";
 import { MIGRATION_LOCK_MS, MIGRATION_MC_USD } from "./curve";
@@ -623,38 +623,77 @@ describe("runner path", () => {
 });
 
 describe("big coin script", () => {
-  for (const id of ["pnut", "goat", "fartcoin", "wif", "popcat"]) {
-    it(`${id}: bursts at launch, holds above 100K, tops within 3 min, then round-trips`, () => {
-      const meme = MEME_PACK.find((m) => m.id === id)!;
+  const run = (id: string, seed: number) => {
+    const meme = MEME_PACK.find((m) => m.id === id)!;
+    const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [meme] });
+    e.startRound({ memeId: meme.id, leadMs: 0 });
+    let born: number | null = null;
+    const series: [number, number][] = [];
+    for (let t = 0; t < 420000; t += 100) {
+      e.advanceTo(t);
+      const cid = e.getRound()?.targetCoinId;
+      const v = cid ? e.getCoinView(cid) : null;
+      if (!v) continue;
+      born ??= t;
+      series.push([t - born, v.mcUsd]);
+    }
+    const coin = [...(e as unknown as { coins: Map<string, { big: { outcome: BigOutcome } | null }> }).coins.values()].find((c) => c.big)!;
+    const peak = Math.max(...series.map(([, m]) => m));
+    return {
+      meme,
+      outcome: coin.big!.outcome,
+      series,
+      burstMc: Math.max(...series.filter(([t]) => t <= 3500).map(([, m]) => m)),
+      peak,
+      peakAt: series.find(([, m]) => m === peak)![0],
+      last: series[series.length - 1][1],
+    };
+  };
+
+  it("bursts at launch and tops out within 3 minutes, whatever the outcome", () => {
+    for (const id of ["pnut", "goat", "fartcoin", "wif", "popcat"]) {
       for (const seed of [1, 2, 3]) {
-        const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [meme] });
-        e.startRound({ memeId: meme.id, leadMs: 0 });
-        let born: number | null = null;
-        const series: [number, number][] = [];
-        for (let t = 0; t < 420000; t += 100) {
-          e.advanceTo(t);
-          const cid = e.getRound()?.targetCoinId;
-          const v = cid ? e.getCoinView(cid) : null;
-          if (!v) continue;
-          born ??= t;
-          series.push([t - born, v.mcUsd]);
-        }
-        const burstMc = Math.max(...series.filter(([t]) => t <= 3500).map(([, m]) => m));
-        const peak = Math.max(...series.map(([, m]) => m));
-        const peakAt = series.find(([, m]) => m === peak)![0];
-        const first100 = series.find(([, m]) => m >= 100000)![0];
-        const minBetween = Math.min(...series.filter(([t]) => t >= first100 && t <= peakAt).map(([, m]) => m));
-        const last = series[series.length - 1][1];
-        expect(minBetween).toBeGreaterThan(92000);
-        expect(burstMc).toBeGreaterThan(28000);
-        expect(peak).toBeGreaterThan(meme.big!.peak[0] * 0.9);
-        expect(peak).toBeLessThan(meme.big!.peak[1] * 1.15);
-        expect(peakAt).toBeLessThan(180000);
-        expect(last).toBeGreaterThan(meme.big!.trip[0] * 0.8);
-        expect(last).toBeLessThan(meme.big!.trip[1] * 1.2);
+        const r = run(id, seed);
+        expect(r.burstMc).toBeGreaterThan(28000);
+        expect(r.peakAt).toBeLessThan(180000);
       }
-    });
-  }
+    }
+  });
+
+  it("plays out every outcome with its own top and ending", () => {
+    const seen = new Set<BigOutcome>();
+    for (let seed = 1; seed <= 24; seed++) {
+      const r = run("pnut", seed);
+      seen.add(r.outcome);
+      switch (r.outcome) {
+        case "standard": {
+          const first100 = r.series.find(([, m]) => m >= 100000)![0];
+          const minBefore = Math.min(...r.series.filter(([t]) => t >= first100 && t <= r.peakAt).map(([, m]) => m));
+          expect(minBefore).toBeGreaterThan(92000);
+          expect(r.peak).toBeGreaterThan(r.meme.big!.peak[0] * 0.9);
+          expect(r.peak).toBeLessThan(r.meme.big!.peak[1] * 1.15);
+          expect(r.last).toBeGreaterThan(r.meme.big!.trip[0] * 0.8);
+          expect(r.last).toBeLessThan(r.meme.big!.trip[1] * 1.2);
+          break;
+        }
+        case "runner":
+          expect(r.peak).toBeGreaterThan(350000);
+          expect(r.peak).toBeLessThan(3500000);
+          expect(r.last / r.peak).toBeLessThan(0.55);
+          break;
+        case "moon":
+          expect(r.peak).toBeGreaterThan(7000000);
+          expect(r.last / r.peak).toBeLessThan(0.07);
+          break;
+        case "toprug":
+          expect(r.peak).toBeGreaterThan(180000);
+          expect(r.peak).toBeLessThan(340000);
+          expect(r.last).toBeLessThan(9000);
+          break;
+      }
+    }
+    expect(seen.size).toBe(4);
+  });
 });
 
 describe("freeze and history", () => {

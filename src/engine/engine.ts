@@ -48,9 +48,29 @@ export interface EngineOptions {
   clock?: () => number;
 }
 
+/**
+ * How a big coin's round plays out. Picked at random each round so you never know which one you are in.
+ * - standard: tops at the meme's `big.peak`, fades to `big.trip`
+ * - runner:   $400K-3M top, round-trips to 25-45% of it
+ * - moon:     $8-50M top, lower high, dev rug, bleeds to 2.5-5% of the top
+ * - toprug:   $200-300K top, then rugs all the way to ~$5K (one candle or a staircase)
+ */
+export type BigOutcome = "standard" | "runner" | "moon" | "toprug";
+export const BIG_OUTCOME_WEIGHTS: Record<BigOutcome, number> = { standard: 0.3, runner: 0.27, moon: 0.13, toprug: 0.3 };
+
+interface BigPlan {
+  outcome: BigOutcome;
+  /** SOL market caps. */
+  peak: number;
+  trip: number;
+  /** Sim time the ATH should land by. */
+  athBy: number;
+}
+
 /** One stretch of a scripted run. The price glides to `to` by `end` (sim ms). */
 interface Leg {
-  kind: "push" | "dip" | "base";
+  /** `rug`: the dev dumps; the whole drop lands in one step (one giant red candle). */
+  kind: "push" | "dip" | "base" | "rug";
   end: number;
   to: number;
   /** Multiplier on trade size. */
@@ -71,8 +91,8 @@ interface Coin {
   lockUntil: number;
   /** Where this coin's post-migration run should peak (SOL market cap), if it has a target. */
   athSol: number | null;
-  /** Big coins fade back to this level after the ATH (SOL market cap). */
-  tripSol: number | null;
+  /** Set for big coins: the round's outcome and its targets. */
+  big: BigPlan | null;
   moonDrift: number;
   /** Scripted post-migration path for ATH runs: pushes, pullbacks and consolidation. */
   legs: Leg[];
@@ -290,7 +310,7 @@ export class Engine {
       migratedAt: null,
       lockUntil: -Infinity,
       athSol: null,
-      tripSol: null,
+      big: null,
       moonDrift: 0.009,
       legs: [],
       preLegs: [],
@@ -407,8 +427,8 @@ export class Engine {
       c.moonUntil = at + this.rng.range(18000, 30000);
     }
     // A coin with an ATH target runs there in pushes with pullbacks and consolidation between them.
-    if (c.preLegs.length && c.athSol && c.tripSol) {
-      c.legs = this.planBigRun(c.athSol, c.tripSol, c.lockUntil);
+    if (c.big) {
+      c.legs = this.planBigRun(c.big, c.lockUntil);
       c.moonUntil = c.legs[c.legs.length - 1].end;
     } else if (c.athSol && c.athSol > c.postMc) {
       c.legs = this.planRun(c.postMc, c.athSol, c.lockUntil);
@@ -446,12 +466,22 @@ export class Engine {
       t += this.rng.range(6000, 13000);
       legs.push({ kind: "base", end: t, to: baseTo, vol: 0.4, noise: 0.012 });
     }
+    // Some tops are the end: the dev rugs and it bleeds out to ~$5K.
+    if (this.rng.chance(0.3)) {
+      const dead = Math.max(4000 / SOL_USD, ath * this.rng.range(0.015, 0.03));
+      t += this.rng.range(3000, 7000);
+      legs.push({ kind: "base", end: t, to: ath * this.rng.range(0.85, 0.95), vol: 0.6, noise: 0.02 });
+      t += this.rng.range(1000, 1500);
+      legs.push({ kind: "rug", end: t, to: dead * this.rng.range(2, 4), vol: 1, noise: 0 });
+      t += this.rng.range(15000, 25000);
+      legs.push({ kind: "dip", end: t, to: dead, vol: 0.6, noise: 0.025 });
+    }
     return legs;
   }
 
   /**
    * A big launch, scripted end to end: $3-10K at launch, a 1-3 s burst to $30-35K, a short pullback, then over the
-   * line. After migration it holds above $100K, tops out within ~3 min of launch, then can round-trip.
+   * line. After migration the round's outcome (see BigOutcome) decides the rest; the ATH always lands within ~3 min.
    */
   private scriptBigCoin(c: Coin, at: number, big: NonNullable<Meme["big"]>): void {
     const r = this.rng;
@@ -470,9 +500,37 @@ export class Engine {
       leg("dip", r.range(1800, 3500), burst * r.range(0.84, 0.93), 1, 0.02),
       leg("push", r.range(2500, 4500), sol(MIGRATION_MC_USD * 1.15), 1, 0.025),
     ];
-    c.athSol = sol(r.range(big.peak[0], big.peak[1]));
-    c.tripSol = sol(r.range(big.trip[0], big.trip[1]));
+    const outcome = this.pickOutcome();
+    let peak: number;
+    let trip: number;
+    switch (outcome) {
+      case "standard":
+        peak = r.range(big.peak[0], big.peak[1]);
+        trip = r.range(big.trip[0], big.trip[1]);
+        break;
+      case "runner":
+        peak = Math.exp(r.range(Math.log(400000), Math.log(3000000)));
+        trip = peak * r.range(0.25, 0.45);
+        break;
+      case "moon":
+        peak = Math.exp(r.range(Math.log(8000000), Math.log(50000000)));
+        trip = peak * r.range(0.025, 0.05);
+        break;
+      case "toprug":
+        peak = r.range(200000, 300000);
+        trip = r.range(4000, 6500);
+        break;
+    }
+    c.athSol = sol(peak);
+    c.big = { outcome, peak: sol(peak), trip: sol(trip), athBy: at + r.range(75000, 165000) };
     this.at(at, (a) => this.driveStep(c, a));
+  }
+
+  private pickOutcome(): BigOutcome {
+    const entries = Object.entries(BIG_OUTCOME_WEIGHTS) as [BigOutcome, number][];
+    let x = this.rng.next() * entries.reduce((n, [, w]) => n + w, 0);
+    for (const [o, w] of entries) if ((x -= w) < 0) return o;
+    return "standard";
   }
 
   /** One 100 ms step of a scripted pre-migration path: trade through the curve to stay on the glide. */
@@ -504,39 +562,85 @@ export class Engine {
   }
 
   /**
-   * Post-migration path for a big coin. Pushes always stay above $100K, the last one is the ATH, and after it the
-   * price bleeds back to `trip` with bounces on the way.
+   * Post-migration path for a big coin: a ladder of pushes, dips and bases up to the ATH (scaled so it lands by
+   * `athBy`), then the outcome's ending. Standard runs never dip under ~$100K before the top.
    */
-  private planBigRun(ath: number, trip: number, start: number): Leg[] {
+  private planBigRun(b: BigPlan, start: number): Leg[] {
     const r = this.rng;
     const sol = (usd: number) => usd / SOL_USD;
-    const floor = sol(103000);
+    const standard = b.outcome === "standard";
+    const first = standard ? sol(r.range(106000, 114000)) : Math.min(b.peak * 0.7, sol(r.range(95000, 140000)));
+    const floor = standard ? sol(103000) : 0;
+    const pushes = Math.min(7, Math.max(3, Math.round(Math.log10(b.peak / first) * 2.2) + 2));
+    const flushAt = r.int(1, pushes - 1);
+
+    // Climb, with relative durations; scaled to the deadline below.
+    const climb: (Omit<Leg, "end"> & { ms: number })[] = [];
+    let high = first;
+    for (let k = 1; k <= pushes; k++) {
+      const last = k === pushes;
+      const level = last ? b.peak : first * Math.pow(b.peak / first, (k - 1) / (pushes - 1));
+      climb.push({ kind: "push", ms: r.range(7, 13), to: level, vol: 1.8, noise: 0.022 });
+      high = level;
+      if (last) break;
+      const deep = k === flushAt;
+      const retrace = deep ? (standard ? r.range(0.2, 0.3) : r.range(0.28, 0.42)) : r.range(0.06, 0.18);
+      const low = Math.max(floor, high * (1 - retrace));
+      climb.push({ kind: "dip", ms: r.range(4, 9), to: low, vol: 1.2, noise: 0.022 });
+      climb.push({ kind: "base", ms: r.range(7, 15), to: Math.min(high * 0.97, low * r.range(1.02, 1.12)), vol: 0.4, noise: 0.012 });
+    }
+    const budget = Math.max(45000, b.athBy - start);
+    const unit = budget / climb.reduce((n, l) => n + l.ms, 0);
     const legs: Leg[] = [];
     let t = start;
+    for (const { ms, ...l } of climb) {
+      t += ms * unit;
+      legs.push({ ...l, end: t });
+    }
+
     const add = (kind: Leg["kind"], ms: number, to: number, vol: number, noise: number) => {
       t += ms;
       legs.push({ kind, end: t, to, vol, noise });
     };
-    const first = sol(r.range(106000, 114000));
-    const pushes = r.int(3, 4);
-    const flushAt = r.int(1, pushes - 1);
-    let high = first;
-    for (let k = 1; k <= pushes; k++) {
-      const last = k === pushes;
-      const level = last ? ath : first * Math.pow(ath / first, (k - 1) / (pushes - 1));
-      add("push", r.range(7000, 13000), level, 1.8, 0.022);
-      high = level;
-      if (last) break;
-      const retrace = k === flushAt ? r.range(0.2, 0.3) : r.range(0.06, 0.15);
-      const low = Math.max(floor, high * (1 - retrace));
-      add("dip", r.range(4000, 9000), low, 1.2, 0.022);
-      add("base", r.range(7000, 15000), Math.min(high * 0.97, low * r.range(1.02, 1.12)), 0.4, 0.012);
+    const P = b.peak;
+    switch (b.outcome) {
+      case "standard":
+        add("dip", r.range(7000, 11000), P * r.range(0.8, 0.88), 1.6, 0.025);
+        add("base", r.range(4000, 7000), P * r.range(0.86, 0.92), 0.6, 0.02);
+        add("dip", r.range(14000, 22000), b.trip * r.range(1.02, 1.12), 1.2, 0.022);
+        add("base", r.range(8000, 14000), b.trip, 0.4, 0.014);
+        break;
+      case "runner":
+        add("dip", r.range(6000, 10000), P * r.range(0.7, 0.8), 1.6, 0.025);
+        add("base", r.range(4000, 7000), P * r.range(0.8, 0.88), 0.6, 0.02);
+        add("dip", r.range(15000, 25000), b.trip * r.range(1.05, 1.15), 1.3, 0.024);
+        add("base", r.range(8000, 14000), b.trip, 0.4, 0.014);
+        break;
+      case "moon":
+        add("dip", r.range(5000, 8000), P * r.range(0.62, 0.72), 1.6, 0.025);
+        add("base", r.range(5000, 9000), P * r.range(0.74, 0.82), 0.7, 0.02);
+        add("rug", r.range(1000, 1500), P * r.range(0.15, 0.25), 1, 0);
+        add("dip", r.range(20000, 35000), b.trip * r.range(1.05, 1.15), 1, 0.025);
+        add("base", r.range(8000, 14000), b.trip, 0.4, 0.016);
+        break;
+      case "toprug":
+        if (r.chance(0.55)) {
+          // The txgym special: hold near the top for a moment, then one red candle.
+          add("base", r.range(3000, 7000), P * r.range(0.88, 0.95), 0.8, 0.018);
+          add("rug", r.range(1000, 1500), sol(r.range(8000, 20000)), 1, 0);
+          add("dip", r.range(12000, 20000), b.trip * r.range(1.05, 1.2), 0.6, 0.025);
+        } else {
+          // Staircase: every bounce is a lower high until there is nothing left.
+          add("dip", r.range(5000, 8000), P * r.range(0.55, 0.65), 1.5, 0.025);
+          add("base", r.range(4000, 7000), P * r.range(0.66, 0.74), 0.7, 0.02);
+          add("dip", r.range(6000, 10000), P * r.range(0.25, 0.32), 1.4, 0.026);
+          add("base", r.range(3000, 6000), P * r.range(0.33, 0.38), 0.6, 0.02);
+          add("dip", r.range(8000, 12000), P * r.range(0.08, 0.12), 1.3, 0.028);
+          add("dip", r.range(10000, 16000), b.trip * r.range(1.05, 1.2), 0.8, 0.025);
+        }
+        add("base", r.range(8000, 12000), b.trip, 0.3, 0.016);
+        break;
     }
-    // Round trip: lose the highs, bounce, fade to the trip level.
-    add("dip", r.range(7000, 11000), ath * r.range(0.8, 0.88), 1.6, 0.025);
-    add("base", r.range(4000, 7000), ath * r.range(0.86, 0.92), 0.6, 0.02);
-    add("dip", r.range(14000, 22000), trip * r.range(1.02, 1.12), 1.2, 0.022);
-    add("base", r.range(8000, 14000), trip, 0.4, 0.014);
     return legs;
   }
 
@@ -676,6 +780,21 @@ export class Engine {
       const leg = c.legs.find((l) => at < l.end);
       if (leg) {
         const idx = c.legs.indexOf(leg);
+        if (leg.kind === "rug" && leg.from === undefined) {
+          // Dev dump: the whole drop prints in one step.
+          const before = c.postMc;
+          c.postMc = leg.to;
+          leg.from = leg.to;
+          const size = before * this.rng.range(0.04, 0.08);
+          this.record(c, at, size);
+          c.volumeSol += size;
+          c.sellVolSol += size;
+          c.sells++;
+          c.txCount++;
+          this.pushTape(c, at, "bot", "sell", size);
+          this.touch(c);
+          return true;
+        }
         if (leg.from === undefined) leg.from = c.postMc;
         const start = idx === 0 ? c.lockUntil : c.legs[idx - 1].end;
         const frac = Math.min(1, Math.max(0, (at - start) / Math.max(1, leg.end - start)));
@@ -693,7 +812,7 @@ export class Engine {
     c.postMc = Math.max(1, c.postMc * Math.exp(drift + vol * this.rng.gauss()));
     c.txCount += this.rng.int(0, 3);
     // Runners trade real size: volume scales with market cap while the coin is running.
-    const scale = (moon ? Math.max(4, c.postMc * 0.004) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1) * volMul;
+    const scale = (moon ? Math.min(400, Math.max(4, c.postMc * 0.004)) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1) * volMul;
     const size = this.rng.lognormal(0.5, 0.7) * scale;
     this.record(c, at, size);
     c.volumeSol += size;

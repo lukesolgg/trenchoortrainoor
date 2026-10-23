@@ -77,8 +77,10 @@ A round is: 3 s countdown, an armed wait of 1.5 to 4 s, then the tweet and the f
 - Migration: at about $43K MC a coin locks for 3 s. Buys and sells are blocked and the price walk is skipped (chart frozen). The chart
   shows a dotted horizontal "Migration" price line at that market cap. Coins with an `ath` range then run a scripted path (`planRun`):
   3-4 pushes, each followed by a pullback and a low-volume base, sometimes a deep flush, ending at the ATH.
-- Big coins (the five main memes, `big` in memes.json) are scripted: launch at $3-10K, burst to $30-35K in 1-3 s, short pullback, migrate, then
-  pushes that stay above ~$100K to a $110-160K ATH within ~3 min of launch, then a round trip back to $75-100K if you hold. See `scriptBigCoin` / `planBigRun`.
+- Big coins (the five main memes, `big` in memes.json) launch at $3-10K, burst to $30-35K in 1-3 s, pull back and migrate. Each round then
+  picks an outcome (`BIG_OUTCOME_WEIGHTS` in engine.ts): standard (tops at `big.peak`, holds above ~$100K, fades to `big.trip`), runner
+  ($400K-3M, round-trips to 25-45%), moon ($8-50M, lower high, dev rug, bleeds to 2.5-5%) or top-and-rug ($200-300K, then one red dev
+  candle or a staircase down to ~$5K). The ATH always lands within ~3 min. ATH-tweet coins have a 30% chance of a rug tail after the top.
 - The Tracker is a separate full-height column outside the app chrome. `MultiplierFlash` flashes 2x/5x/10x/20x/50x/100x on open positions.
 - Tracker keywords are highlighted pink (`highlightPhrases` in `scenario.ts`); memes can set `highlight` phrases and `noHighlight`.
 

@@ -5,6 +5,44 @@ import type { Position } from "@/engine/types";
 
 const MILESTONES = [2, 5, 10, 20, 50, 100];
 
+const CONFETTI = ["#2ee6a6", "#f5c542", "#ff4fa3", "#4db8ff", "#8b5cf6", "#ffffff"];
+
+/** A ring of particles thrown out from the number. Fixed layout per flash so it never re-randomises mid-animation. */
+function Confetti({ seed }: { seed: number }) {
+  const bits = Array.from({ length: 26 }, (_, i) => {
+    const a = (i / 26) * Math.PI * 2 + ((seed * (i + 7)) % 100) / 160;
+    const d = 140 + ((seed * (i + 3) * 37) % 160);
+    return {
+      dx: Math.cos(a) * d,
+      dy: Math.sin(a) * d * 0.7,
+      color: CONFETTI[i % CONFETTI.length],
+      w: i % 3 === 0 ? 10 : 6,
+      rot: (i * 47) % 360,
+      delay: (i % 5) * 18,
+    };
+  });
+  return (
+    <div className="absolute left-1/2 top-1/2">
+      {bits.map((b, i) => (
+        <span
+          key={i}
+          className="anim-confetti absolute block h-[4px] rounded-sm"
+          style={
+            {
+              width: b.w,
+              background: b.color,
+              "--dx": `${b.dx}px`,
+              "--dy": `${b.dy}px`,
+              "--rot": `${b.rot}deg`,
+              animationDelay: `${b.delay}ms`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
 const COLOR: Record<number, string> = {
   2: "text-up",
   5: "text-up",
@@ -49,11 +87,14 @@ export function MultiplierFlash({ positions, tickerOf }: { positions: Position[]
   if (!flash) return null;
   return (
     <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center">
-      <div key={flash.key} className="anim-mult -mt-24 text-center">
+      <div key={flash.key} className="relative -mt-24 text-center">
+        <Confetti seed={flash.key % 997} />
+        <div className="anim-mult">
         <div className={`text-[96px] font-black leading-none tracking-tighter drop-shadow-[0_0_36px_currentColor] ${COLOR[flash.x] ?? "text-up"}`}>
           {flash.x}x
         </div>
         <div className="mt-1 text-[12px] font-bold uppercase tracking-[0.2em] text-ink/80 drop-shadow-[0_1px_8px_rgba(0,0,0,.8)]">{flash.ticker}</div>
+        </div>
       </div>
     </div>
   );
