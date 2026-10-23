@@ -10,7 +10,7 @@ const COPY = {
     lead: "Quick-buy the first right pair the moment it hits New Pairs: the best ticker, on Pump, with Dividends on, paired the way the tweet's author trades.",
     steps: [
       ["Read the tweet", "Work out the meme from an authority account and its best ticker."],
-      ["Check the config", "The right coin is on Pump with Dividends on. The pair follows the author: /SPACEX for Elon (/TESLA for Tesla tweets), SOL for Toly, /PUMP for Alon and pump.fun. Look-alikes get exactly one thing wrong."],
+      ["Check the config", "The right coin is on Pump with Dividends on. The pair follows the author: /SPACEX for Elon (/TESLA for Tesla tweets), SOL for Toly, /PUMP for Alon, Truth Terminal and pump.fun. Look-alikes get exactly one thing wrong."],
       ["Quick-buy it first", "Hit the ⚡ button on its New Pairs card. Buy before the tweet and it is a false start; buy a look-alike and the round ends. Then sell into the run, or press Space to close out."],
     ],
   },

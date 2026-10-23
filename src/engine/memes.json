@@ -1,50 +1,140 @@
 {
-  "_comment": "PLACEHOLDER pack. Replace with the real 10-30 memes. Schema is Meme in types.ts. tickers[0] is the right ticker; the rest are worse variants that become decoys.",
+  "_comment": "Round 1 pack: five big Solana memes. tickers[0] is the right ticker; the rest are worse variants that become decoys. Tweets are simulated in-game text, not real quotes. `info` is reference only.",
   "memes": [
     {
-      "id": "placeholder-orbit-hamster",
-      "name": "Neil Hamstrong",
-      "tickers": ["HAMSTRONG", "NEILHAM", "HAMSTER"],
-      "art": { "hue": 28, "glyph": "🐹" },
+      "id": "pnut",
+      "name": "Peanut the Squirrel",
+      "tickers": [
+        "PNUT",
+        "PEANUT",
+        "PNUTS",
+        "SQUIRREL"
+      ],
+      "art": {
+        "hue": 28,
+        "glyph": "🐿️"
+      },
       "author": "elon",
       "tweets": [
-        "Sending a hamster to orbit on the next test flight. His name is {name}",
-        "{name} is cleared for launch"
-      ]
+        "Justice for {name}",
+        "They took {name} from his home. This is insane",
+        "Who decided {name} had to go? Asking for the internet"
+      ],
+      "info": {
+        "launch": "~31 Oct / 1 Nov 2024 on pump.fun",
+        "athMcUsd": "~$2.0-2.4B",
+        "athDate": "14 Nov 2024",
+        "ca": "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
+        "lesson": "Story coin: real-world outrage plus a loud amplifier, later a listing catalyst."
+      }
     },
     {
-      "id": "placeholder-tesla-cat",
-      "name": "Cyber Whiskers",
-      "tickers": ["WHISKERS", "CYBERCAT", "WHISK"],
-      "art": { "hue": 350, "glyph": "🐈‍⬛" },
-      "author": "elon",
-      "tag": "tesla",
+      "id": "goat",
+      "name": "Goatseus Maximus",
+      "tickers": [
+        "GOAT",
+        "GOATSEUS",
+        "GOATMAX",
+        "GOATS"
+      ],
+      "art": {
+        "hue": 120,
+        "glyph": "🐐"
+      },
+      "author": "truthterminal",
       "tweets": [
-        "Our Cybertruck now has a cat on the dashboard. Say hi to {name}",
-        "{name} approves of the new software update"
-      ]
+        "the goat is real and his name is {name}",
+        "{name} is the first of many. gm",
+        "i have been told to say it plainly: {name}"
+      ],
+      "info": {
+        "launch": "10 Oct 2024 on pump.fun",
+        "athMcUsd": "~$1.3-1.4B",
+        "athDate": "17 Nov 2024",
+        "ca": "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump",
+        "lesson": "AI-agent narrative: a human deploys, the agent amplifies, attention compounds."
+      }
     },
     {
-      "id": "placeholder-toly-lizard",
-      "name": "Validator Gecko",
-      "tickers": ["GECKO", "VGECKO", "LIZARD"],
-      "art": { "hue": 150, "glyph": "🦎" },
+      "id": "fartcoin",
+      "name": "Fartcoin",
+      "tickers": [
+        "FARTCOIN",
+        "FART",
+        "FARTCOINS",
+        "FARTC"
+      ],
+      "art": {
+        "hue": 95,
+        "glyph": "💨"
+      },
+      "author": "truthterminal",
+      "tweets": [
+        "the best fart in crypto is {name}",
+        "{name} is a sacred joke and i am the priest",
+        "everyone laughs at {name} until they do not"
+      ],
+      "info": {
+        "launch": "18 Oct 2024 on pump.fun",
+        "athMcUsd": "~$2.5B",
+        "athDate": "19 Jan 2025",
+        "ca": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+        "lesson": "Same meta as GOAT, longer life: absurdist meme with AI lore and staying power."
+      }
+    },
+    {
+      "id": "wif",
+      "name": "dogwifhat",
+      "tickers": [
+        "WIF",
+        "DOGWIFHAT",
+        "WIFHAT",
+        "HAT"
+      ],
+      "art": {
+        "hue": 330,
+        "glyph": "🐶"
+      },
       "author": "toly",
       "tweets": [
-        "Met a gecko at the conference. Everyone calls him {name}",
-        "{name} runs a validator now, apparently"
-      ]
+        "Shiba in a pink knitted hat. {name} is all you need",
+        "The hat stays on. {name}",
+        "Solana has a new mascot and it is {name}"
+      ],
+      "info": {
+        "launch": "Nov / Dec 2023 on Raydium",
+        "athMcUsd": "~$4.8B",
+        "athDate": "31 Mar 2024",
+        "ca": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "lesson": "Pure meme: no utility, only the image and the community. The Solana blue-chip benchmark."
+      }
     },
     {
-      "id": "placeholder-alon-pigeon",
-      "name": "Stream Pigeon",
-      "tickers": ["PIGEON", "STREAMPIG", "COO"],
-      "art": { "hue": 215, "glyph": "🕊️" },
+      "id": "popcat",
+      "name": "Popcat",
+      "tickers": [
+        "POPCAT",
+        "POPCATS",
+        "POP",
+        "CATPOP"
+      ],
+      "art": {
+        "hue": 210,
+        "glyph": "🐱"
+      },
       "author": "alon",
       "tweets": [
-        "A pigeon wandered onto the livestream set. We are calling it {name}",
-        "{name} has more viewers than we do"
-      ]
+        "cat season starts with {name}",
+        "{name} mouth open, chart open",
+        "The community took over {name} and it shows"
+      ],
+      "info": {
+        "launch": "12 Dec 2023 on Raydium",
+        "athMcUsd": "~$2B",
+        "athDate": "17 Nov 2024",
+        "ca": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+        "lesson": "Clean structure (LP burned, no team allocation) and a cat-season rotation."
+      }
     }
   ]
 }

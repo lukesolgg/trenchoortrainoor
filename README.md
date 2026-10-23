@@ -17,7 +17,7 @@ npm run typecheck
 | --- | --- | --- |
 | 1 | Scaffold, theme, shell | done |
 | 2 | Engine core (clock, seeded RNG, scheduler, bonding curve, tests) | done |
-| 3 | Scenario generator, decoy rules, placeholder meme pack | done |
+| 3 | Scenario generator, decoy rules, meme pack | done |
 | 4 | Pulse UI, streaming board, quick-buy, hover-pause | done |
 | 5 | Token page: chart, buy/sell, position PnL, trades tape | done |
 | 6 | FIRST TX scored round: false starts, wrong coin, reaction ms, results | done |
@@ -62,9 +62,10 @@ A round is: 3 s countdown, an armed wait of 1.5 to 4 s, then the tweet and the f
 - Bots and the player trade through the same pump.fun-style bonding curve (`curve.ts`), so price impact and
   queue position come from the maths.
 - Player input timing uses the raw `event.timeStamp` (pointerdown/keydown), never `click`.
-- `src/engine/memes.json` is the meme pack. It currently holds 4 PLACEHOLDER memes, one per author rule
-  (Elon/SPACEX, Elon Tesla/TESLA, Toly/SOL, Alon/PUMP). Replace them with the real pack.
+- `src/engine/memes.json` is the meme pack: round 1 is five big Solana memes (PNUT/elon, GOAT and FARTCOIN/Truth Terminal,
+  WIF/toly, POPCAT/alon). Author-to-pair: Elon SPACEX (TESLA with `tag: "tesla"`), toly SOL, everyone else PUMP.
   Schema: `Meme` in `src/engine/types.ts`; `tickers[0]` is the right ticker; every tweet template needs `{name}`.
+  Optional `info` holds reference facts (launch, ATH, CA) for a later results screen. Tweets are simulated, not real quotes.
 - Placeholder art is a gradient tile plus glyph (`src/ui/Art.tsx`). Set `art.src` on a meme to use a real image.
 - Token page: `src/ui/TokenPage.tsx` (header + `ChartPanel` + `TradePanel` + `TradeTape` + `InfoTabs`). The chart aggregates the
   engine's 1 s candles client-side (`chartData.ts`) into 1s-1m bars, in Price or MC, USD or SOL, and updates through `series.update`.

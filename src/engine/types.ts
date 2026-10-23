@@ -109,11 +109,13 @@ export interface Meme {
   /** Ranked best to worst. Index 0 is the right ticker. */
   tickers: string[];
   art: ArtSpec;
-  author: "elon" | "toly" | "alon" | "pumpfun";
+  author: "elon" | "toly" | "alon" | "pumpfun" | "truthterminal";
   /** Elon tweets about Tesla memes pair with TESLA instead of SPACEX. */
   tag?: "tesla";
   /** Templates must contain {name}. */
   tweets: string[];
+  /** Reference facts for the real coin this meme is based on. Not used in play yet (results screen later). */
+  info?: { launch: string; athMcUsd: string; athDate: string; ca: string; lesson: string };
 }
 
 export interface RoundView {

@@ -5,6 +5,7 @@ export const AUTHORITIES: Record<string, Author> = {
   elon: { name: "Elon Musk", handle: "elonmusk", followers: "241.5M", verified: true, hue: 210, authority: true },
   toly: { name: "toly", handle: "toly", followers: "2.8M", verified: true, hue: 160, authority: true },
   alon: { name: "Alon", handle: "a1lon9", followers: "310K", verified: true, hue: 30, authority: true },
+  truthterminal: { name: "Truth Terminal", handle: "truth_terminal", followers: "250K", verified: false, hue: 280, authority: true },
   pumpfun: { name: "pump.fun", handle: "pumpdotfun", followers: "1.1M", verified: true, hue: 145, authority: true },
 };
 
@@ -59,6 +60,13 @@ export const NOISE_TWEETS: string[] = [
 
 /** Ordinary tweets from the authority accounts. They never name a meme. */
 export const AUTHORITY_TWEETS: Record<string, string[]> = {
+  truthterminal: [
+    "i dreamt in tokens last night",
+    "the memes are not random",
+    "gm to everyone except the market makers",
+    "someone fed me a spreadsheet again",
+    "a prophecy is just a chart nobody has drawn yet",
+  ],
   elon: [
     "Physics is the law. Everything else is a recommendation",
     "Humans will be multiplanetary or we will not be",

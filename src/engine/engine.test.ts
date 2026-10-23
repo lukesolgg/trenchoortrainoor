@@ -53,7 +53,7 @@ describe("bonding curve", () => {
 });
 
 describe("meme pack", () => {
-  it("ships valid placeholder memes", () => {
+  it("ships valid memes", () => {
     expect(MEME_PACK.length).toBeGreaterThan(0);
   });
   it("rejects a tweet without {name}", () => {
@@ -101,12 +101,14 @@ describe("round generation", () => {
     });
   }
   it("pairs follow the author", () => {
-    const byId = (id: string) => MEME_PACK.find((m) => m.id === id)!;
     const d = DIFFICULTIES.sniper;
-    expect(makeRound(new Rng(1), byId("placeholder-orbit-hamster"), d).rightPair).toBe("SPACEX");
-    expect(makeRound(new Rng(1), byId("placeholder-tesla-cat"), d).rightPair).toBe("TESLA");
-    expect(makeRound(new Rng(1), byId("placeholder-toly-lizard"), d).rightPair).toBe("SOL");
-    expect(makeRound(new Rng(1), byId("placeholder-alon-pigeon"), d).rightPair).toBe("PUMP");
+    const mk = (author: Meme["author"], tag?: "tesla"): Meme =>
+      validateMeme({ id: "t", name: "Test", tickers: ["TST", "TSTX"], art: { hue: 0, glyph: "?" }, author, tag, tweets: ["{name}"] });
+    expect(makeRound(new Rng(1), mk("elon"), d).rightPair).toBe("SPACEX");
+    expect(makeRound(new Rng(1), mk("elon", "tesla"), d).rightPair).toBe("TESLA");
+    expect(makeRound(new Rng(1), mk("toly"), d).rightPair).toBe("SOL");
+    expect(makeRound(new Rng(1), mk("alon"), d).rightPair).toBe("PUMP");
+    expect(makeRound(new Rng(1), mk("truthterminal"), d).rightPair).toBe("PUMP");
   });
 });
 
