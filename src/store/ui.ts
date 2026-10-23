@@ -8,15 +8,22 @@ interface UiState {
   screen: Screen;
   mode: ModeId;
   difficulty: DifficultyId;
-  quickSol: number;
+  /** The three quick-buy sizes (P1-P3), in SOL. */
+  quickPresets: number[];
+  /** Selected preset index for each Pulse column: New, Almost bonded, Migrated. */
+  colPreset: number[];
   quickEnabled: boolean;
+  /** Tweet feed column expanded. */
+  feedOpen: boolean;
   /** Token page buy buttons, in SOL. Hotkeys 1-4. */
   buyPresets: number[];
   /** Bumped on every round start so the Game remounts with a fresh engine. */
   runId: number;
   pickMode: (m: ModeId) => void;
   setDifficulty: (d: DifficultyId) => void;
-  setQuickSol: (n: number) => void;
+  setQuickPreset: (i: number, n: number) => void;
+  setColPreset: (col: number, i: number) => void;
+  setFeedOpen: (b: boolean) => void;
   setQuickEnabled: (b: boolean) => void;
   setBuyPresets: (p: number[]) => void;
   start: () => void;
@@ -28,13 +35,17 @@ export const useUi = create<UiState>((set) => ({
   screen: "modes",
   mode: "firsttx",
   difficulty: "sniper",
-  quickSol: 3,
+  quickPresets: [0.5, 1, 3],
+  colPreset: [2, 1, 1],
+  feedOpen: true,
   quickEnabled: true,
   buyPresets: [0.5, 1, 3, 5],
   runId: 0,
   pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : "setup", runId: Date.now() }),
   setDifficulty: (difficulty) => set({ difficulty }),
-  setQuickSol: (quickSol) => set({ quickSol }),
+  setQuickPreset: (i, n) => set((st) => ({ quickPresets: st.quickPresets.map((v, k) => (k === i ? n : v)) })),
+  setColPreset: (col, i) => set((st) => ({ colPreset: st.colPreset.map((v, k) => (k === col ? i : v)) })),
+  setFeedOpen: (feedOpen) => set({ feedOpen }),
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),
   setBuyPresets: (buyPresets) => set({ buyPresets }),
   start: () => set({ screen: "play", runId: Date.now() }),

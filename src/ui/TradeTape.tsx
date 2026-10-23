@@ -12,7 +12,7 @@ const Row = memo(function Row({ t, wallStart }: { t: TapeEntry; wallStart: numbe
       <td className={`py-1 font-bold ${buy ? "text-up" : "text-down"}`}>{buy ? "Buy" : "Sell"}</td>
       <td className="tabular py-1 text-right">{sol(t.sol, t.sol < 10 ? 2 : 1)}</td>
       <td className="tabular py-1 text-right text-dim">{usd(t.mcUsd)}</td>
-      <td className={`py-1 pr-3 text-right font-semibold ${t.by === "you" ? "text-[#9db0ff]" : "text-faint"}`}>
+      <td className={`py-1 pr-3 text-right font-semibold ${t.by === "you" ? "text-blue" : "text-faint"}`}>
         {t.by === "you" ? "You" : "Bot"}
       </td>
     </tr>

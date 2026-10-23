@@ -12,34 +12,40 @@ const Chip = ({ className, children }: { className: string; children: React.Reac
   </span>
 );
 
+const ICONS: Record<string, string> = { T10: "♛", DEV: "♞", SNP: "⌖", INS: "◈" };
+
 const Stat = ({ label, v, warn }: { label: string; v: number; warn: number }) => (
   <span
-    className={`tabular rounded border px-1.5 py-px text-[10px] font-semibold ${
-      v >= warn ? "border-down/30 bg-down/10 text-down" : "border-up/25 bg-up/10 text-up"
-    }`}
+    className={`tabular flex items-center gap-0.5 text-[11px] font-semibold ${v >= warn ? "text-down" : "text-up"}`}
     title={label}
   >
-    {label} {v}%
+    <span className="text-[10px] opacity-80" aria-hidden>
+      {ICONS[label]}
+    </span>
+    {v}%
   </span>
 );
 
 interface Props {
   coin: CoinView;
   ageText: string;
+  /** SOL amount of the column's selected preset. */
   quickSol: number;
   quickEnabled: boolean;
   /** Called on pointerdown/keydown with the raw event timestamp. */
-  onQuickBuy: (coinId: string, eventTs: number) => void;
+  onQuickBuy: (coinId: string, sol: number, eventTs: number) => void;
   onOpen: (coinId: string) => void;
 }
 
 export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickEnabled, onQuickBuy, onOpen }: Props) {
   const [flash, setFlash] = useState(0);
   const { config } = coin;
+  const total = coin.buys + coin.sells;
+  const buyPct = total ? (coin.buys / total) * 100 : 50;
 
   const fire = (ts: number) => {
     if (!quickEnabled) return;
-    onQuickBuy(coin.id, ts);
+    onQuickBuy(coin.id, quickSol, ts);
     setFlash((n) => n + 1);
   };
 
@@ -47,68 +53,68 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
     <div
       data-coin-id={coin.id}
       onClick={() => onOpen(coin.id)}
-      className={`anim-card relative flex cursor-pointer gap-3 rounded-xl border p-2.5 transition-colors ${
-        coin.held ? "border-up/50 bg-up/[0.04]" : "border-line bg-card hover:border-line-hi hover:bg-card-hi"
+      className={`anim-card relative flex cursor-pointer gap-2.5 rounded-lg border p-2 transition-colors ${
+        coin.held ? "border-up/60 bg-up/[0.06]" : "border-line bg-card hover:border-line-hi hover:bg-card-hi"
       }`}
     >
       <div className="relative shrink-0">
-        <div className="relative">
-          <Art art={coin.art} className="h-[68px] w-[68px] rounded-lg border border-line-hi" glyphSize={30} />
-          <span
-            className={`absolute -bottom-1 -right-1 grid h-[18px] w-[18px] place-items-center rounded-full border-2 border-card text-[9px] font-black ${
-              config.launchpad === "pump" ? "bg-up text-black" : "bg-amber text-black"
-            }`}
-            title={config.launchpad === "pump" ? "Launched on Pump" : "Launched on Bonk"}
-          >
-            {config.launchpad === "pump" ? "P" : "B"}
-          </span>
-        </div>
-        <div className="mt-2 h-[3px] w-[68px] overflow-hidden rounded-full bg-line">
+        <Art art={coin.art} className="h-[64px] w-[64px] rounded-md border border-line-hi" glyphSize={28} />
+        <span
+          className={`absolute -bottom-1 -right-1 grid h-[16px] w-[16px] place-items-center rounded-full border-2 border-card text-[8px] font-black ${
+            config.launchpad === "pump" ? "bg-up text-black" : "bg-amber text-black"
+          }`}
+          title={config.launchpad === "pump" ? "Launched on Pump" : "Launched on Bonk"}
+        >
+          {config.launchpad === "pump" ? "P" : "B"}
+        </span>
+        <div className="mt-1.5 h-[3px] w-[64px] overflow-hidden rounded-full bg-line">
           <div className="h-full bg-up" style={{ width: `${Math.round(coin.progress * 100)}%` }} />
         </div>
-        <div className="mt-1 w-[68px] truncate text-center font-mono text-[10px] text-faint">{coin.mint}</div>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col justify-between">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[15px] font-extrabold tracking-tight text-ink">{coin.ticker}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[14px] font-extrabold tracking-tight">{coin.ticker}</span>
               <Chip className={PAIR_STYLE[config.pair]}>/{config.pair}</Chip>
               {config.dividends && <Chip className="border-amber/40 bg-amber/15 text-amber">DIV</Chip>}
-              {config.launchpad === "bonk" && <Chip className="border-line-hi bg-white/5 text-dim">BONK</Chip>}
             </div>
-            <div className="mt-0.5 flex items-center gap-2 text-[12px]">
-              <span className="truncate text-dim">{coin.name}</span>
-            </div>
-            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-dim">
+            <div className="flex items-center gap-1.5 text-[11px] text-dim">
               <span className="tabular font-semibold text-up">{ageText}</span>
-              <span className="tabular">{coin.holders} holders</span>
+              <span className="truncate">{coin.name}</span>
             </div>
+            <div className="font-mono text-[10px] text-faint">{coin.mint}</div>
           </div>
-
           <div className="shrink-0 text-right leading-tight">
-            <div className="text-[11px] text-dim">
+            <div className="text-[10.5px] text-dim">
               V <span className="tabular font-semibold text-ink">{usd(coin.volumeUsd)}</span>
-              <span className="ml-2">MC</span>{" "}
-              <span className={`tabular text-[15px] font-extrabold ${coin.stage === "new" ? "text-down" : "text-up"}`}>
+            </div>
+            <div className="text-[10.5px] text-dim">
+              MC{" "}
+              <span className={`tabular text-[14px] font-extrabold ${coin.stage === "new" ? "text-blue" : "text-up"}`}>
                 {usd(coin.mcUsd)}
               </span>
             </div>
-            <div className="mt-0.5 text-[11px] text-dim">
-              TX <span className="tabular font-semibold text-ink">{coin.txCount}</span>
+            <div className="text-[10.5px] text-dim">
+              F <span className="tabular text-ink">{sol(coin.feesSol, 2)}</span>
+              <span className="mx-1 text-faint">·</span>
+              TX <span className="tabular text-ink">{coin.txCount}</span>
+            </div>
+            <div className="ml-auto mt-0.5 flex h-[3px] w-[64px] overflow-hidden rounded-full bg-down/70">
+              <div className="h-full bg-up" style={{ width: `${buyPct}%` }} />
             </div>
           </div>
         </div>
 
-        <div className="mt-1.5 flex items-end justify-between gap-2">
-          <div className="flex flex-wrap gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
             <Stat label="T10" v={coin.stats.top10} warn={25} />
             <Stat label="DEV" v={coin.stats.dev} warn={5} />
             <Stat label="SNP" v={coin.stats.snipers} warn={8} />
             <Stat label="INS" v={coin.stats.insiders} warn={3} />
           </div>
-          <span key={flash} className={`rounded-lg ${flash ? "anim-flash" : ""}`}>
+          <span key={flash} className={`rounded-full ${flash ? "anim-flash" : ""}`}>
             <button
               type="button"
               data-fire
@@ -125,10 +131,10 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
                   fire(e.nativeEvent.timeStamp);
                 }
               }}
-              className="flex h-8 min-w-[88px] items-center justify-center gap-1 rounded-lg bg-buy px-3 text-[13px] font-bold text-white transition-[filter,transform] hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 min-w-[72px] items-center justify-center gap-1 rounded-full bg-buy px-3 text-[12px] font-bold text-white transition-[filter,transform] hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <span aria-hidden>⚡</span>
-              {sol(quickSol, quickSol % 1 ? 2 : 0)} SOL
+              {sol(quickSol, quickSol % 1 ? 2 : 0)}
             </button>
           </span>
         </div>

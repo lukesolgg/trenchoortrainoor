@@ -42,7 +42,15 @@ export interface CoinView {
   volumeUsd: number;
   progress: number;
   txCount: number;
+  buys: number;
+  sells: number;
   holders: number;
+  /** Fees paid so far, in SOL (1% of volume). */
+  feesSol: number;
+  /** Liquidity in USD: SOL in the curve, or the pool after migration. */
+  liqUsd: number;
+  /** Volume-weighted average market cap of the earliest buys, in USD. Stands in for "top holders' avg buy". */
+  earlyAvgMcUsd: number;
   /** Shortened mint address, e.g. "cJK...pump". */
   mint: string;
   creator: string;
@@ -116,6 +124,8 @@ export interface TapeEntry {
   id: number;
   at: number;
   by: "bot" | "you";
+  /** Short fake wallet, stable per trade. "You" for the player. */
+  trader: string;
   side: "buy" | "sell";
   sol: number;
   mcUsd: number;

@@ -43,7 +43,7 @@ export function ModePicker() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-[28px] font-extrabold leading-none tracking-tight">Trencher Trainer</h1>
-            <span className="rounded border border-buy/40 bg-buy/15 px-1.5 py-px text-[10px] font-bold text-[#9db0ff]">SIM</span>
+            <span className="rounded border border-up/40 bg-up/10 px-1.5 py-px text-[10px] font-bold text-up">SIM</span>
           </div>
           <p className="mt-1 text-[13px] text-dim">Reaction-time training for memecoin traders. Simulator only, no real trades.</p>
         </div>

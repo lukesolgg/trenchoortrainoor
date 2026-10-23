@@ -63,9 +63,11 @@ interface Props {
   tweets: TweetView[];
   wallStart: number;
   pauseOnHover: boolean;
+  open: boolean;
+  onToggle: () => void;
 }
 
-export function TweetFeed({ tweets, wallStart, pauseOnHover }: Props) {
+export function TweetFeed({ tweets, wallStart, pauseOnHover, open, onToggle }: Props) {
   const [hovered, setHovered] = useState(false);
   const paused = hovered && pauseOnHover;
   const { items, newCount } = usePausable(tweets, paused);
@@ -76,11 +78,25 @@ export function TweetFeed({ tweets, wallStart, pauseOnHover }: Props) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
-        {items.map((t) => (
-          <TweetCard key={t.id} t={t} wallStart={wallStart} />
-        ))}
-      </div>
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-line px-3">
+        {open && <h2 className="text-[13px] font-bold tracking-tight">Feed</h2>}
+        <button
+          type="button"
+          onClick={onToggle}
+          className="rounded px-1.5 text-[14px] text-dim hover:text-ink"
+          title={open ? "Collapse feed" : "Expand feed"}
+          aria-label={open ? "Collapse feed" : "Expand feed"}
+        >
+          {open ? "‹" : "›"}
+        </button>
+      </header>
+      {open && (
+        <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
+          {items.map((t) => (
+            <TweetCard key={t.id} t={t} wallStart={wallStart} />
+          ))}
+        </div>
+      )}
       {paused && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center gap-2 text-[11px] font-semibold">
           <span className="rounded-full border border-line-hi bg-card-hi px-2.5 py-1 text-dim">Paused</span>

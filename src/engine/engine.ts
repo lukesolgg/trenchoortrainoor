@@ -57,6 +57,10 @@ interface Coin {
   stage: Stage;
   stageAt: number;
   txCount: number;
+  buys: number;
+  sells: number;
+  earlyVol: number;
+  earlyMcW: number;
   botBuys: number;
   holders: number;
   volumeSol: number;
@@ -99,6 +103,8 @@ const EMIT_EVERY_MS = 100;
 /** During a scored round the board updates every frame so reaction times stay honest. */
 const EMIT_SCORED_MS = 15;
 const TAPE_CAP = 60;
+/** The earliest buys, in SOL, that define the "early holders' average buy" line. */
+const EARLY_VOL_SOL = 30;
 const CANDLE_CAP = 2400;
 const MAX_GAP_FILL = 300;
 
@@ -247,6 +253,10 @@ export class Engine {
       stage: "new",
       stageAt: at,
       txCount: 0,
+      buys: 0,
+      sells: 0,
+      earlyVol: 0,
+      earlyMcW: 0,
       botBuys: 0,
       holders: 0,
       volumeSol: 0,
@@ -308,10 +318,12 @@ export class Engine {
   }
 
   private pushTape(c: Coin, at: number, by: "bot" | "player", side: "buy" | "sell", sol: number): void {
+    const id = this.tapeSeq++;
     c.tape.unshift({
-      id: this.tapeSeq++,
+      id,
       at,
       by: by === "player" ? "you" : "bot",
+      trader: by === "player" ? "You" : new Rng(id * 2654435761).addr(4),
       side,
       sol,
       mcUsd: toUsd(this.mc(c)),
@@ -360,7 +372,12 @@ export class Engine {
     }
     if (spent <= 0) return { tokens: 0, spent: 0 };
     c.txCount++;
+    c.buys++;
     c.volumeSol += spent;
+    if (c.earlyVol < EARLY_VOL_SOL) {
+      c.earlyVol += spent;
+      c.earlyMcW += spent * this.mc(c);
+    }
     if (by === "bot") {
       c.botBuys++;
       if (this.rng.chance(0.7)) c.holders++;
@@ -386,6 +403,7 @@ export class Engine {
       if (curveLib.progress(c.curve) < FINAL_AT) this.setStage(c, "new", at);
     }
     c.txCount++;
+    c.sells++;
     c.volumeSol += sol;
     if (by === "bot" && this.rng.chance(0.3)) c.holders = Math.max(1, c.holders - 1);
     this.record(c, at, sol);
@@ -500,6 +518,14 @@ export class Engine {
       }
     }
     if (!c.migrated && curveLib.progress(c.curve) >= FINAL_AT) c.stage = "final";
+    c.buys += path.length;
+    c.sells += Math.floor(path.length * this.rng.range(0.1, 0.4));
+    c.txCount = c.buys + c.sells;
+    for (const p of path) {
+      if (c.earlyVol >= EARLY_VOL_SOL) break;
+      c.earlyVol += p.vol;
+      c.earlyMcW += p.vol * p.mc;
+    }
     const start = c.createdAt + 1000;
     const span = Math.max(1000, endAt - start);
     path.forEach((p, i) => this.pushCandle(c, start + (i / path.length) * span, p.mc, p.vol, false));
@@ -910,7 +936,12 @@ export class Engine {
       volumeUsd: toUsd(c.volumeSol),
       progress: c.migrated ? 1 : curveLib.progress(c.curve),
       txCount: c.txCount,
+      buys: c.buys,
+      sells: c.sells,
       holders: c.holders,
+      feesSol: c.volumeSol * FEE,
+      liqUsd: c.migrated ? toUsd(this.mc(c)) * 0.12 : toUsd(c.curve.realSol),
+      earlyAvgMcUsd: c.earlyVol > 0 ? toUsd(c.earlyMcW / c.earlyVol) : toUsd(this.mc(c)),
       mint: c.mint,
       creator: c.creator,
       stats: c.stats,
