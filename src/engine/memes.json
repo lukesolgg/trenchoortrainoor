@@ -26,6 +26,16 @@
         "athDate": "14 Nov 2024",
         "ca": "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
         "lesson": "Story coin: real-world outrage plus a loud amplifier, later a listing catalyst."
+      },
+      "big": {
+        "peak": [
+          140000,
+          160000
+        ],
+        "trip": [
+          85000,
+          100000
+        ]
       }
     },
     {
@@ -53,6 +63,16 @@
         "athDate": "17 Nov 2024",
         "ca": "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump",
         "lesson": "AI-agent narrative: a human deploys, the agent amplifies, attention compounds."
+      },
+      "big": {
+        "peak": [
+          120000,
+          140000
+        ],
+        "trip": [
+          80000,
+          95000
+        ]
       }
     },
     {
@@ -80,6 +100,16 @@
         "athDate": "19 Jan 2025",
         "ca": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
         "lesson": "Same meta as GOAT, longer life: absurdist meme with AI lore and staying power."
+      },
+      "big": {
+        "peak": [
+          130000,
+          150000
+        ],
+        "trip": [
+          85000,
+          100000
+        ]
       }
     },
     {
@@ -107,6 +137,16 @@
         "athDate": "31 Mar 2024",
         "ca": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
         "lesson": "Pure meme: no utility, only the image and the community. The Solana blue-chip benchmark."
+      },
+      "big": {
+        "peak": [
+          140000,
+          160000
+        ],
+        "trip": [
+          90000,
+          100000
+        ]
       }
     },
     {
@@ -134,6 +174,16 @@
         "athDate": "17 Nov 2024",
         "ca": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
         "lesson": "Clean structure (LP burned, no team allocation) and a cat-season rotation."
+      },
+      "big": {
+        "peak": [
+          110000,
+          130000
+        ],
+        "trip": [
+          75000,
+          90000
+        ]
       }
     },
     {

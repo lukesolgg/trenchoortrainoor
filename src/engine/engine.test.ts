@@ -622,6 +622,41 @@ describe("runner path", () => {
   });
 });
 
+describe("big coin script", () => {
+  for (const id of ["pnut", "goat", "fartcoin", "wif", "popcat"]) {
+    it(`${id}: bursts at launch, holds above 100K, tops within 3 min, then round-trips`, () => {
+      const meme = MEME_PACK.find((m) => m.id === id)!;
+      for (const seed of [1, 2, 3]) {
+        const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [meme] });
+        e.startRound({ memeId: meme.id, leadMs: 0 });
+        let born: number | null = null;
+        const series: [number, number][] = [];
+        for (let t = 0; t < 420000; t += 100) {
+          e.advanceTo(t);
+          const cid = e.getRound()?.targetCoinId;
+          const v = cid ? e.getCoinView(cid) : null;
+          if (!v) continue;
+          born ??= t;
+          series.push([t - born, v.mcUsd]);
+        }
+        const burstMc = Math.max(...series.filter(([t]) => t <= 3500).map(([, m]) => m));
+        const peak = Math.max(...series.map(([, m]) => m));
+        const peakAt = series.find(([, m]) => m === peak)![0];
+        const first100 = series.find(([, m]) => m >= 100000)![0];
+        const minBetween = Math.min(...series.filter(([t]) => t >= first100 && t <= peakAt).map(([, m]) => m));
+        const last = series[series.length - 1][1];
+        expect(minBetween).toBeGreaterThan(92000);
+        expect(burstMc).toBeGreaterThan(28000);
+        expect(peak).toBeGreaterThan(meme.big!.peak[0] * 0.9);
+        expect(peak).toBeLessThan(meme.big!.peak[1] * 1.15);
+        expect(peakAt).toBeLessThan(180000);
+        expect(last).toBeGreaterThan(meme.big!.trip[0] * 0.8);
+        expect(last).toBeLessThan(meme.big!.trip[1] * 1.2);
+      }
+    });
+  }
+});
+
 describe("freeze and history", () => {
   const migrate = () => {
     const e = new Engine({ seed: 7, difficulty: "sniper", autoRounds: false, clock: () => 0 });

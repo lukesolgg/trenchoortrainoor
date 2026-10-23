@@ -1,5 +1,5 @@
 import * as curveLib from "./curve";
-import { FEE, MIGRATION_LOCK_MS, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
+import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor } from "./scoring";
@@ -57,6 +57,8 @@ interface Leg {
   vol: number;
   /** Per-step noise. */
   noise: number;
+  /** Where the leg started (SOL market cap). Set when the leg is entered; used by pre-migration scripts. */
+  from?: number;
 }
 
 interface Coin {
@@ -69,9 +71,14 @@ interface Coin {
   lockUntil: number;
   /** Where this coin's post-migration run should peak (SOL market cap), if it has a target. */
   athSol: number | null;
+  /** Big coins fade back to this level after the ATH (SOL market cap). */
+  tripSol: number | null;
   moonDrift: number;
   /** Scripted post-migration path for ATH runs: pushes, pullbacks and consolidation. */
   legs: Leg[];
+  /** Scripted pre-migration path for big coins (steps through the bonding curve). */
+  preLegs: Leg[];
+  scriptStart: number;
   postMc: number;
   moonUntil: number | null;
   stage: Stage;
@@ -283,8 +290,11 @@ export class Engine {
       migratedAt: null,
       lockUntil: -Infinity,
       athSol: null,
+      tripSol: null,
       moonDrift: 0.009,
       legs: [],
+      preLegs: [],
+      scriptStart: 0,
       postMc: 0,
       moonUntil: null,
       stage: "new",
@@ -397,7 +407,10 @@ export class Engine {
       c.moonUntil = at + this.rng.range(18000, 30000);
     }
     // A coin with an ATH target runs there in pushes with pullbacks and consolidation between them.
-    if (c.athSol && c.athSol > c.postMc) {
+    if (c.preLegs.length && c.athSol && c.tripSol) {
+      c.legs = this.planBigRun(c.athSol, c.tripSol, c.lockUntil);
+      c.moonUntil = c.legs[c.legs.length - 1].end;
+    } else if (c.athSol && c.athSol > c.postMc) {
       c.legs = this.planRun(c.postMc, c.athSol, c.lockUntil);
       c.moonUntil = c.legs[c.legs.length - 1].end;
     }
@@ -433,6 +446,97 @@ export class Engine {
       t += this.rng.range(6000, 13000);
       legs.push({ kind: "base", end: t, to: baseTo, vol: 0.4, noise: 0.012 });
     }
+    return legs;
+  }
+
+  /**
+   * A big launch, scripted end to end: $3-10K at launch, a 1-3 s burst to $30-35K, a short pullback, then over the
+   * line. After migration it holds above $100K, tops out within ~3 min of launch, then can round-trip.
+   */
+  private scriptBigCoin(c: Coin, at: number, big: NonNullable<Meme["big"]>): void {
+    const r = this.rng;
+    const sol = (usd: number) => usd / SOL_USD;
+    const launch = sol(r.range(3000, 10000));
+    const burst = sol(r.range(30000, 35000));
+    let t = at;
+    const leg = (kind: Leg["kind"], ms: number, to: number, vol: number, noise: number) => {
+      t += ms;
+      return { kind, end: t, to, vol, noise } satisfies Leg;
+    };
+    c.scriptStart = at;
+    c.preLegs = [
+      leg("push", r.range(200, 400), launch, 1, 0.01),
+      leg("push", r.range(900, 2400), burst, 1, 0.03),
+      leg("dip", r.range(1800, 3500), burst * r.range(0.84, 0.93), 1, 0.02),
+      leg("push", r.range(2500, 4500), sol(MIGRATION_MC_USD * 1.15), 1, 0.025),
+    ];
+    c.athSol = sol(r.range(big.peak[0], big.peak[1]));
+    c.tripSol = sol(r.range(big.trip[0], big.trip[1]));
+    this.at(at, (a) => this.driveStep(c, a));
+  }
+
+  /** One 100 ms step of a scripted pre-migration path: trade through the curve to stay on the glide. */
+  private driveStep(c: Coin, at: number): void {
+    if (!this.coins.has(c.id) || c.migrated) return;
+    const legs = c.preLegs;
+    const i = legs.findIndex((l) => at < l.end);
+    const leg = i === -1 ? legs[legs.length - 1] : legs[i];
+    const legStart = i <= 0 ? c.scriptStart : legs[i - 1].end;
+    const now = curveLib.mcSol(c.curve);
+    if (leg.from === undefined) leg.from = now;
+    const frac = i === -1 ? 1 : Math.min(1, (at - legStart) / Math.max(1, leg.end - legStart));
+    const desired = leg.from * Math.pow(leg.to / leg.from, frac) * Math.exp(leg.noise * 0.5 * this.rng.gauss());
+    const k = c.curve.vSol * c.curve.vTok;
+    const vWant = Math.sqrt((desired * k) / SUPPLY);
+    if (vWant > c.curve.vSol * 1.002) {
+      let gross = (vWant - c.curve.vSol) / (1 - FEE);
+      const parts = this.rng.int(1, 3);
+      for (let p = 0; p < parts && !c.migrated; p++) {
+        const share = p === parts - 1 ? gross : gross * this.rng.range(0.3, 0.6);
+        gross -= share;
+        this.applyBuy(c, share, at, "bot");
+      }
+    } else if (leg.kind !== "push" && vWant < c.curve.vSol * 0.998) {
+      const tokens = Math.min(k / vWant - c.curve.vTok, c.curve.realTok);
+      if (tokens > 0) this.applySell(c, tokens, at, "bot");
+    }
+    this.at(at + 100, (a) => this.driveStep(c, a));
+  }
+
+  /**
+   * Post-migration path for a big coin. Pushes always stay above $100K, the last one is the ATH, and after it the
+   * price bleeds back to `trip` with bounces on the way.
+   */
+  private planBigRun(ath: number, trip: number, start: number): Leg[] {
+    const r = this.rng;
+    const sol = (usd: number) => usd / SOL_USD;
+    const floor = sol(103000);
+    const legs: Leg[] = [];
+    let t = start;
+    const add = (kind: Leg["kind"], ms: number, to: number, vol: number, noise: number) => {
+      t += ms;
+      legs.push({ kind, end: t, to, vol, noise });
+    };
+    const first = sol(r.range(106000, 114000));
+    const pushes = r.int(3, 4);
+    const flushAt = r.int(1, pushes - 1);
+    let high = first;
+    for (let k = 1; k <= pushes; k++) {
+      const last = k === pushes;
+      const level = last ? ath : first * Math.pow(ath / first, (k - 1) / (pushes - 1));
+      add("push", r.range(7000, 13000), level, 1.8, 0.022);
+      high = level;
+      if (last) break;
+      const retrace = k === flushAt ? r.range(0.2, 0.3) : r.range(0.06, 0.15);
+      const low = Math.max(floor, high * (1 - retrace));
+      add("dip", r.range(4000, 9000), low, 1.2, 0.022);
+      add("base", r.range(7000, 15000), Math.min(high * 0.97, low * r.range(1.02, 1.12)), 0.4, 0.012);
+    }
+    // Round trip: lose the highs, bounce, fade to the trip level.
+    add("dip", r.range(7000, 11000), ath * r.range(0.8, 0.88), 1.6, 0.025);
+    add("base", r.range(4000, 7000), ath * r.range(0.86, 0.92), 0.6, 0.02);
+    add("dip", r.range(14000, 22000), trip * r.range(1.02, 1.12), 1.2, 0.022);
+    add("base", r.range(8000, 14000), trip, 0.4, 0.014);
     return legs;
   }
 
@@ -520,7 +624,7 @@ export class Engine {
   private flow(c: Coin, at: number): void {
     // Pruned coins must stop generating events or they leak forever.
     if (!this.coins.has(c.id)) return;
-    if (c.flowUntil !== null && at > c.flowUntil && !c.migrated) return;
+    if (c.flowUntil !== null && at > c.flowUntil && !c.migrated && !c.preLegs.length) return;
 
     if (c.migrated) {
       if (at < c.lockUntil) {
@@ -529,6 +633,12 @@ export class Engine {
         return;
       }
       if (!this.walkMigrated(c, at)) return;
+      this.scheduleFlow(c, at);
+      return;
+    }
+
+    // Scripted coins are moved by driveStep; flow just keeps the chain alive for after migration.
+    if (c.preLegs.length) {
       this.scheduleFlow(c, at);
       return;
     }
@@ -556,17 +666,27 @@ export class Engine {
   private walkMigrated(c: Coin, at: number): boolean {
     const moon = c.moonUntil !== null && at < c.moonUntil;
     const quiet = c.spec.role !== "target" && c.moonUntil === null;
-    let drift = moon ? c.moonDrift : c.spec.role === "target" ? -0.0025 : this.rng.range(-0.0005, 0.0005);
+    const scripted = c.legs.length > 0;
+    let drift = moon ? c.moonDrift : c.spec.role === "target" && !scripted ? -0.0025 : this.rng.range(-0.0005, 0.0005);
     let vol = moon ? 0.02 : quiet ? 0.006 : 0.015;
     let volMul = 1;
-    if (moon && c.legs.length) {
+    if (scripted) {
+      // Follow the script: glide along the current leg and pull back to it, so the path stays on plan
+      // (and player trades cannot knock it off for more than a moment).
       const leg = c.legs.find((l) => at < l.end);
       if (leg) {
-        // Glide towards the leg's target; steps are 250 ms.
-        const stepsLeft = Math.max(1, (leg.end - at) / 250);
-        drift = Math.log(leg.to / c.postMc) / stepsLeft;
-        vol = leg.noise;
+        const idx = c.legs.indexOf(leg);
+        if (leg.from === undefined) leg.from = c.postMc;
+        const start = idx === 0 ? c.lockUntil : c.legs[idx - 1].end;
+        const frac = Math.min(1, Math.max(0, (at - start) / Math.max(1, leg.end - start)));
+        const want = leg.from * Math.pow(leg.to / leg.from, frac);
+        drift = 0.45 * Math.log(want / c.postMc);
+        vol = leg.noise * 0.6;
         volMul = leg.vol;
+      } else {
+        // Script over: sit near the last level.
+        drift = 0.3 * Math.log(c.legs[c.legs.length - 1].to / c.postMc);
+        vol = 0.008;
       }
     }
     const before = c.postMc;
@@ -779,6 +899,7 @@ export class Engine {
       this.roundView = { ...this.roundView, tTargetAppear: at, targetCoinId: coin.id };
     }
     if (plan.athMcUsd) coin.athSol = plan.athMcUsd / SOL_USD;
+    if (plan.meme.big) this.scriptBigCoin(coin, at, plan.meme.big);
     // Snipers: each lands once, at its own reaction time after the coin appears.
     const times = Array.from({ length: plan.snipers }, () =>
       this.rng.range(plan.sniperReactMs[0], plan.sniperReactMs[1]),

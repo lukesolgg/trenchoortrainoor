@@ -122,6 +122,8 @@ export interface Meme {
   tweets: string[];
   /** Target all-time-high market cap in USD (min, max). The round's winner runs to a point in this range. */
   ath?: [number, number];
+  /** Big-coin script: launches at $3-10K, bursts to $30-35K in 1-3 s, migrates, holds above $100K, tops out within ~3 min, then can round-trip. USD ranges. */
+  big?: { peak: [number, number]; trip: [number, number] };
   /** The tweet does not spell out the coin name, so nothing is highlighted and templates need no {name}. */
   noHighlight?: boolean;
   /** Extra phrases to highlight in pink in the tracker, as hints (not the coin name). */
