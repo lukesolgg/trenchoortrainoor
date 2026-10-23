@@ -1196,9 +1196,14 @@ export class Engine {
     this.emitNow();
   }
 
-  /** End a live round on request (Space): success if you hold the right coin, else missed. */
-  endRound(): void {
-    if (this.scored?.phase === "live") this.finishLive();
+  /**
+   * End a live round on request (Space). Only allowed when you are flat: while you hold anything the round
+   * runs until you sell 100%. Returns false when refused.
+   */
+  endRound(): boolean {
+    if (this.scored?.phase !== "live" || !this.allClosed()) return false;
+    this.finishLive();
+    return true;
   }
 
   isScoredOver(): boolean {

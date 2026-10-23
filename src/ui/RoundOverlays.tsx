@@ -48,8 +48,8 @@ export function RoundStatus({ scored, now }: { scored: ScoredView; now: number }
             LIVE {Math.max(0, (now - scored.tTweet) / 1000).toFixed(1)}s
           </span>
           <span className="text-dim">
-            Buy the right coin. <kbd className="rounded border border-line-hi px-1 text-[11px]">Space</kbd> ends the
-            round and closes your position.
+            Buy the right coin. The round ends when you sell 100%. Not holding?{" "}
+            <kbd className="rounded border border-line-hi px-1 text-[11px]">Space</kbd> ends it.
           </span>
         </>
       );

@@ -471,7 +471,7 @@ describe("scored round", () => {
     expect(r.tweetToBuyMs).toBeGreaterThan(r.reactionMs!);
   });
 
-  it("selling only part keeps the round live; Space (endRound) closes the bag and scores it", () => {
+  it("selling only part keeps the round live; Space is refused while holding; selling the rest scores it", () => {
     const e = make();
     const id = toTarget(e);
     e.advanceTo(e.now() + 500);
@@ -479,7 +479,9 @@ describe("scored round", () => {
     e.sell(id, 0.5);
     expect(e.getSnapshot().scored!.phase).toBe("live");
     e.advanceTo(e.now() + 8000);
-    e.endRound();
+    expect(e.endRound()).toBe(false);
+    expect(e.getSnapshot().scored!.phase).toBe("live");
+    e.sell(id, 1);
     const r = e.getSnapshot().scored!.result!;
     expect(r.outcome).toBe("success");
     expect(r.closedSol).toBeGreaterThan(0);
@@ -540,7 +542,7 @@ describe("scored round", () => {
       e.advanceTo(e.now() + 600);
       e.quickBuy(id, 2);
       e.advanceTo(e.now() + 3000);
-      e.endRound();
+      e.sell(id, 1);
       const r = e.getSnapshot().scored!.result!;
       return [r.outcome, r.reactionMs, r.buyNumber, r.entryMcUsd?.toFixed(2), r.pnlSol.toFixed(6)];
     };

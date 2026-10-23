@@ -101,10 +101,10 @@ export function Game() {
         } else if (e.key === "Escape") toModes();
         return;
       }
-      // Space ends a live round, unless it is being used to press a trade button.
+      // Space ends a live round when you are flat (unless it is pressing a trade button). Holding, it is refused.
       if (e.code === "Space" && phase === "live" && !typing && !(e.target instanceof Element && e.target.closest("[data-fire]"))) {
         e.preventDefault();
-        engine.endRound();
+        if (!engine.endRound()) notify("You're still holding. Sell 100% to end the round.");
         return;
       }
 
@@ -130,7 +130,7 @@ export function Game() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toModes, openId, start, engine]);
+  }, [toModes, openId, start, engine, notify]);
 
   const buyPresets = buySets[presetSet];
   const allCoins = useMemo(() => [...snap.newPairs, ...snap.finalStretch, ...snap.migrated], [snap.newPairs, snap.finalStretch, snap.migrated]);

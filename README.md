@@ -37,7 +37,7 @@ npm run typecheck
 | `/` | Pulse | Search |
 | Esc | Token page | Back to Pulse |
 | Esc Esc | Pulse | Back to menu |
-| Space | Live FIRST TX round | End the round and close your position |
+| Space | Live FIRST TX round | End the round (only when you hold nothing; holding, it ends when you sell 100%) |
 | `R` / Enter | Results | Next round |
 | Esc | Results | Back to menu |
 
@@ -79,7 +79,7 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
   3-4 pushes, each followed by a pullback and a low-volume base, sometimes a deep flush, ending at the ATH.
 - Round flow: New Pairs is kept thin (1-3 coins at start, a new one every 8-20 s). The tweet brings a flood of 2-4 / 4-7 / 6-12
   coins (Paper / Trencher / Sniper) with the runner landing early. Every runner launch is scripted (`scriptLaunch`) and migrates
-  3-15 s after it lands. A scored round only auto-ends once you are flat: hold and it keeps running until you sell 100% (or press Space).
+  3-15 s after it lands. A scored round only auto-ends once you are flat: hold and it keeps running until you sell 100%. Space only ends it when you hold nothing.
 - Big coins (the five main memes, `big` in memes.json) launch at $3-10K, burst to $30-35K in 1-3 s, pull back and migrate. Each round then
   picks an outcome (`BIG_OUTCOME_WEIGHTS` in engine.ts): standard (tops at `big.peak`, holds above ~$100K, fades to `big.trip`), runner
   ($400K-3M, round-trips to 25-45%), moon ($8-50M, lower high, dev rug, bleeds to 2.5-5%) or top-and-rug ($200-300K, then one red dev
