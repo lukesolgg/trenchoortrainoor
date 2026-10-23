@@ -53,13 +53,13 @@ export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery,
           ),
         )}
       </nav>
-      <div className="hidden items-center gap-2 text-[12px] xl:flex">
-        <span className="rounded bg-up/15 px-2 py-0.5 font-bold text-up">{modeLabel}</span>
-        <span className="font-semibold text-pink">{difficultyLabel}</span>
+      <div className="hidden items-center gap-2 text-[12px] min-[1700px]:flex">
+        <span className="whitespace-nowrap rounded bg-up/15 px-2 py-0.5 font-bold text-up">{modeLabel}</span>
+        <span className="whitespace-nowrap font-semibold text-pink">{difficultyLabel}</span>
       </div>
 
       <div className="ml-auto flex items-center gap-3">
-        <div className="flex h-8 w-[260px] items-center gap-2 rounded-lg border border-line bg-panel px-3 focus-within:border-line-hi">
+        <div className="flex h-8 w-[190px] items-center gap-2 rounded-lg border border-line bg-panel px-3 focus-within:border-line-hi">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-dim" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
             <circle cx="11" cy="11" r="7" />
             <path d="M20 20l-3.5-3.5" />
@@ -80,7 +80,7 @@ export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery,
         <button
           type="button"
           onClick={onMenu}
-          className="rounded-lg border border-line-hi px-3 py-1.5 text-[12px] font-semibold text-dim transition-colors hover:text-ink"
+          className="shrink-0 whitespace-nowrap rounded-lg border border-line-hi px-3 py-1.5 text-[12px] font-semibold text-dim transition-colors hover:text-ink"
         >
           Menu <span className="ml-1 text-faint">Esc Esc</span>
         </button>

@@ -48,6 +48,17 @@ export interface EngineOptions {
   clock?: () => number;
 }
 
+/** One stretch of a scripted run. The price glides to `to` by `end` (sim ms). */
+interface Leg {
+  kind: "push" | "dip" | "base";
+  end: number;
+  to: number;
+  /** Multiplier on trade size. */
+  vol: number;
+  /** Per-step noise. */
+  noise: number;
+}
+
 interface Coin {
   id: string;
   spec: CoinSpec;
@@ -59,6 +70,8 @@ interface Coin {
   /** Where this coin's post-migration run should peak (SOL market cap), if it has a target. */
   athSol: number | null;
   moonDrift: number;
+  /** Scripted post-migration path for ATH runs: pushes, pullbacks and consolidation. */
+  legs: Leg[];
   postMc: number;
   moonUntil: number | null;
   stage: Stage;
@@ -271,6 +284,7 @@ export class Engine {
       lockUntil: -Infinity,
       athSol: null,
       moonDrift: 0.009,
+      legs: [],
       postMc: 0,
       moonUntil: null,
       stage: "new",
@@ -382,13 +396,44 @@ export class Engine {
     if (c.spec.role === "target" || c.spec.profile === "run") {
       c.moonUntil = at + this.rng.range(18000, 30000);
     }
-    // A coin with an ATH target runs there over 35-60 s (one flow step is 250 ms).
+    // A coin with an ATH target runs there in pushes with pullbacks and consolidation between them.
     if (c.athSol && c.athSol > c.postMc) {
-      const run = this.rng.range(35000, 60000);
-      c.moonUntil = at + run;
-      c.moonDrift = Math.log(c.athSol / c.postMc) / (run / 250);
+      c.legs = this.planRun(c.postMc, c.athSol, c.lockUntil);
+      c.moonUntil = c.legs[c.legs.length - 1].end;
     }
     this.setStage(c, "migrated", at);
+  }
+
+  /**
+   * Script a run from `p0` to `ath`: 3-4 pushes, each followed by a pullback and a base, with the odd deep
+   * flush before the final blast. The player never knows whether a push is the last one.
+   */
+  private planRun(p0: number, ath: number, start: number): Leg[] {
+    const legs: Leg[] = [];
+    const pushes = this.rng.int(3, 4);
+    const span = Math.log(ath / p0);
+    let t = start;
+    let high = p0;
+    const flushAt = this.rng.chance(0.55) ? this.rng.int(1, pushes - 1) : -1;
+    for (let k = 1; k <= pushes; k++) {
+      const last = k === pushes;
+      const level = last ? ath : p0 * Math.exp((span * k) / pushes);
+      t += this.rng.range(6000, 12000);
+      legs.push({ kind: "push", end: t, to: level, vol: 1.8, noise: 0.022 });
+      high = level;
+      if (last) break;
+      // Pullback: shallow normally, brutal on the flush.
+      const deep = k === flushAt;
+      const retrace = deep ? this.rng.range(0.38, 0.55) : this.rng.range(0.12, 0.3);
+      const low = Math.max(p0 * 0.9, high * (1 - retrace));
+      t += deep ? this.rng.range(5000, 8000) : this.rng.range(4000, 9000);
+      legs.push({ kind: "dip", end: t, to: low, vol: 1.1, noise: 0.02 });
+      // Base: chop sideways on low volume, sometimes just under the high, then break out.
+      const baseTo = deep ? low * this.rng.range(0.97, 1.05) : Math.min(high * 0.97, low * this.rng.range(1.05, 1.25));
+      t += this.rng.range(6000, 13000);
+      legs.push({ kind: "base", end: t, to: baseTo, vol: 0.4, noise: 0.012 });
+    }
+    return legs;
   }
 
   /** Returns tokens bought and SOL spent. */
@@ -511,13 +556,24 @@ export class Engine {
   private walkMigrated(c: Coin, at: number): boolean {
     const moon = c.moonUntil !== null && at < c.moonUntil;
     const quiet = c.spec.role !== "target" && c.moonUntil === null;
-    const drift = moon ? c.moonDrift : c.spec.role === "target" ? -0.0025 : this.rng.range(-0.0005, 0.0005);
-    const vol = moon ? 0.02 : quiet ? 0.006 : 0.015;
+    let drift = moon ? c.moonDrift : c.spec.role === "target" ? -0.0025 : this.rng.range(-0.0005, 0.0005);
+    let vol = moon ? 0.02 : quiet ? 0.006 : 0.015;
+    let volMul = 1;
+    if (moon && c.legs.length) {
+      const leg = c.legs.find((l) => at < l.end);
+      if (leg) {
+        // Glide towards the leg's target; steps are 250 ms.
+        const stepsLeft = Math.max(1, (leg.end - at) / 250);
+        drift = Math.log(leg.to / c.postMc) / stepsLeft;
+        vol = leg.noise;
+        volMul = leg.vol;
+      }
+    }
     const before = c.postMc;
     c.postMc = Math.max(1, c.postMc * Math.exp(drift + vol * this.rng.gauss()));
     c.txCount += this.rng.int(0, 3);
     // Runners trade real size: volume scales with market cap while the coin is running.
-    const scale = moon ? Math.max(4, c.postMc * 0.004) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1;
+    const scale = (moon ? Math.max(4, c.postMc * 0.004) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1) * volMul;
     const size = this.rng.lognormal(0.5, 0.7) * scale;
     this.record(c, at, size);
     c.volumeSol += size;

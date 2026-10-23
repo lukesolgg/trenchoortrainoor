@@ -197,7 +197,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
             </span>
           </div>
           <div className="min-w-0 leading-tight">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="text-[18px] font-extrabold tracking-tight">{coin.ticker}</span>
               <span className={`rounded border px-1.5 py-px text-[10px] font-bold ${PAIR_STYLE[coin.config.pair]}`}>/{coin.config.pair}</span>
               {coin.config.dividends && (
@@ -208,7 +208,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               )}
             </div>
             <div className="truncate text-[12px] text-dim">{coin.name}</div>
-            <div className="mt-0.5 flex items-center gap-2 text-[11px]">
+            <div className="mt-0.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-[11px]">
               <span className="tabular font-bold text-up">{age(snap.now - coin.createdAt)}</span>
               <span
                 className={`rounded-full border px-2 py-px text-[10px] font-bold ${
@@ -218,7 +218,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
                 {coin.config.launchpad === "pump" ? "Pump" : "Bonk"}
               </span>
               <SourceBadge source={coin.source} />
-              <span className="font-mono text-faint">{coin.mint}</span>
+              <span className="truncate font-mono text-faint">{coin.mint}</span>
             </div>
           </div>
         </div>
@@ -297,7 +297,6 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               entryMcUsd={entryMcUsd}
               earlyAvgMcUsd={coin.earlyAvgMcUsd}
               ticker={coin.ticker}
-              migratedAt={coin.migratedAt}
             />
           </div>
           <div className="flex h-7 shrink-0 items-center gap-2 border-t border-line bg-nav px-3">

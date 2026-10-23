@@ -595,6 +595,33 @@ describe("ath target", () => {
   });
 });
 
+describe("runner path", () => {
+  it("pulls back and consolidates on the way to the ATH instead of climbing in a line", () => {
+    const meme = MEME_PACK.find((m) => m.id === "ansem-bag")!;
+    for (const seed of [1, 2, 3, 4]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [meme] });
+      e.startRound({ memeId: meme.id, leadMs: 0 });
+      let peak = 0;
+      let maxDrawdown = 0;
+      let runTime = 0;
+      let migratedAt: number | null = null;
+      for (let t = 0; t < 240000; t += 250) {
+        e.advanceTo(t);
+        const id = e.getRound()?.targetCoinId;
+        const v = id ? e.getCoinView(id) : null;
+        if (!v || v.migratedAt === null) continue;
+        migratedAt ??= v.migratedAt;
+        peak = Math.max(peak, v.mcUsd);
+        maxDrawdown = Math.max(maxDrawdown, 1 - v.mcUsd / peak);
+        if (v.mcUsd >= meme.ath![0] * 0.8) runTime = Math.max(runTime, t - migratedAt);
+      }
+      expect(maxDrawdown).toBeGreaterThan(0.1);
+      // The run takes a while: well beyond the old 35-60 s straight line's shortest case.
+      expect(runTime).toBeGreaterThan(40000);
+    }
+  });
+});
+
 describe("freeze and history", () => {
   const migrate = () => {
     const e = new Engine({ seed: 7, difficulty: "sniper", autoRounds: false, clock: () => 0 });

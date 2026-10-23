@@ -14,72 +14,14 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
-  type ISeriesPrimitive,
-  type SeriesAttachedParameter,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { SOL_USD, SUPPLY } from "@/engine/curve";
+import { MIGRATION_MC_USD, SOL_USD, SUPPLY } from "@/engine/curve";
 import type { Engine } from "@/engine/engine";
 import type { Candle } from "@/engine/types";
 import { aggregate, fmtPrice, tailFrom } from "./chartData";
 import { usd } from "./format";
-
-/** Dotted vertical line (with a label) at the moment a coin migrated. */
-class MigrationLine implements ISeriesPrimitive<Time> {
-  private time: Time | null = null;
-  private chart: IChartApi | null = null;
-  private request: (() => void) | null = null;
-
-  attached(p: SeriesAttachedParameter<Time>) {
-    this.chart = p.chart as IChartApi;
-    this.request = p.requestUpdate;
-  }
-  detached() {
-    this.chart = null;
-    this.request = null;
-  }
-  setTime(t: Time | null) {
-    this.time = t;
-    this.request?.();
-  }
-  updateAllViews() {}
-  paneViews() {
-    const self = this;
-    return [
-      {
-        zOrder: () => "bottom" as const,
-        renderer: () => ({
-          draw(target: {
-            useBitmapCoordinateSpace: (
-              cb: (s: { context: CanvasRenderingContext2D; bitmapSize: { width: number; height: number }; horizontalPixelRatio: number; verticalPixelRatio: number }) => void,
-            ) => void;
-          }) {
-            if (self.time === null || !self.chart) return;
-            const x = self.chart.timeScale().timeToCoordinate(self.time);
-            if (x === null) return;
-            target.useBitmapCoordinateSpace(({ context: ctx, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
-              const px = Math.round(x * hr);
-              ctx.save();
-              ctx.strokeStyle = "#f5c542";
-              ctx.lineWidth = Math.max(1, hr);
-              ctx.setLineDash([3 * hr, 4 * hr]);
-              ctx.beginPath();
-              ctx.moveTo(px, 0);
-              ctx.lineTo(px, bitmapSize.height);
-              ctx.stroke();
-              ctx.setLineDash([]);
-              ctx.fillStyle = "#f5c542";
-              ctx.font = `${Math.round(10 * vr)}px ui-monospace, monospace`;
-              ctx.fillText("Migrated", px + 5 * hr, 14 * vr);
-              ctx.restore();
-            });
-          },
-        }),
-      },
-    ];
-  }
-}
 
 export type Metric = "mc" | "price";
 export type Unit = "usd" | "sol";
@@ -110,7 +52,6 @@ interface Props {
   earlyAvgMcUsd: number;
   ticker: string;
   /** Sim time (ms) the coin migrated, or null. */
-  migratedAt: number | null;
 }
 
 const UP = "#35d07f";
@@ -138,15 +79,14 @@ interface Bar {
  * Live data goes through series.update so panning and zoom survive ticks.
  * Mount with key={coinId}: a new coin is a new chart.
  */
-export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metric, unit, scale, entryMcUsd, earlyAvgMcUsd, ticker, migratedAt }: Props) {
+export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metric, unit, scale, entryMcUsd, earlyAvgMcUsd, ticker }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
-  const migLine = useRef<MigrationLine | null>(null);
-  const lines = useRef<{ ath?: IPriceLine; early?: IPriceLine; entry?: IPriceLine }>({});
+  const lines = useRef<{ ath?: IPriceLine; early?: IPriceLine; entry?: IPriceLine; mig?: IPriceLine }>({});
   const lastT = useRef<number | null>(null);
   const dataKey = useRef("");
   const markerCount = useRef(-1);
@@ -235,11 +175,9 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     candleRef.current = candle;
     volRef.current = vol;
     markersRef.current = createSeriesMarkers(candle, []);
-    migLine.current = new MigrationLine();
-    candle.attachPrimitive(migLine.current);
     return () => {
       chart.remove();
-      chartRef.current = candleRef.current = volRef.current = markersRef.current = migLine.current = null;
+      chartRef.current = candleRef.current = volRef.current = markersRef.current = null;
       lines.current = {};
       lastT.current = null;
       dataKey.current = "";
@@ -314,7 +252,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     // Reference lines. ATH comes from the raw history so it does not depend on the timeframe.
     let ath = 0;
     for (const c of raw) if (c.h > ath) ath = c.h;
-    const upsert = (k: "ath" | "early" | "entry", price: number | null, color: string, title: string, style: number) => {
+    const upsert = (k: "ath" | "early" | "entry" | "mig", price: number | null, color: string, title: string, style: number) => {
       const cur = lines.current[k];
       if (price === null || !(price > 0)) {
         if (cur) candle.removePriceLine(cur);
@@ -327,6 +265,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     };
     upsert("ath", ath * factor, "#8aa396", "ATH", 2);
     upsert("early", (earlyAvgMcUsd / SOL_USD) * factor, "#f5c542", "Top 10 avg buy", 1);
+    upsert("mig", (MIGRATION_MC_USD / SOL_USD) * factor, "#f5c542", `Migration ${usd(MIGRATION_MC_USD)}`, 1);
     upsert("entry", entryMcUsd ? (entryMcUsd / SOL_USD) * factor : null, "#4db8ff", "Entry", 2);
 
     const trades = engine.getTradesFor(coinId);
@@ -343,11 +282,6 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
       markerCount.current = trades.length;
     }
   }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd]);
-
-  // Place the migration line on the bar that contains the migration second.
-  useEffect(() => {
-    migLine.current?.setTime(migratedAt === null ? null : ((Math.floor(Math.floor(migratedAt / 1000) / tf) * tf + timeOffset) as UTCTimestamp));
-  }, [migratedAt, tf, timeOffset, version]);
 
   // Switching timeframe changes where markers sit.
   useEffect(() => {

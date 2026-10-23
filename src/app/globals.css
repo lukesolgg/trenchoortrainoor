@@ -114,6 +114,26 @@ body {
   }
 }
 
+@keyframes mult-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  30% {
+    transform: scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.04) translateY(-14px);
+  }
+}
 @keyframes go-flash {
   0% {
     opacity: 0;
@@ -142,6 +162,9 @@ body {
 .anim-count {
   animation: count-pop 1000ms ease-out both;
 }
+.anim-mult {
+  animation: mult-flash 1200ms ease-out both;
+}
 .anim-go {
   animation: go-flash 900ms ease-out both;
 }
@@ -152,6 +175,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .anim-count,
   .anim-go,
+  .anim-mult,
   .anim-armed {
     animation: none;
   }

@@ -75,7 +75,7 @@ export function TweetFeed({ tweets, wallStart, pauseOnHover, open, onToggle }: P
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-tk-line bg-tk"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden border-r border-tk-line bg-tk"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

@@ -8,6 +8,7 @@ import { PulseBoard } from "./PulseBoard";
 import { ResultsOverlay, RoundOverlay, RoundStatus } from "./RoundOverlays";
 import { TokenPage } from "./TokenPage";
 import { Portfolio, type OpenRow } from "./Portfolio";
+import { MultiplierFlash } from "./MultiplierFlash";
 import { Rewards } from "./Rewards";
 import { StatusBar } from "./StatusBar";
 import { Trending } from "./Trending";
@@ -157,10 +158,16 @@ export function Game() {
     savedClosed.current = snap.closed.length;
     addHistory(fresh.map((t) => ({ key: `${wallStart}-${t.id}`, ticker: t.ticker, name: t.name, art: t.art, invested: t.invested, returned: t.returned, closedAt: Date.now() })));
   }, [snap.closed, addHistory, wallStart]);
+  const tickerOf = useCallback((id: string) => engine.getCoinView(id)?.ticker ?? "", [engine]);
   const diff = DIFFICULTIES[difficulty];
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh">
+      {/* The Tracker is its own window: full height, outside the app chrome. */}
+      <div className={`h-full shrink-0 ${feedOpen ? "w-[350px]" : "w-10"}`}>
+        <TweetFeed tweets={snap.feed} wallStart={wallStart} pauseOnHover={!scoredMode} open={feedOpen} onToggle={() => setFeedOpen(!feedOpen)} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
       <TopNav
         tab={tab}
         onTab={(t) => {
@@ -187,9 +194,8 @@ export function Game() {
         )}
       </div>
 
-      <div className={`grid min-h-0 flex-1 gap-2 bg-bg p-2 ${feedOpen ? "grid-cols-[minmax(300px,350px)_1fr]" : "grid-cols-[40px_1fr]"}`}>
-        <TweetFeed tweets={snap.feed} wallStart={wallStart} pauseOnHover={!scoredMode} open={feedOpen} onToggle={() => setFeedOpen(!feedOpen)} />
-        <div className="min-h-0 min-w-0 overflow-hidden rounded-xl border border-line bg-bg">
+      <div className="min-h-0 flex-1 bg-bg p-2">
+        <div className="h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-line bg-bg">
         {openId ? (
           <TokenPage
             engine={engine}
@@ -240,7 +246,9 @@ export function Game() {
       </div>
 
       <StatusBar hint={scoredMode ? "Scored round: the board never pauses" : "Hover a column or the feed to pause it"} />
+      </div>
 
+      <MultiplierFlash positions={snap.positions} tickerOf={tickerOf} />
       {scored && scored.phase !== "ended" && <RoundOverlay scored={scored} now={snap.now} />}
       {scored?.result && <ResultsOverlay result={scored.result} onNext={start} onMenu={toModes} />}
 
