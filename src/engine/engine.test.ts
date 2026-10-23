@@ -7,6 +7,19 @@ import { MIGRATION_LOCK_MS, MIGRATION_MC_USD } from "./curve";
 import { MEME_PACK, highlightPhrases, makeRound, splitTemplate, validateMeme } from "./scenario";
 import type { Meme } from "./types";
 
+/** Advance until the round's right coin lands, then a beat more, before it can migrate. */
+function landTarget(e: Engine): string {
+  for (let t = e.now(); t < 120000; t += 50) {
+    e.advanceTo(t);
+    const id = e.getRound()?.targetCoinId;
+    if (id) {
+      e.advanceTo(t + 150);
+      return id;
+    }
+  }
+  throw new Error("target never landed");
+}
+
 describe("rng", () => {
   it("is deterministic per seed", () => {
     const a = new Rng(42);
@@ -190,8 +203,7 @@ describe("engine", () => {
   it("quick-buy updates wallet, position and ranks the player behind earlier bot buys", () => {
     const e = make(3);
     e.startRound({ leadMs: 0 });
-    e.advanceTo(6000);
-    const id = e.getRound()!.targetCoinId!;
+    const id = landTarget(e);
     const before = e.getSnapshot().walletSol;
     const trade = e.quickBuy(id, 3, e.now());
     expect(trade).not.toBeNull();
@@ -207,7 +219,7 @@ describe("engine", () => {
   it("rejects a buy bigger than the wallet", () => {
     const e = make(3);
     e.startRound();
-    e.advanceTo(6000);
+    e.advanceTo(60000);
     expect(e.quickBuy(e.getRound()!.targetCoinId!, 1e6)).toBeNull();
   });
 
@@ -263,8 +275,7 @@ describe("token page data", () => {
   it("records bot and player trades on the tape, newest first and capped", () => {
     const e = make();
     e.startRound({ leadMs: 0 });
-    e.advanceTo(6000);
-    const id = e.getRound()!.targetCoinId!;
+    const id = landTarget(e);
     e.quickBuy(id, 2);
     const tape = e.getTape(id);
     expect(tape[0].by).toBe("you");
@@ -284,8 +295,7 @@ describe("token page data", () => {
   it("tracks average entry through boughtTokens and marks trades with execAt", () => {
     const e = make();
     e.startRound({ leadMs: 0 });
-    e.advanceTo(6000);
-    const id = e.getRound()!.targetCoinId!;
+    const id = landTarget(e);
     e.quickBuy(id, 2);
     e.quickBuy(id, 3);
     const pos = e.getSnapshot().positions[0];
@@ -491,11 +501,14 @@ describe("scored round", () => {
     expect(b.getSnapshot().scored!.result!.outcome).toBe("missed");
   });
 
-  it("holding the right coin to the time limit still scores a success", () => {
+  it("keeps the round open while you hold, and ends it when you sell out", () => {
     const e = make();
     const id = toTarget(e);
     e.quickBuy(id, 2);
-    e.advanceTo(e.getSnapshot().scored!.tTweet + 91000);
+    const tTweet = e.getSnapshot().scored!.tTweet;
+    e.advanceTo(tTweet + 150000);
+    expect(e.getSnapshot().scored!.phase).toBe("live");
+    expect(e.sell(id, 1)).not.toBeNull();
     expect(e.getSnapshot().scored!.result!.outcome).toBe("success");
   });
 
@@ -618,6 +631,27 @@ describe("runner path", () => {
       expect(maxDrawdown).toBeGreaterThan(0.1);
       // The run takes a while: well beyond the old 35-60 s straight line's shortest case.
       expect(runTime).toBeGreaterThan(40000);
+    }
+  });
+});
+
+describe("runner launch", () => {
+  it("migrates 3-15 s after it lands, every time", () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+      e.startRound({ leadMs: 0 });
+      let landed: number | null = null;
+      let migrated: number | null = null;
+      for (let t = 0; t < 40000 && migrated === null; t += 50) {
+        e.advanceTo(t);
+        const id = e.getRound()?.targetCoinId;
+        const v = id ? e.getCoinView(id) : null;
+        if (!v) continue;
+        landed ??= t;
+        if (v.migratedAt !== null) migrated = v.migratedAt;
+      }
+      expect(migrated! - landed!).toBeGreaterThan(2000);
+      expect(migrated! - landed!).toBeLessThan(16000);
     }
   });
 });

@@ -480,26 +480,42 @@ export class Engine {
   }
 
   /**
-   * A big launch, scripted end to end: $3-10K at launch, a 1-3 s burst to $30-35K, a short pullback, then over the
-   * line. After migration the round's outcome (see BigOutcome) decides the rest; the ATH always lands within ~3 min.
+   * The winner's launch, scripted through the bonding curve: $3-10K at deploy, then over the migration line in 3-15 s.
+   * Fast ones are one straight burst; slower ones burst to $30-35K, pull back, base, then finish.
    */
-  private scriptBigCoin(c: Coin, at: number, big: NonNullable<Meme["big"]>): void {
+  private scriptLaunch(c: Coin, at: number): void {
     const r = this.rng;
     const sol = (usd: number) => usd / SOL_USD;
-    const launch = sol(r.range(3000, 10000));
-    const burst = sol(r.range(30000, 35000));
+    const over = sol(MIGRATION_MC_USD * 1.15);
     let t = at;
     const leg = (kind: Leg["kind"], ms: number, to: number, vol: number, noise: number) => {
       t += ms;
       return { kind, end: t, to, vol, noise } satisfies Leg;
     };
+    const legs: Leg[] = [leg("push", r.range(200, 400), sol(r.range(3000, 10000)), 1, 0.01)];
+    if (r.chance(0.4)) {
+      legs.push(leg("push", r.range(2400, 3800), over, 1, 0.03));
+    } else {
+      const total = r.range(5000, 15000);
+      const burst = sol(r.range(30000, 35000));
+      legs.push(leg("push", r.range(900, 2400), burst, 1, 0.03));
+      const rest = Math.max(1500, at + total - t);
+      legs.push(leg("dip", rest * 0.3, burst * r.range(0.84, 0.93), 1, 0.02));
+      legs.push(leg("base", rest * 0.35, burst * r.range(0.9, 0.98), 0.5, 0.015));
+      legs.push(leg("push", rest * 0.35, over, 1, 0.025));
+    }
     c.scriptStart = at;
-    c.preLegs = [
-      leg("push", r.range(200, 400), launch, 1, 0.01),
-      leg("push", r.range(900, 2400), burst, 1, 0.03),
-      leg("dip", r.range(1800, 3500), burst * r.range(0.84, 0.93), 1, 0.02),
-      leg("push", r.range(2500, 4500), sol(MIGRATION_MC_USD * 1.15), 1, 0.025),
-    ];
+    c.preLegs = legs;
+    this.at(at, (a) => this.driveStep(c, a));
+  }
+
+  /**
+   * Pick a big coin's outcome (see BigOutcome). The launch itself is `scriptLaunch`; this decides everything after
+   * migration. The ATH always lands within ~3 min.
+   */
+  private scriptBigCoin(c: Coin, at: number, big: NonNullable<Meme["big"]>): void {
+    const r = this.rng;
+    const sol = (usd: number) => usd / SOL_USD;
     const outcome = this.pickOutcome();
     let peak: number;
     let trip: number;
@@ -523,7 +539,6 @@ export class Engine {
     }
     c.athSol = sol(peak);
     c.big = { outcome, peak: sol(peak), trip: sol(trip), athBy: at + r.range(75000, 165000) };
-    this.at(at, (a) => this.driveStep(c, a));
   }
 
   private pickOutcome(): BigOutcome {
@@ -808,8 +823,20 @@ export class Engine {
         vol = 0.008;
       }
     }
+    // Million-plus runs move violently: bigger noise and the odd giga candle, mostly with the trend.
+    let shock = 0;
+    if (moon && c.big && c.big.peak * SOL_USD >= 1_000_000) {
+      const leg = c.legs.find((l) => at < l.end);
+      vol *= 1.7;
+      if (leg && leg.kind !== "base" && this.rng.chance(0.06)) {
+        const withTrend = this.rng.chance(0.7);
+        const dir = (leg.kind === "push") === withTrend ? 1 : -1;
+        shock = dir * this.rng.range(0.12, 0.35);
+        volMul *= 5;
+      }
+    }
     const before = c.postMc;
-    c.postMc = Math.max(1, c.postMc * Math.exp(drift + vol * this.rng.gauss()));
+    c.postMc = Math.max(1, c.postMc * Math.exp(drift + shock + vol * this.rng.gauss()));
     c.txCount += this.rng.int(0, 3);
     // Runners trade real size: volume scales with market cap while the coin is running.
     const scale = (moon ? Math.min(400, Math.max(4, c.postMc * 0.004)) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1) * volMul;
@@ -819,7 +846,7 @@ export class Engine {
     this.pushTape(c, at, "bot", c.postMc >= before ? "buy" : "sell", size);
     this.touch(c);
     // Targets walk for another minute after the run ends, then go quiet.
-    if (c.spec.role === "target" && c.migratedAt !== null && at > Math.max(c.migratedAt + 90000, (c.moonUntil ?? 0) + 40000)) return false;
+    if (c.spec.role === "target" && c.migratedAt !== null && at > Math.max(c.migratedAt + 90000, (c.moonUntil ?? 0) + 40000) && !this.holding(c.id)) return false;
     return true;
   }
 
@@ -848,8 +875,8 @@ export class Engine {
       c.txCount = c.buys + c.sells;
       c.holders += Math.round(c.postMc * 0.4);
     }
-    // New Pairs: a few launches already on the board.
-    for (let i = 0; i < 10; i++) {
+    // New Pairs: a few launches already on the board. Kept thin so the round's flood stands out.
+    for (let i = 0, n = this.rng.int(1, 3); i < n; i++) {
       this.spawn(makeFillerCoin(this.rng), -this.rng.range(1000, 30000));
     }
   }
@@ -908,9 +935,9 @@ export class Engine {
   private scheduleAmbientLoops(): void {
     const launch = (at: number) => {
       this.spawn(makeFillerCoin(this.rng), at);
-      this.at(at + this.rng.range(500, 1800), launch);
+      this.at(at + this.rng.range(8000, 20000), launch);
     };
-    this.at(600, launch);
+    this.at(this.rng.range(3000, 9000), launch);
 
     const finalStretch = (at: number) => {
       const spec: CoinSpec = { ...makeFillerCoin(this.rng, "ambient"), profile: "run", ttlMs: null };
@@ -1018,6 +1045,7 @@ export class Engine {
       this.roundView = { ...this.roundView, tTargetAppear: at, targetCoinId: coin.id };
     }
     if (plan.athMcUsd) coin.athSol = plan.athMcUsd / SOL_USD;
+    this.scriptLaunch(coin, at);
     if (plan.meme.big) this.scriptBigCoin(coin, at, plan.meme.big);
     // Snipers: each lands once, at its own reaction time after the coin appears.
     const times = Array.from({ length: plan.snipers }, () =>
@@ -1117,6 +1145,10 @@ export class Engine {
     this.logged.set(coinId, { bought: pos.boughtSol, sold: pos.soldSol });
   }
 
+  private holding(coinId: string): boolean {
+    return (this.positions.get(coinId)?.tokens ?? 0) > 1e-6;
+  }
+
   private allClosed(): boolean {
     return [...this.positions.values()].every((p) => p.tokens < 1e-6);
   }
@@ -1157,8 +1189,9 @@ export class Engine {
     this.at(tTweet + MISS_AFTER_MS, () => {
       if (sc.phase === "live" && !sc.firstBuy) this.endScored("missed");
     });
+    // Past the soft limit the round ends as soon as you are flat. While you hold, it runs until you sell out (or Space).
     this.at(tTweet + MAX_ROUND_MS, () => {
-      if (sc.phase === "live") this.finishLive();
+      if (sc.phase === "live" && this.allClosed()) this.finishLive();
     });
     this.emitNow();
   }

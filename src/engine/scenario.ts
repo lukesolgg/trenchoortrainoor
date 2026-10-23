@@ -247,7 +247,8 @@ export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
   };
 
   const all = [...specs, target];
-  const targetAt = rng.range(0.15, 0.7) * diff.floodMs;
+  // The runner lands early in the flood, so it can be spotted in under 3 s.
+  const targetAt = rng.range(0.05, 0.4) * diff.floodMs;
   const spawns: TimedSpawn[] = all.map((spec) => ({
     at: spec === target ? targetAt : rng.range(0, diff.floodMs),
     spec,

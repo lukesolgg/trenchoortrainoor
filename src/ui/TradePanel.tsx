@@ -314,7 +314,16 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
         <div className="grid grid-cols-4 gap-1.5">
           <Mini k="Bought">◎{sol(position?.boughtSol ?? 0)}</Mini>
           <Mini k="Sold">◎{sol(position?.soldSol ?? 0)}</Mini>
-          <Mini k="Holding">{held && position ? tokens(position.tokens) : "0"}</Mini>
+          <Mini k="Holding">
+            {held && position ? (
+              <>
+                ◎{sol(position.valueSol)}
+                <div className="text-[9.5px] font-semibold text-faint">{tokens(position.tokens)}</div>
+              </>
+            ) : (
+              "0"
+            )}
+          </Mini>
           <Mini k="PnL">
             <span className={pnlTone}>{position ? signed(pnl) : "0"}</span>
           </Mini>

@@ -4,7 +4,7 @@ export interface Difficulty {
   id: DifficultyId;
   label: string;
   blurb: string;
-  /** How many coins flood New Pairs after the tweet, and over how long. */
+  /** How many coins (the runner included) land in New Pairs after the tweet, and over how long. */
   deploys: [number, number];
   floodMs: number;
   /** How many bots snipe the right coin, and how fast after it appears. */
@@ -23,8 +23,8 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     id: "paper",
     label: "Paper Hands",
     blurb: "Slow bots and a thin flood. Learn the config rules first.",
-    deploys: [6, 10],
-    floodMs: 9000,
+    deploys: [2, 4],
+    floodMs: 5000,
     snipers: [3, 6],
     sniperReactMs: [600, 1500],
     rivalDeployMs: [4000, 8000],
@@ -35,8 +35,8 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     id: "trencher",
     label: "Trencher",
     blurb: "Busy boards and bots that punish hesitation.",
-    deploys: [10, 18],
-    floodMs: 6000,
+    deploys: [4, 7],
+    floodMs: 4000,
     snipers: [6, 12],
     sniperReactMs: [300, 800],
     rivalDeployMs: [2000, 4500],
@@ -46,9 +46,9 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   sniper: {
     id: "sniper",
     label: "Sniper",
-    blurb: "Real bot speed. 18-30 deploys in about 4 s, snipers at 0.14-0.42 s.",
-    deploys: [18, 30],
-    floodMs: 4000,
+    blurb: "Real bot speed. 6-12 deploys in about 3 s, snipers at 0.14-0.42 s.",
+    deploys: [6, 12],
+    floodMs: 3000,
     snipers: [12, 20],
     sniperReactMs: [140, 420],
     rivalDeployMs: [1000, 2500],
