@@ -223,3 +223,83 @@ describe("engine", () => {
     expect(s.feed.length).toBeLessThanOrEqual(50);
   });
 });
+
+describe("token page data", () => {
+  const make = (seed = 3) => new Engine({ seed, difficulty: "sniper", clock: () => 0 });
+
+  it("gives ambient coins in every column a chart history", () => {
+    const e = make();
+    const s = e.getSnapshot();
+    for (const c of [s.finalStretch[0], s.migrated[0], s.migrated[5]]) {
+      const candles = e.getCandles(c.id);
+      expect(candles.length).toBeGreaterThan(5);
+      for (let i = 1; i < candles.length; i++) {
+        expect(candles[i].t).toBeGreaterThanOrEqual(candles[i - 1].t);
+      }
+    }
+  });
+
+  it("migrated ambient coins end their history near their current price", () => {
+    const e = make();
+    const c = e.getSnapshot().migrated[0];
+    const last = e.getCandles(c.id).at(-1)!;
+    expect(Math.abs(last.c - c.mcSol) / c.mcSol).toBeLessThan(0.01);
+  });
+
+  it("live candles have no holes", () => {
+    const e = make();
+    e.startRound({ leadMs: 0 });
+    e.advanceTo(12000);
+    const id = e.getRound()!.targetCoinId!;
+    const candles = e.getCandles(id);
+    for (let i = 1; i < candles.length; i++) {
+      expect(candles[i].t - candles[i - 1].t).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("records bot and player trades on the tape, newest first and capped", () => {
+    const e = make();
+    e.startRound({ leadMs: 0 });
+    e.advanceTo(6000);
+    const id = e.getRound()!.targetCoinId!;
+    e.quickBuy(id, 2);
+    const tape = e.getTape(id);
+    expect(tape[0].by).toBe("you");
+    expect(tape[0].side).toBe("buy");
+    expect(tape.some((t) => t.by === "bot")).toBe(true);
+    for (let i = 1; i < tape.length; i++) expect(tape[i].at).toBeLessThanOrEqual(tape[i - 1].at);
+    e.advanceTo(40000);
+    expect(e.getTape(id).length).toBeLessThanOrEqual(60);
+  });
+
+  it("tape identity is stable until the coin changes", () => {
+    const e = make();
+    const id = e.getSnapshot().newPairs[0].id;
+    expect(e.getTape(id)).toBe(e.getTape(id));
+  });
+
+  it("tracks average entry through boughtTokens and marks trades with execAt", () => {
+    const e = make();
+    e.startRound({ leadMs: 0 });
+    e.advanceTo(6000);
+    const id = e.getRound()!.targetCoinId!;
+    e.quickBuy(id, 2);
+    e.quickBuy(id, 3);
+    const pos = e.getSnapshot().positions[0];
+    expect(pos.boughtSol).toBeCloseTo(5, 5);
+    expect(pos.boughtTokens).toBeGreaterThan(pos.tokens - 1e-6);
+    expect(e.getTradesFor(id)).toHaveLength(2);
+    expect(e.getTradesFor(id)[0].execAt).toBe(e.now());
+  });
+
+  it("keeps a focused coin alive and stops events for pruned coins", () => {
+    const e = make();
+    const id = e.getSnapshot().newPairs.at(-1)!.id;
+    e.focus(id);
+    e.advanceTo(120000);
+    expect(e.getCoinView(id)).not.toBeNull();
+    e.focus(null);
+    e.advanceTo(130000);
+    expect(e.getCoinView(id)).toBeNull();
+  });
+});

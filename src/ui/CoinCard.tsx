@@ -36,9 +36,10 @@ interface Props {
   quickEnabled: boolean;
   /** Called on pointerdown/keydown with the raw event timestamp. */
   onQuickBuy: (coinId: string, eventTs: number) => void;
+  onOpen: (coinId: string) => void;
 }
 
-export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickEnabled, onQuickBuy }: Props) {
+export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickEnabled, onQuickBuy, onOpen }: Props) {
   const [flash, setFlash] = useState(0);
   const { config } = coin;
 
@@ -50,7 +51,9 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
 
   return (
     <div
-      className={`anim-card relative flex gap-3 rounded-xl border p-2.5 transition-colors ${
+      data-coin-id={coin.id}
+      onClick={() => onOpen(coin.id)}
+      className={`anim-card relative flex cursor-pointer gap-3 rounded-xl border p-2.5 transition-colors ${
         coin.held ? "border-up/50 bg-up/[0.04]" : "border-line bg-card hover:border-line-hi hover:bg-card-hi"
       }`}
     >
@@ -120,6 +123,7 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
                 e.preventDefault();
                 fire(e.nativeEvent.timeStamp);
               }}
+              onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();

@@ -14,11 +14,12 @@ interface ColumnProps {
   quickSol: number;
   quickEnabled: boolean;
   onQuickBuy: (coinId: string, eventTs: number) => void;
+  onOpen: (coinId: string) => void;
   footer?: React.ReactNode;
   empty: string;
 }
 
-function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuickBuy, footer, empty }: ColumnProps) {
+function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuickBuy, onOpen, footer, empty }: ColumnProps) {
   const [hovered, setHovered] = useState(false);
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -46,6 +47,7 @@ function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuick
             quickSol={quickSol}
             quickEnabled={quickEnabled}
             onQuickBuy={onQuickBuy}
+            onOpen={onOpen}
           />
         ))}
         {footer}
@@ -71,6 +73,7 @@ interface BoardProps {
   onQuickSol: (n: number) => void;
   onQuickEnabled: (b: boolean) => void;
   onQuickBuy: (coinId: string, eventTs: number) => void;
+  onOpen: (coinId: string) => void;
 }
 
 export function PulseBoard(p: BoardProps) {
@@ -80,6 +83,7 @@ export function PulseBoard(p: BoardProps) {
     quickSol: p.quickSol,
     quickEnabled: p.quickEnabled,
     onQuickBuy: p.onQuickBuy,
+    onOpen: p.onOpen,
   };
   const [draft, setDraft] = useState(String(p.quickSol));
   const commit = useCallback(

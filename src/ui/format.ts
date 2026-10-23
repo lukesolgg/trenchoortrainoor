@@ -23,3 +23,15 @@ export function age(ms: number): string {
 export function clockTime(epochMs: number): string {
   return new Date(epochMs).toLocaleTimeString("en-GB", { hour12: false });
 }
+
+/** Compact token amounts: 12.4M, 830K, 912. */
+export function tokens(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toFixed(0);
+}
+
+export function signed(n: number, dp = 2): string {
+  return `${n >= 0 ? "+" : "-"}${Math.abs(n).toFixed(dp)}`;
+}

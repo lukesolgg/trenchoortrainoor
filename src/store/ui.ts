@@ -10,12 +10,15 @@ interface UiState {
   difficulty: DifficultyId;
   quickSol: number;
   quickEnabled: boolean;
+  /** Token page buy buttons, in SOL. Hotkeys 1-4. */
+  buyPresets: number[];
   /** Bumped on every round start so the Game remounts with a fresh engine. */
   runId: number;
   pickMode: (m: ModeId) => void;
   setDifficulty: (d: DifficultyId) => void;
   setQuickSol: (n: number) => void;
   setQuickEnabled: (b: boolean) => void;
+  setBuyPresets: (p: number[]) => void;
   start: () => void;
   toModes: () => void;
 }
@@ -27,11 +30,13 @@ export const useUi = create<UiState>((set) => ({
   difficulty: "sniper",
   quickSol: 3,
   quickEnabled: true,
+  buyPresets: [0.5, 1, 3, 5],
   runId: 0,
   pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : "setup", runId: Date.now() }),
   setDifficulty: (difficulty) => set({ difficulty }),
   setQuickSol: (quickSol) => set({ quickSol }),
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),
+  setBuyPresets: (buyPresets) => set({ buyPresets }),
   start: () => set({ screen: "play", runId: Date.now() }),
   toModes: () => set({ screen: "modes" }),
 }));

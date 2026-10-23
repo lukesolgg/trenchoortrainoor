@@ -102,17 +102,30 @@ export interface RoundView {
 export interface PlayerTrade {
   coinId: string;
   side: "buy" | "sell";
-  /** Session-relative ms taken from the input event timestamp. */
+  /** Session-relative ms taken from the input event timestamp (used for scoring). */
   at: number;
+  /** Engine time the trade actually executed (used to place chart markers). */
+  execAt: number;
   sol: number;
   tokens: number;
   /** Bot buys already on this coin when the player bought. */
   rank: number;
 }
 
+export interface TapeEntry {
+  id: number;
+  at: number;
+  by: "bot" | "you";
+  side: "buy" | "sell";
+  sol: number;
+  mcUsd: number;
+}
+
 export interface Position {
   coinId: string;
   tokens: number;
+  /** Total tokens ever bought, for average entry price. */
+  boughtTokens: number;
   boughtSol: number;
   soldSol: number;
   /** Mark-to-market value of the remaining tokens. */

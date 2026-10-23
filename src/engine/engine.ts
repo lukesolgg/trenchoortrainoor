@@ -22,6 +22,7 @@ import type {
   RoundView,
   Snapshot,
   Stage,
+  TapeEntry,
   TweetSeg,
   TweetView,
 } from "./types";
@@ -53,6 +54,9 @@ interface Coin {
   holders: number;
   volumeSol: number;
   candles: Candle[];
+  tape: TapeEntry[];
+  tapeView: TapeEntry[];
+  tapeRev: number;
   mint: string;
   creator: string;
   stats: CoinView["stats"];
@@ -74,6 +78,9 @@ const MAX_FINAL = 14;
 const MAX_MIGRATED = 30;
 const FEED_CAP = 50;
 const EMIT_EVERY_MS = 100;
+const TAPE_CAP = 60;
+const CANDLE_CAP = 2400;
+const MAX_GAP_FILL = 300;
 
 export class Engine {
   readonly difficulty: Difficulty;
@@ -95,7 +102,12 @@ export class Engine {
   private tweetId = 1;
 
   private wallet: number;
-  private positions = new Map<string, { tokens: number; boughtSol: number; soldSol: number }>();
+  private positions = new Map<
+    string,
+    { tokens: number; boughtTokens: number; boughtSol: number; soldSol: number }
+  >();
+  private focusId: string | null = null;
+  private tapeSeq = 1;
   private trades: PlayerTrade[] = [];
 
   private roundPlan: RoundPlan | null = null;
@@ -217,6 +229,9 @@ export class Engine {
       holders: 0,
       volumeSol: 0,
       candles: [],
+      tape: [],
+      tapeView: [],
+      tapeRev: -1,
       mint: `${this.rng.addr(3)}...pump`,
       creator: `${this.rng.addr(3)}...${this.rng.addr(3)}`,
       stats: {
@@ -243,18 +258,43 @@ export class Engine {
   }
 
   private record(c: Coin, at: number, solVolume: number): void {
-    const price = this.mc(c);
-    const sec = Math.floor(at / 1000);
+    this.pushCandle(c, at, this.mc(c), solVolume, true);
+  }
+
+  /**
+   * Fold a price into the 1 s candle series. `fill` pads quiet seconds with flat
+   * candles so live charts have no holes; synthetic history skips it.
+   */
+  private pushCandle(c: Coin, at: number, price: number, solVolume: number, fill: boolean): void {
     const last = c.candles[c.candles.length - 1];
+    const sec = last ? Math.max(Math.floor(at / 1000), last.t) : Math.floor(at / 1000);
     if (last && last.t === sec) {
       last.h = Math.max(last.h, price);
       last.l = Math.min(last.l, price);
       last.c = price;
       last.v += solVolume;
-    } else {
-      const open = last ? last.c : price;
-      c.candles.push({ t: sec, o: open, h: Math.max(open, price), l: Math.min(open, price), c: price, v: solVolume });
+      return;
     }
+    const open = last ? last.c : price;
+    if (fill && last && sec - last.t > 1) {
+      for (let s = Math.max(last.t + 1, sec - MAX_GAP_FILL); s < sec; s++) {
+        c.candles.push({ t: s, o: open, h: open, l: open, c: open, v: 0 });
+      }
+    }
+    c.candles.push({ t: sec, o: open, h: Math.max(open, price), l: Math.min(open, price), c: price, v: solVolume });
+    if (c.candles.length > CANDLE_CAP) c.candles.splice(0, 400);
+  }
+
+  private pushTape(c: Coin, at: number, by: "bot" | "player", side: "buy" | "sell", sol: number): void {
+    c.tape.unshift({
+      id: this.tapeSeq++,
+      at,
+      by: by === "player" ? "you" : "bot",
+      side,
+      sol,
+      mcUsd: toUsd(this.mc(c)),
+    });
+    if (c.tape.length > TAPE_CAP) c.tape.length = TAPE_CAP;
   }
 
   private touch(c: Coin): void {
@@ -306,6 +346,7 @@ export class Engine {
       c.holders++;
     }
     this.record(c, at, spent);
+    this.pushTape(c, at, by, "buy", spent);
     this.touch(c);
     return { tokens, spent };
   }
@@ -326,6 +367,7 @@ export class Engine {
     c.volumeSol += sol;
     if (by === "bot" && this.rng.chance(0.3)) c.holders = Math.max(1, c.holders - 1);
     this.record(c, at, sol);
+    this.pushTape(c, at, by, "sell", sol);
     this.touch(c);
     return sol;
   }
@@ -334,12 +376,21 @@ export class Engine {
 
   private scheduleFlow(c: Coin, from: number): void {
     const hot = c.spec.profile === "run" && c.spec.role === "target";
-    const gap = hot ? this.rng.range(120, 400) : c.migrated ? 250 : this.rng.range(400, 1500);
+    const lively = c.moonUntil !== null && from < c.moonUntil;
+    const gap = hot
+      ? this.rng.range(120, 400)
+      : c.migrated
+        ? lively || c.spec.role === "target"
+          ? 250
+          : 1200
+        : this.rng.range(400, 1500);
     // Seeded coins have negative creation times; never replay history.
     this.at(Math.max(from, this.simNow) + gap, (at) => this.flow(c, at));
   }
 
   private flow(c: Coin, at: number): void {
+    // Pruned coins must stop generating events or they leak forever.
+    if (!this.coins.has(c.id)) return;
     if (c.flowUntil !== null && at > c.flowUntil && !c.migrated) return;
 
     if (c.migrated) {
@@ -373,9 +424,13 @@ export class Engine {
     const quiet = c.spec.role !== "target" && c.moonUntil === null;
     const drift = moon ? 0.009 : c.spec.role === "target" ? -0.0025 : this.rng.range(-0.0005, 0.0005);
     const vol = moon ? 0.02 : quiet ? 0.006 : 0.015;
+    const before = c.postMc;
     c.postMc = Math.max(1, c.postMc * Math.exp(drift + vol * this.rng.gauss()));
     c.txCount += this.rng.int(0, 3);
-    this.record(c, at, 0);
+    const size = this.rng.lognormal(0.5, 0.7);
+    this.record(c, at, size);
+    c.volumeSol += size;
+    this.pushTape(c, at, "bot", c.postMc >= before ? "buy" : "sell", size);
     this.touch(c);
     // Targets walk for another minute after the run ends, then go quiet.
     if (c.spec.role === "target" && c.migratedAt !== null && at > c.migratedAt + 90000) return false;
@@ -389,14 +444,14 @@ export class Engine {
     for (let i = 0; i < 8; i++) {
       const spec: CoinSpec = { ...makeFillerCoin(this.rng, "ambient"), profile: "run", ttlMs: null };
       const c = this.spawn(spec, -this.rng.range(60000, 600000));
-      this.fastForward(c, this.rng.range(0.4, 0.9));
+      this.fastForward(c, this.rng.range(0.4, 0.9), -500);
     }
     // Migrated: old coins drifting around.
     for (let i = 0; i < 12; i++) {
       const spec: CoinSpec = { ...makeFillerCoin(this.rng, "ambient"), profile: "flat", ttlMs: null };
       const c = this.spawn(spec, -this.rng.range(300000, 86400000));
-      this.fastForward(c, 1);
-      c.postMc = Math.exp(this.rng.range(Math.log(500), Math.log(20000)));
+      this.fastForward(c, 1, -120000);
+      this.driftTo(c, Math.exp(this.rng.range(Math.log(500), Math.log(20000))), 28, -500);
     }
     // New Pairs: a few launches already on the board.
     for (let i = 0; i < 10; i++) {
@@ -404,21 +459,43 @@ export class Engine {
     }
   }
 
-  /** Push a coin up its curve without recording chart history. */
-  private fastForward(c: Coin, target: number): void {
+  /**
+   * Push a coin up its curve and lay the climb out as synthetic chart history
+   * between its creation and `endAt`, so older coins open with a real chart.
+   */
+  private fastForward(c: Coin, target: number, endAt: number): void {
+    const path: { mc: number; vol: number }[] = [];
     while (!c.migrated && curveLib.progress(c.curve) < target) {
       const r = curveLib.buy(c.curve, this.rng.range(1, 4));
       c.curve = r.curve;
       c.txCount++;
       c.volumeSol += r.spent;
       c.holders += this.rng.chance(0.7) ? 1 : 0;
+      path.push({ mc: curveLib.mcSol(c.curve), vol: r.spent });
       if (curveLib.isComplete(c.curve)) {
         this.migrate(c, c.createdAt + 60000);
         c.moonUntil = null;
       }
     }
     if (!c.migrated && curveLib.progress(c.curve) >= FINAL_AT) c.stage = "final";
-    c.candles = [];
+    const start = c.createdAt + 1000;
+    const span = Math.max(1000, endAt - start);
+    path.forEach((p, i) => this.pushCandle(c, start + (i / path.length) * span, p.mc, p.vol, false));
+    this.touch(c);
+  }
+
+  /** Walk a migrated coin from its migration price to `targetMc`, drawn as chart history. */
+  private driftTo(c: Coin, targetMc: number, steps: number, endAt: number): void {
+    const from = c.candles.length ? (c.candles[c.candles.length - 1].t + 1) * 1000 : endAt - steps * 5000;
+    const a = Math.log(Math.max(1, c.postMc));
+    const b = Math.log(targetMc);
+    for (let i = 1; i <= steps; i++) {
+      const f = i / steps;
+      const noise = i === steps ? 0 : 0.07 * this.rng.gauss();
+      const mc = Math.exp(a + (b - a) * f + noise);
+      this.pushCandle(c, from + f * (endAt - from), mc, this.rng.range(0, 3), false);
+    }
+    c.postMc = targetMc;
     this.touch(c);
   }
 
@@ -432,7 +509,7 @@ export class Engine {
     const finalStretch = (at: number) => {
       const spec: CoinSpec = { ...makeFillerCoin(this.rng, "ambient"), profile: "run", ttlMs: null };
       const c = this.spawn(spec, at - this.rng.range(60000, 300000));
-      this.fastForward(c, this.rng.range(0.4, 0.75));
+      this.fastForward(c, this.rng.range(0.4, 0.75), at - 500);
       this.at(at + this.rng.range(6000, 12000), finalStretch);
     };
     this.at(5000, finalStretch);
@@ -455,6 +532,7 @@ export class Engine {
     const byStage = (s: Stage) => [...this.coins.values()].filter((c) => c.stage === s);
     const drop = (c: Coin) => {
       if (this.positions.has(c.id)) return;
+      if (this.focusId === c.id) return;
       if (this.roundView?.targetCoinId === c.id) return;
       this.coins.delete(c.id);
       this.dirty = true;
@@ -558,11 +636,12 @@ export class Engine {
     const { tokens, spent } = this.applyBuy(c, sol, this.simNow, "player");
     if (tokens <= 0) return null;
     this.wallet -= spent;
-    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtSol: 0, soldSol: 0 };
+    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtTokens: 0, boughtSol: 0, soldSol: 0 };
     pos.tokens += tokens;
+    pos.boughtTokens += tokens;
     pos.boughtSol += spent;
     this.positions.set(coinId, pos);
-    const trade: PlayerTrade = { coinId, side: "buy", at, sol: spent, tokens, rank };
+    const trade: PlayerTrade = { coinId, side: "buy", at, execAt: this.simNow, sol: spent, tokens, rank };
     this.trades.push(trade);
     this.emitNow();
     return trade;
@@ -578,7 +657,7 @@ export class Engine {
     pos.tokens -= tokens;
     pos.soldSol += sol;
     this.wallet += sol;
-    const trade: PlayerTrade = { coinId, side: "sell", at, sol, tokens, rank: c.botBuys };
+    const trade: PlayerTrade = { coinId, side: "sell", at, execAt: this.simNow, sol, tokens, rank: c.botBuys };
     this.trades.push(trade);
     this.emitNow();
     return trade;
@@ -592,6 +671,33 @@ export class Engine {
 
   getCandles(coinId: string): readonly Candle[] {
     return this.coins.get(coinId)?.candles ?? [];
+  }
+
+  /** Current view of any coin on the board, whatever column it is in. */
+  getCoinView(coinId: string): CoinView | null {
+    const c = this.coins.get(coinId);
+    return c ? this.coinView(c) : null;
+  }
+
+  /** Recent trades on a coin, newest first. Identity changes only when the coin does. */
+  getTape(coinId: string): readonly TapeEntry[] {
+    const c = this.coins.get(coinId);
+    if (!c) return [];
+    if (c.tapeRev !== c.rev) {
+      c.tapeView = [...c.tape];
+      c.tapeRev = c.rev;
+    }
+    return c.tapeView;
+  }
+
+  /** Your trades on one coin, oldest first (for chart markers). */
+  getTradesFor(coinId: string): PlayerTrade[] {
+    return this.trades.filter((t) => t.coinId === coinId);
+  }
+
+  /** Keep a coin alive while its page is open. Pass null to release. */
+  focus(coinId: string | null): void {
+    this.focusId = coinId;
   }
 
   /** Test and results helper. The UI must not use this: roles are hidden in play. */

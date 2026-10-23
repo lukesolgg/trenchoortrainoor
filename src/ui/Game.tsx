@@ -5,6 +5,7 @@ import { DIFFICULTIES } from "@/engine/difficulty";
 import { SOL_USD } from "@/engine/curve";
 import { useUi } from "@/store/ui";
 import { PulseBoard } from "./PulseBoard";
+import { TokenPage } from "./TokenPage";
 import { TweetFeed } from "./TweetFeed";
 import { sol } from "./format";
 import { useEngine, useSnapshot } from "./hooks";
@@ -17,12 +18,14 @@ interface Toast {
 }
 
 export function Game() {
-  const { mode, difficulty, quickSol, quickEnabled, setQuickSol, setQuickEnabled, toModes } = useUi();
+  const { mode, difficulty, quickSol, quickEnabled, buyPresets, setQuickSol, setQuickEnabled, setBuyPresets, toModes } =
+    useUi();
   const engine = useEngine({ difficulty, autoRounds: true });
   const snap = useSnapshot(engine);
   const [wallStart] = useState(() => Date.now());
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState<Toast | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const lastEsc = useRef(0);
 
@@ -46,6 +49,14 @@ export function Game() {
     [engine, quickSol],
   );
 
+  const notify = useCallback((text: string) => setToast({ id: Date.now(), text }), []);
+
+  // Keep the open coin on the board even if it would normally age out.
+  useEffect(() => {
+    engine.focus(openId);
+    return () => engine.focus(null);
+  }, [engine, openId]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2600);
@@ -55,12 +66,19 @@ export function Game() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLInputElement;
-      if (e.key === "/" && !typing) {
+      if (e.key === "/" && !typing && !openId) {
         e.preventDefault();
         searchRef.current?.focus();
+      } else if ((e.key === "t" || e.key === "T") && !typing && !openId) {
+        const hovered = document.querySelector("[data-coin-id]:hover")?.getAttribute("data-coin-id");
+        if (hovered) setOpenId(hovered);
       } else if (e.key === "Escape") {
         if (typing) {
           (e.target as HTMLInputElement).blur();
+          return;
+        }
+        if (openId) {
+          setOpenId(null);
           return;
         }
         const now = performance.now();
@@ -70,7 +88,7 @@ export function Game() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toModes]);
+  }, [toModes, openId]);
 
   const diff = DIFFICULTIES[difficulty];
 
@@ -115,7 +133,7 @@ export function Game() {
         <span className="rounded bg-up/15 px-2 py-0.5 font-bold text-up">{MODE_LABEL[mode]}</span>
         <span className="font-semibold text-pink">{diff.label}</span>
         <span className="text-amber">
-          Phase 4 preview: live board with quick-buy. Round scoring and DEV deploy are the next phases.
+          Phase 5 preview: click a coin (or hover + T) for its chart and trade panel. Scoring and DEV deploy come next.
         </span>
         <button
           type="button"
@@ -128,6 +146,18 @@ export function Game() {
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(300px,380px)_1fr]">
         <TweetFeed tweets={snap.feed} wallStart={wallStart} />
+        {openId ? (
+          <TokenPage
+            engine={engine}
+            snap={snap}
+            coinId={openId}
+            wallStart={wallStart}
+            buyPresets={buyPresets}
+            onBuyPresets={setBuyPresets}
+            onBack={() => setOpenId(null)}
+            notify={notify}
+          />
+        ) : (
         <PulseBoard
           newPairs={snap.newPairs}
           finalStretch={snap.finalStretch}
@@ -139,7 +169,9 @@ export function Game() {
           onQuickSol={setQuickSol}
           onQuickEnabled={setQuickEnabled}
           onQuickBuy={onQuickBuy}
+          onOpen={setOpenId}
         />
+        )}
       </div>
 
       <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-line bg-panel px-4 text-[11px] text-dim">
