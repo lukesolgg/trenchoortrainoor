@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { SOL_USD, SUPPLY } from "@/engine/curve";
-import type { Position } from "@/engine/types";
+import type { CoinView, Position } from "@/engine/types";
 import { signed, sol, tokens, usd } from "./format";
 
 interface FireProps {
@@ -62,19 +62,43 @@ const Row = ({ k, children, tone }: { k: string; children: React.ReactNode; tone
 );
 
 interface Props {
+  coin: CoinView;
   walletSol: number;
   position: Position | undefined;
   buyPresets: number[];
   onBuyPresets: (p: number[]) => void;
+  instant: boolean;
+  onInstant: (b: boolean) => void;
   onBuy: (sol: number, eventTs: number) => void;
   onSell: (fraction: number, eventTs: number) => void;
 }
 
-export function TradePanel({ walletSol, position, buyPresets, onBuyPresets, onBuy, onSell }: Props) {
+const SELL_FRACTIONS = [0.25, 0.5, 0.75, 1];
+
+const Switch = ({ on, onChange, label }: { on: boolean; onChange: (b: boolean) => void; label: string }) => (
+  <label className="flex items-center gap-2 text-[11px] font-semibold text-dim">
+    {label}
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className={`relative h-4 w-8 rounded-full transition-colors ${on ? "bg-buy" : "bg-line-hi"}`}
+    >
+      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${on ? "left-[17px]" : "left-0.5"}`} />
+    </button>
+  </label>
+);
+
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, instant, onInstant, onBuy, onSell }: Props) {
+  const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [custom, setCustom] = useState("");
+  const [armedBuy, setArmedBuy] = useState<number | null>(null);
+  const [armedSell, setArmedSell] = useState(1);
   const customSol = parseFloat(custom);
   const customOk = Number.isFinite(customSol) && customSol > 0 && customSol <= walletSol;
+  const buyAmount = customOk ? customSol : armedBuy;
 
   const held = !!position && position.tokens > 1e-6;
   const entryMcUsd =
@@ -84,10 +108,25 @@ export function TradePanel({ walletSol, position, buyPresets, onBuyPresets, onBu
   const pnlTone = pnl >= 0 ? "text-up" : "text-down";
 
   return (
-    <aside className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto border-l border-line bg-panel p-3">
-      <section className="rounded-xl border border-line bg-card p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-[12px] font-bold uppercase tracking-wider text-dim">Buy</h3>
+    <aside className="flex h-full min-h-0 flex-col gap-2.5 overflow-y-auto border-l border-line bg-panel p-3">
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-black/30 p-1">
+        {(["buy", "sell"] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setSide(s)}
+            className={`rounded-md py-1.5 text-[13px] font-bold capitalize transition-colors ${
+              side === s ? (s === "buy" ? "bg-up text-black" : "bg-down text-white") : "text-dim hover:text-ink"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Switch on={instant} onChange={onInstant} label="Instant trade" />
+        {side === "buy" && (
           <button
             type="button"
             onClick={() => setEditing((v) => !v)}
@@ -95,80 +134,123 @@ export function TradePanel({ walletSol, position, buyPresets, onBuyPresets, onBu
           >
             {editing ? "Done" : "Edit"}
           </button>
-        </div>
-        {editing ? (
-          <div className="grid grid-cols-4 gap-1.5">
-            {buyPresets.map((p, i) => (
-              <input
-                key={i}
-                defaultValue={p}
-                inputMode="decimal"
-                aria-label={`Buy preset ${i + 1}`}
-                onBlur={(e) => {
-                  const n = parseFloat(e.target.value);
-                  if (!Number.isFinite(n) || n <= 0) return;
-                  const next = [...buyPresets];
-                  next[i] = Math.min(n, 100);
-                  onBuyPresets(next);
-                }}
-                className="tabular h-10 w-full rounded-lg border border-line-hi bg-black/30 text-center text-[13px] font-bold outline-none focus:border-buy"
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-1.5">
-            {buyPresets.map((p, i) => (
-              <FireButton
-                key={i}
-                tone="buy"
-                hint={String(i + 1)}
-                disabled={p > walletSol}
-                label={sol(p, p % 1 ? 2 : 0)}
-                onFire={(ts) => onBuy(p, ts)}
-              />
-            ))}
-          </div>
         )}
-        <div className="mt-2 flex gap-1.5">
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            placeholder="Custom SOL"
-            inputMode="decimal"
-            aria-label="Custom buy amount in SOL"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && customOk) onBuy(customSol, e.nativeEvent.timeStamp);
-            }}
-            className="tabular h-10 min-w-0 flex-1 rounded-lg border border-line-hi bg-black/30 px-3 text-[13px] outline-none placeholder:text-faint focus:border-buy"
-          />
-          <div className="w-20">
-            <FireButton tone="buy" label="Buy" disabled={!customOk} onFire={(ts) => onBuy(customSol, ts)} />
-          </div>
-        </div>
-        <p className="tabular mt-2 text-[11px] text-dim">
-          Wallet <span className="font-semibold text-ink">◎ {sol(walletSol)}</span>
-        </p>
-      </section>
+      </div>
 
-      <section className="rounded-xl border border-line bg-card p-3">
-        <h3 className="mb-2 text-[12px] font-bold uppercase tracking-wider text-dim">Sell</h3>
-        <div className="grid grid-cols-3 gap-1.5">
-          {[0.25, 0.5, 1].map((f) => (
-            <FireButton
-              key={f}
-              tone="sell"
-              disabled={!held}
-              label={`${f * 100}%`}
-              onFire={(ts) => onSell(f, ts)}
+      {side === "buy" ? (
+        <section className="rounded-xl border border-line bg-card p-3">
+          {editing ? (
+            <div className="grid grid-cols-4 gap-1.5">
+              {buyPresets.map((p, i) => (
+                <input
+                  key={i}
+                  defaultValue={p}
+                  inputMode="decimal"
+                  aria-label={`Buy preset ${i + 1}`}
+                  onBlur={(e) => {
+                    const n = parseFloat(e.target.value);
+                    if (!Number.isFinite(n) || n <= 0) return;
+                    const next = [...buyPresets];
+                    next[i] = Math.min(n, 100);
+                    onBuyPresets(next);
+                  }}
+                  className="tabular h-10 w-full rounded-lg border border-line-hi bg-black/30 text-center text-[13px] font-bold outline-none focus:border-buy"
+                />
+              ))}
+            </div>
+          ) : instant ? (
+            <div className="grid grid-cols-4 gap-1.5">
+              {buyPresets.map((p, i) => (
+                <FireButton key={i} tone="buy" hint={String(i + 1)} disabled={p > walletSol} label={sol(p, p % 1 ? 2 : 0)} onFire={(ts) => onBuy(p, ts)} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-1.5">
+              {buyPresets.map((p, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    setArmedBuy(p);
+                    setCustom("");
+                  }}
+                  className={`h-10 rounded-lg border text-[13px] font-bold transition-colors ${
+                    armedBuy === p && !customOk ? "border-buy bg-buy/20 text-ink" : "border-line-hi text-dim hover:text-ink"
+                  }`}
+                >
+                  {sol(p, p % 1 ? 2 : 0)}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mt-2 flex gap-1.5">
+            <input
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              placeholder="Custom SOL"
+              inputMode="decimal"
+              aria-label="Custom buy amount in SOL"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && customOk) onBuy(customSol, e.nativeEvent.timeStamp);
+              }}
+              className="tabular h-10 min-w-0 flex-1 rounded-lg border border-line-hi bg-black/30 px-3 text-[13px] outline-none placeholder:text-faint focus:border-buy"
             />
-          ))}
-        </div>
-      </section>
+            {instant && (
+              <div className="w-20">
+                <FireButton tone="buy" label="Buy" disabled={!customOk} onFire={(ts) => onBuy(customSol, ts)} />
+              </div>
+            )}
+          </div>
+          {!instant && (
+            <div className="mt-2">
+              <FireButton
+                tone="buy"
+                label={buyAmount ? `Buy ${sol(buyAmount, buyAmount % 1 ? 2 : 0)} SOL` : "Pick an amount"}
+                disabled={!buyAmount || buyAmount > walletSol}
+                onFire={(ts) => buyAmount && onBuy(buyAmount, ts)}
+              />
+            </div>
+          )}
+          <p className="tabular mt-2 text-[11px] text-dim">
+            Wallet <span className="font-semibold text-ink">◎ {sol(walletSol)}</span>
+          </p>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-line bg-card p-3">
+          {instant ? (
+            <div className="grid grid-cols-4 gap-1.5">
+              {SELL_FRACTIONS.map((f) => (
+                <FireButton key={f} tone="sell" disabled={!held} label={`${f * 100}%`} onFire={(ts) => onSell(f, ts)} />
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-1.5">
+                {SELL_FRACTIONS.map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setArmedSell(f)}
+                    className={`h-10 rounded-lg border text-[13px] font-bold transition-colors ${
+                      armedSell === f ? "border-down bg-down/20 text-ink" : "border-line-hi text-dim hover:text-ink"
+                    }`}
+                  >
+                    {f * 100}%
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2">
+                <FireButton tone="sell" label={`Sell ${armedSell * 100}%`} disabled={!held} onFire={(ts) => onSell(armedSell, ts)} />
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="rounded-xl border border-line bg-card p-3">
-        <h3 className="mb-1 text-[12px] font-bold uppercase tracking-wider text-dim">Position</h3>
+        <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-dim">Position</h3>
         {!position ? (
-          <p className="py-2 text-[12px] text-faint">No position. Buy to open one.</p>
+          <p className="py-1 text-[12px] text-faint">No position. Buy to open one.</p>
         ) : (
           <>
             <Row k="Holding">{held ? tokens(position.tokens) : "Closed"}</Row>
@@ -184,6 +266,17 @@ export function TradePanel({ walletSol, position, buyPresets, onBuyPresets, onBu
             </div>
           </>
         )}
+      </section>
+
+      <section className="rounded-xl border border-line bg-card p-3">
+        <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-dim">Token info</h3>
+        <Row k="Top 10 holders" tone={coin.stats.top10 >= 25 ? "text-down" : "text-up"}>{coin.stats.top10}%</Row>
+        <Row k="Dev holds" tone={coin.stats.dev >= 5 ? "text-down" : "text-up"}>{coin.stats.dev}%</Row>
+        <Row k="Snipers" tone={coin.stats.snipers >= 8 ? "text-down" : "text-up"}>{coin.stats.snipers}%</Row>
+        <Row k="Insiders" tone={coin.stats.insiders >= 3 ? "text-down" : "text-up"}>{coin.stats.insiders}%</Row>
+        <Row k="Holders">{coin.holders}</Row>
+        <Row k="Bonded">{coin.stage === "migrated" ? "Migrated" : `${Math.round(coin.progress * 100)}%`}</Row>
+        <Row k="CA"><span className="font-mono text-dim">{coin.mint}</span></Row>
       </section>
     </aside>
   );

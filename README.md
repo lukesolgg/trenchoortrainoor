@@ -21,6 +21,7 @@ npm run typecheck
 | 4 | Pulse UI, streaming board, quick-buy, hover-pause | done |
 | 5 | Token page: chart, buy/sell, position PnL, trades tape | done |
 | 6 | FIRST TX scored round: false starts, wrong coin, reaction ms, results | done |
+| 6.5 | GnGm restyle (GMGN look), Trenches columns with P1-P3 presets, token page v2 | done |
 | 7 | DEV mode: deploy form, pre-fill, rival deployers | next |
 | 8 | Results, personal bests, settings (localStorage) | |
 | 9 | Polish: audio, animation, perf, keyboard pass | |
@@ -32,7 +33,7 @@ npm run typecheck
 | `3` / `1` / `F` | Home | FIRST TX / DEV / Free play |
 | Space | Setup | Start |
 | click a card, or hover + `T` | Pulse | Open the coin's page |
-| `1`-`4` | Token page | Buy preset 1-4 (editable) |
+| `1`-`4` | Token page | Buy preset 1-4 (editable), fires instantly |
 | `/` | Pulse | Search |
 | Esc | Token page | Back to Pulse |
 | Esc Esc | Pulse | Back to menu |
@@ -65,8 +66,9 @@ A round is: 3 s countdown, an armed wait of 1.5 to 4 s, then the tweet and the f
   (Elon/SPACEX, Elon Tesla/TESLA, Toly/SOL, Alon/PUMP). Replace them with the real pack.
   Schema: `Meme` in `src/engine/types.ts`; `tickers[0]` is the right ticker; every tweet template needs `{name}`.
 - Placeholder art is a gradient tile plus glyph (`src/ui/Art.tsx`). Set `art.src` on a meme to use a real image.
-- Token page: `src/ui/TokenPage.tsx` (header + `ChartPanel` + `TradePanel` + `TradeTape`). The chart plots market cap in USD from the
-  engine's 1 s candles and updates through `series.update`. Coins you have open are pinned (`engine.focus`) so they never age off the board.
+- Token page: `src/ui/TokenPage.tsx` (header + `ChartPanel` + `TradePanel` + `TradeTape` + `InfoTabs`). The chart aggregates the
+  engine's 1 s candles client-side (`chartData.ts`) into 1s-1m bars, in Price or MC, USD or SOL, and updates through `series.update`.
+  "Top 10 avg buy" is the volume-weighted MC of the first 30 SOL bought. Holders/Top Traders show modelled stats, not a fake wallet list. Coins you have open are pinned (`engine.focus`) so they never age off the board.
 - UI/settings state: Zustand (`src/store/ui.ts`). Game state lives in the engine.
 
 ## Assumptions to confirm
