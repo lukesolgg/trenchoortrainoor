@@ -16,6 +16,7 @@ import type {
   ArtSpec,
   Author,
   Candle,
+  ClosedTrade,
   CoinSummary,
   CoinView,
   DifficultyId,
@@ -139,6 +140,8 @@ export class Engine {
   private coins = new Map<string, Coin>();
   private nextId = 1;
   private feed: TweetView[] = [];
+  private closedLog: ClosedTrade[] = [];
+  private logged = new Map<string, { bought: number; sold: number }>();
   private tweetId = 1;
 
   private wallet: number;
@@ -428,7 +431,9 @@ export class Engine {
     return { tokens, spent };
   }
 
-  private applySell(c: Coin, tokens: number, at: number, by: "bot" | "player"): number {
+  private applySell(c: Coin, tokens: number, at: number, by: "bot" | "player", force = false): number {
+    // The chart is frozen while a coin migrates. Only the end-of-round cash-out may override.
+    if (!force && at < c.lockUntil) return 0;
     let sol = 0;
     if (c.migrated) {
       const gross = tokens * (c.postMc / SUPPLY);
@@ -473,6 +478,11 @@ export class Engine {
     if (c.flowUntil !== null && at > c.flowUntil && !c.migrated) return;
 
     if (c.migrated) {
+      if (at < c.lockUntil) {
+        // Frozen: no price movement while the pool is being created.
+        this.scheduleFlow(c, at);
+        return;
+      }
       if (!this.walkMigrated(c, at)) return;
       this.scheduleFlow(c, at);
       return;
@@ -506,7 +516,9 @@ export class Engine {
     const before = c.postMc;
     c.postMc = Math.max(1, c.postMc * Math.exp(drift + vol * this.rng.gauss()));
     c.txCount += this.rng.int(0, 3);
-    const size = this.rng.lognormal(0.5, 0.7);
+    // Runners trade real size: volume scales with market cap while the coin is running.
+    const scale = moon ? Math.max(4, c.postMc * 0.004) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1;
+    const size = this.rng.lognormal(0.5, 0.7) * scale;
     this.record(c, at, size);
     c.volumeSol += size;
     this.pushTape(c, at, "bot", c.postMc >= before ? "buy" : "sell", size);
@@ -531,6 +543,15 @@ export class Engine {
       const c = this.spawn(spec, -this.rng.range(300000, 86400000));
       this.fastForward(c, 1, -120000);
       this.driftTo(c, Math.exp(this.rng.range(Math.log(500), Math.log(20000))), 28, -500);
+      // Old coins have traded for hours: give them volume in proportion to their size.
+      const extra = c.postMc * this.rng.range(0.4, 2.5);
+      c.volumeSol += extra;
+      c.buyVolSol += extra * 0.52;
+      c.sellVolSol += extra * 0.48;
+      c.buys += Math.round(extra * 1.5);
+      c.sells += Math.round(extra * 1.3);
+      c.txCount = c.buys + c.sells;
+      c.holders += Math.round(c.postMc * 0.4);
     }
     // New Pairs: a few launches already on the board.
     for (let i = 0; i < 10; i++) {
@@ -607,7 +628,7 @@ export class Engine {
     const chatter = (at: number) => {
       const t = makeNoiseTweet(this.rng);
       this.pushTweet(t.author, t.segments, false, undefined, at);
-      this.at(at + this.rng.range(3000, 7000), chatter);
+      this.at(at + this.rng.range(2000, 4500), chatter);
     };
     this.at(300, chatter);
 
@@ -766,10 +787,12 @@ export class Engine {
     if (!c || !pos || pos.tokens <= 0) return null;
     const tokens = pos.tokens * Math.min(1, Math.max(0, fraction));
     if (tokens <= 0) return null;
+    if (this.simNow < c.lockUntil) return null;
     const sol = this.applySell(c, tokens, this.simNow, "player");
     pos.tokens -= tokens;
     pos.soldSol += sol;
     this.wallet += sol;
+    this.logIfClosed(coinId, c, pos);
     const trade: PlayerTrade = { coinId, side: "sell", at, execAt: this.simNow, sol, tokens, rank: c.botBuys };
     this.trades.push(trade);
 
@@ -778,6 +801,24 @@ export class Engine {
     if (sc?.phase === "live" && sc.firstBuy?.isTarget && this.allClosed()) this.endScored("success");
     this.emitNow();
     return trade;
+  }
+
+  /** Record a fully sold position for the Portfolio. Re-buys of the same coin log only their own part. */
+  private logIfClosed(coinId: string, c: Coin, pos: { tokens: number; boughtSol: number; soldSol: number }): void {
+    if (pos.tokens >= 1e-6) return;
+    const done = this.logged.get(coinId) ?? { bought: 0, sold: 0 };
+    const invested = pos.boughtSol - done.bought;
+    if (invested <= 0) return;
+    this.closedLog.push({
+      id: this.closedLog.length + 1,
+      coinId,
+      ticker: c.spec.ticker,
+      name: c.spec.name,
+      art: c.spec.art,
+      invested,
+      returned: pos.soldSol - done.sold,
+    });
+    this.logged.set(coinId, { bought: pos.boughtSol, sold: pos.soldSol });
   }
 
   private allClosed(): boolean {
@@ -865,10 +906,11 @@ export class Engine {
       const c = this.coins.get(coinId);
       if (!c || pos.tokens < 1e-6) continue;
       const tokens = pos.tokens;
-      const sol = this.applySell(c, tokens, this.simNow, "player");
+      const sol = this.applySell(c, tokens, this.simNow, "player", true);
       pos.tokens = 0;
       pos.soldSol += sol;
       this.wallet += sol;
+      this.logIfClosed(coinId, c, pos);
       this.trades.push({ coinId, side: "sell", at: this.simNow, execAt: this.simNow, sol, tokens, rank: c.botBuys });
     }
   }
@@ -994,6 +1036,8 @@ export class Engine {
       feesSol: c.volumeSol * FEE,
       liqUsd: c.migrated ? toUsd(this.mc(c)) * 0.12 : toUsd(c.curve.realSol),
       earlyAvgMcUsd: c.earlyVol > 0 ? toUsd(c.earlyMcW / c.earlyVol) : toUsd(this.mc(c)),
+      migratedAt: c.migratedAt,
+      changePct: c.candles.length && c.candles[0].o > 0 ? (mcSol / c.candles[0].o - 1) * 100 : 0,
       migratingUntil: Number.isFinite(c.lockUntil) ? c.lockUntil : null,
       buyVolUsd: toUsd(c.buyVolSol),
       sellVolUsd: toUsd(c.sellVolSol),
@@ -1034,6 +1078,7 @@ export class Engine {
       feed: [...this.feed],
       walletSol: this.wallet,
       positions,
+      closed: [...this.closedLog],
       round: this.roundView,
       scored: this.scored?.view ?? null,
     };

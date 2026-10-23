@@ -4,7 +4,7 @@ import { Engine } from "./engine";
 import { DIFFICULTIES } from "./difficulty";
 import { Rng } from "./rng";
 import { MIGRATION_LOCK_MS, MIGRATION_MC_USD } from "./curve";
-import { MEME_PACK, makeRound, splitTemplate, validateMeme } from "./scenario";
+import { MEME_PACK, highlightPhrases, makeRound, splitTemplate, validateMeme } from "./scenario";
 import type { Meme } from "./types";
 
 describe("rng", () => {
@@ -592,5 +592,60 @@ describe("ath target", () => {
       expect(peak).toBeGreaterThan(meme.ath![0] * 0.5);
       expect(peak).toBeLessThan(meme.ath![1] * 2);
     }
+  });
+});
+
+describe("freeze and history", () => {
+  const migrate = () => {
+    const e = new Engine({ seed: 7, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+    e.startRound({ leadMs: 0 });
+    let id = "";
+    for (let t = 0; t < 120000; t += 50) {
+      e.advanceTo(t);
+      id = e.getRound()?.targetCoinId ?? "";
+      if (id && e.getCoinView(id)?.stage === "migrated") break;
+    }
+    return { e, id };
+  };
+
+  it("does not move the price at all while migrating", () => {
+    const { e, id } = migrate();
+    const mc0 = e.getCoinView(id)!.mcSol;
+    const n0 = e.getCandles(id).length;
+    e.advanceTo(e.now() + 2900);
+    expect(e.getCoinView(id)!.mcSol).toBe(mc0);
+    expect(e.getCandles(id).length).toBe(n0);
+    expect(e.sell(id, 1)).toBeNull();
+  });
+
+  it("runners trade real size after migrating", () => {
+    const { e, id } = migrate();
+    const v0 = e.getCoinView(id)!.volumeUsd;
+    e.advanceTo(e.now() + 3100 + 20000);
+    expect(e.getCoinView(id)!.volumeUsd - v0).toBeGreaterThan(20000);
+  });
+
+  it("logs a closed position once, with its own invested and returned", () => {
+    const e = new Engine({ seed: 2, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+    const id = e.getSnapshot().newPairs[0].id;
+    expect(e.quickBuy(id, 2)).not.toBeNull();
+    expect(e.getSnapshot().closed).toHaveLength(0);
+    e.sell(id, 1);
+    const closed = e.getSnapshot().closed;
+    expect(closed).toHaveLength(1);
+    expect(closed[0].invested).toBeCloseTo(2, 5);
+    e.quickBuy(id, 1);
+    e.sell(id, 1);
+    const c2 = e.getSnapshot().closed;
+    expect(c2).toHaveLength(2);
+    expect(c2[1].invested).toBeCloseTo(1, 5);
+  });
+});
+
+describe("keyword highlighting", () => {
+  it("pinks whole-word matches only", () => {
+    const segs = highlightPhrases([{ text: "a rubber duck with a dev note, device" }], ["dev", "rubber duck"]);
+    expect(segs.filter((x) => x.hl).map((x) => x.text)).toEqual(["rubber duck", "dev"]);
+    expect(segs.map((x) => x.text).join("")).toBe("a rubber duck with a dev note, device");
   });
 });

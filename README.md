@@ -71,6 +71,12 @@ A round is: 3 s countdown, an armed wait of 1.5 to 4 s, then the tweet and the f
   engine's 1 s candles client-side (`chartData.ts`) into 1s-1m bars, in Price or MC, USD or SOL, and updates through `series.update`.
   "Top 10 avg buy" is the volume-weighted MC of the first 30 SOL bought. Holders/Top Traders show modelled stats, not a fake wallet list. Coins you have open are pinned (`engine.focus`) so they never age off the board.
 - UI/settings state: Zustand (`src/store/ui.ts`). Game state lives in the engine.
+- Nav tabs (`TopNav.tsx`): Trenches (tracker + Memescope), Trending (`Trending.tsx`: Surging / Top gainers / Fresh / Near migration,
+  with quick-buy), Portfolio (`Portfolio.tsx`: open positions, closed-trade history, equity curve) and Rewards (coming soon).
+  CopyTrade, Monitor and Track are placeholders. Closed trades persist in this browser's localStorage (`store/history.ts`, key `gngm.history.v1`, cap 500).
+- Migration: at about $43K MC a coin locks for 3 s. Buys and sells are blocked, the price walk is skipped (chart frozen) and the chart
+  shows a dotted "Migrated" line. Coins with an `ath` range then run toward it with heavy post-migration volume.
+- Tracker keywords are highlighted pink (`highlightPhrases` in `scenario.ts`); memes can set `highlight` phrases and `noHighlight`.
 
 ## Assumptions to confirm
 

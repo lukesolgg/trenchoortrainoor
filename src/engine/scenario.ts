@@ -69,6 +69,36 @@ export interface RoundPlan {
   distractors: DistractorPlan[];
 }
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Pink-highlight whole-word, case-insensitive matches of `phrases` in the plain segments. */
+export function highlightPhrases(segs: TweetSeg[], phrases: readonly string[]): TweetSeg[] {
+  if (!phrases.length) return segs;
+  const re = new RegExp(`\\b(${[...phrases].sort((a, b) => b.length - a.length).map(escapeRe).join("|")})\\b`, "gi");
+  const out: TweetSeg[] = [];
+  for (const seg of segs) {
+    if (seg.hl) {
+      out.push(seg);
+      continue;
+    }
+    let last = 0;
+    for (const m of seg.text.matchAll(re)) {
+      const i = m.index ?? 0;
+      if (i > last) out.push({ text: seg.text.slice(last, i) });
+      out.push({ text: m[0], hl: true });
+      last = i + m[0].length;
+    }
+    if (last < seg.text.length) out.push({ text: seg.text.slice(last) });
+  }
+  return out;
+}
+
+/** Words the tracker picks out in pink on ordinary chatter, like a real trenching feed. */
+export const KEYWORDS = [
+  "dev", "bundlers", "migration", "migrated", "slippage", "stop loss", "wallet", "take profits", "dex paid",
+  "snipers", "insiders", "rug", "jeet", "liquidity", "chart", "candle", "mint", "fees", "conviction", "market cap",
+];
+
 export function splitTemplate(template: string, name: string): TweetSeg[] {
   if (!template.includes("{name}")) return [{ text: template }];
   const [before, after] = template.split("{name}");
@@ -152,9 +182,9 @@ export function makeDecoy(rng: Rng, meme: Meme, right: CoinConfig, flaw: Flaw, n
 export function makeNoiseTweet(rng: Rng): { author: Author; segments: TweetSeg[] } {
   if (rng.chance(0.22)) {
     const key = rng.pick(Object.keys(AUTHORITIES));
-    return { author: AUTHORITIES[key], segments: [{ text: rng.pick(AUTHORITY_TWEETS[key]) }] };
+    return { author: AUTHORITIES[key], segments: highlightPhrases([{ text: rng.pick(AUTHORITY_TWEETS[key]) }], KEYWORDS) };
   }
-  return { author: rng.pick(NOISE_AUTHORS), segments: [{ text: rng.pick(NOISE_TWEETS) }] };
+  return { author: rng.pick(NOISE_AUTHORS), segments: highlightPhrases([{ text: rng.pick(NOISE_TWEETS) }], KEYWORDS) };
 }
 
 export function makeDistractor(rng: Rng, atMs: number): DistractorPlan {
@@ -234,7 +264,7 @@ export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
   return {
     meme,
     author,
-    segments: splitTemplate(rng.pick(meme.tweets), meme.name),
+    segments: highlightPhrases(splitTemplate(rng.pick(meme.tweets), meme.name), meme.highlight ?? []),
     rightPair,
     rightConfig,
     spawns,

@@ -5,28 +5,19 @@ import { Art } from "./Art";
 import { ConfigChips } from "./chips";
 import { signed, sol, usd } from "./format";
 
-/** Center-screen countdown, "armed" pill and the GO flash. Never blocks clicks: a click here is a false start. */
+/** Center-screen countdown and the GO flash. The armed/live status lives in the strip under the nav. Never blocks clicks: a click here is a false start. */
 export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number }) {
   if (scored.phase === "countdown") {
     const n = Math.max(1, Math.ceil((scored.tArm - now) / 1000));
     return (
-      <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center bg-black/55">
+      <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center bg-black/20">
         <div className="text-center">
-          <div key={n} className="anim-count text-[180px] font-black leading-none tracking-tighter text-white">
+          <div key={n} className="anim-count text-[88px] font-black leading-none tracking-tighter text-white drop-shadow-[0_2px_16px_rgba(0,0,0,.6)]">
             {n}
           </div>
-          <p className="mt-2 text-[14px] font-semibold uppercase tracking-[0.2em] text-dim">
+          <p className="mt-1 text-[12px] font-semibold uppercase tracking-[0.2em] text-ink/80 drop-shadow-[0_1px_8px_rgba(0,0,0,.8)]">
             Get ready. Don&apos;t buy before the tweet.
           </p>
-        </div>
-      </div>
-    );
-  }
-  if (scored.phase === "armed") {
-    return (
-      <div className="pointer-events-none fixed inset-x-0 top-[132px] z-30 flex justify-center">
-        <div className="anim-armed rounded-full border border-amber/60 bg-bg/90 px-5 py-2 text-[13px] font-extrabold uppercase tracking-[0.18em] text-amber">
-          Armed. Wait for the tweet.
         </div>
       </div>
     );
@@ -34,7 +25,7 @@ export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number 
   if (scored.phase === "live" && now - scored.tTweet < 900) {
     return (
       <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center">
-        <div className="anim-go text-[150px] font-black leading-none tracking-tighter text-up drop-shadow-[0_0_40px_rgba(46,230,166,.6)]">
+        <div className="anim-go text-[96px] font-black leading-none tracking-tighter text-up drop-shadow-[0_0_40px_rgba(46,230,166,.6)]">
           GO
         </div>
       </div>
@@ -53,7 +44,7 @@ export function RoundStatus({ scored, now }: { scored: ScoredView; now: number }
     case "live":
       return (
         <>
-          <span className="tabular rounded bg-up/15 px-2 py-0.5 font-bold text-up">
+          <span className="tabular rounded bg-up/15 px-2.5 py-0.5 text-[13px] font-extrabold text-up">
             LIVE {Math.max(0, (now - scored.tTweet) / 1000).toFixed(1)}s
           </span>
           <span className="text-dim">

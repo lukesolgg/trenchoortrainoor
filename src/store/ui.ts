@@ -2,10 +2,12 @@ import { create } from "zustand";
 import type { DifficultyId } from "@/engine/types";
 
 export type Screen = "modes" | "setup" | "play";
+export type NavTab = "trenches" | "trending" | "portfolio" | "rewards";
 export type ModeId = "firsttx" | "dev" | "freeplay";
 
 interface UiState {
   screen: Screen;
+  tab: NavTab;
   mode: ModeId;
   difficulty: DifficultyId;
   /** The three quick-buy sizes (P1-P3), in SOL. */
@@ -22,6 +24,7 @@ interface UiState {
   presetSet: number;
   /** Bumped on every round start so the Game remounts with a fresh engine. */
   runId: number;
+  setTab: (t: NavTab) => void;
   pickMode: (m: ModeId) => void;
   setDifficulty: (d: DifficultyId) => void;
   setQuickPreset: (i: number, n: number) => void;
@@ -38,6 +41,7 @@ interface UiState {
 /** UI and settings only. Game state lives in the engine. */
 export const useUi = create<UiState>((set) => ({
   screen: "modes",
+  tab: "trenches",
   mode: "firsttx",
   difficulty: "sniper",
   quickPresets: [0.5, 1, 3],
@@ -52,6 +56,7 @@ export const useUi = create<UiState>((set) => ({
   ],
   presetSet: 0,
   runId: 0,
+  setTab: (tab) => set({ tab }),
   pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : "setup", runId: Date.now() }),
   setDifficulty: (difficulty) => set({ difficulty }),
   setQuickPreset: (i, n) => set((st) => ({ quickPresets: st.quickPresets.map((v, k) => (k === i ? n : v)) })),
@@ -61,6 +66,6 @@ export const useUi = create<UiState>((set) => ({
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),
   setBuyPresets: (p) => set((st) => ({ buySets: st.buySets.map((x, i) => (i === st.presetSet ? p : x)) })),
   setPresetSet: (presetSet) => set({ presetSet }),
-  start: () => set({ screen: "play", runId: Date.now() }),
+  start: () => set({ screen: "play", tab: "trenches", runId: Date.now() }),
   toModes: () => set({ screen: "modes" }),
 }));

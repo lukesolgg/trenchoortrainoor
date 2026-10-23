@@ -57,7 +57,11 @@ export interface CoinView {
   liqUsd: number;
   /** Volume-weighted average market cap of the earliest buys, in USD. Stands in for "top holders' avg buy". */
   earlyAvgMcUsd: number;
-  /** Sim time (ms) until which buys are paused after migration, or null. */
+  /** Sim time (ms) the coin migrated, or null. */
+  migratedAt: number | null;
+  /** Change in market cap since the first candle, in percent. */
+  changePct: number;
+  /** Sim time (ms) until which trading is frozen after migration, or null. */
   migratingUntil: number | null;
   /** USD bought and sold so far. */
   buyVolUsd: number;
@@ -120,6 +124,8 @@ export interface Meme {
   ath?: [number, number];
   /** The tweet does not spell out the coin name, so nothing is highlighted and templates need no {name}. */
   noHighlight?: boolean;
+  /** Extra phrases to highlight in pink in the tracker, as hints (not the coin name). */
+  highlight?: string[];
   /** Reference facts for the real coin this meme is based on. Not used in play yet (results screen later). */
   info?: { launch: string; athMcUsd: string; athDate: string; ca: string; lesson: string };
 }
@@ -168,6 +174,18 @@ export interface Position {
   valueSol: number;
 }
 
+/** A position that has been fully sold. The UI keeps these in localStorage for the Portfolio. */
+export interface ClosedTrade {
+  /** Sequence number within the session. */
+  id: number;
+  coinId: string;
+  ticker: string;
+  name: string;
+  art: ArtSpec;
+  invested: number;
+  returned: number;
+}
+
 export interface Snapshot {
   version: number;
   now: number;
@@ -177,6 +195,8 @@ export interface Snapshot {
   feed: TweetView[];
   walletSol: number;
   positions: Position[];
+  /** Fully closed positions this session, oldest first. */
+  closed: ClosedTrade[];
   round: RoundView | null;
   /** Present only in scored rounds. */
   scored: ScoredView | null;

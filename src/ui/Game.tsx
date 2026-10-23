@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useHistory } from "@/store/history";
 import { DIFFICULTIES } from "@/engine/difficulty";
 import { useUi } from "@/store/ui";
 import { PulseBoard } from "./PulseBoard";
 import { ResultsOverlay, RoundOverlay, RoundStatus } from "./RoundOverlays";
 import { TokenPage } from "./TokenPage";
+import { Portfolio, type OpenRow } from "./Portfolio";
+import { Rewards } from "./Rewards";
 import { StatusBar } from "./StatusBar";
+import { Trending } from "./Trending";
 import { TopNav } from "./TopNav";
 import { TweetFeed } from "./TweetFeed";
 import { sol } from "./format";
@@ -21,7 +25,7 @@ interface Toast {
 
 export function Game() {
   const {
-    mode, difficulty, quickPresets, colPreset, quickEnabled, feedOpen, buySets, presetSet,
+    mode, difficulty, tab, setTab, quickPresets, colPreset, quickEnabled, feedOpen, buySets, presetSet,
     setQuickPreset, setColPreset, setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start,
   } = useUi();
   // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
@@ -128,11 +132,41 @@ export function Game() {
   }, [toModes, openId, start, engine]);
 
   const buyPresets = buySets[presetSet];
+  const allCoins = useMemo(() => [...snap.newPairs, ...snap.finalStretch, ...snap.migrated], [snap.newPairs, snap.finalStretch, snap.migrated]);
+  const openRows: OpenRow[] = snap.positions.map((p) => {
+    const v = engine.getCoinView(p.coinId);
+    return { position: p, ticker: v?.ticker ?? "?", name: v?.name ?? "", art: v?.art ?? { hue: 0, glyph: "?" } };
+  });
+  const sellFromPortfolio = (coinId: string, fraction: number, ts: number) => {
+    const trade = engine.sell(coinId, fraction, engine.fromEventTime(ts));
+    notify(
+      trade
+        ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL`
+        : engine.isMigrating(coinId)
+          ? "Migrating: trading reopens in a moment"
+          : "Nothing to sell",
+    );
+  };
+
+  // Closed positions go to the Portfolio history (kept in this browser).
+  const savedClosed = useRef(0);
+  const addHistory = useHistory((h) => h.add);
+  useEffect(() => {
+    const fresh = snap.closed.slice(savedClosed.current);
+    if (!fresh.length) return;
+    savedClosed.current = snap.closed.length;
+    addHistory(fresh.map((t) => ({ key: `${wallStart}-${t.id}`, ticker: t.ticker, name: t.name, art: t.art, invested: t.invested, returned: t.returned, closedAt: Date.now() })));
+  }, [snap.closed, addHistory, wallStart]);
   const diff = DIFFICULTIES[difficulty];
 
   return (
     <div className="flex h-dvh flex-col">
       <TopNav
+        tab={tab}
+        onTab={(t) => {
+          setOpenId(null);
+          setTab(t);
+        }}
         modeLabel={MODE_LABEL[mode]}
         difficultyLabel={diff.label}
         query={query}
@@ -141,7 +175,7 @@ export function Game() {
         walletSol={snap.walletSol}
         onMenu={toModes}
       />
-      <div className="flex h-8 shrink-0 items-center gap-3 border-b border-line bg-bg px-4 text-[12px]">
+      <div className="flex h-8 shrink-0 items-center justify-center gap-3 border-b border-line bg-bg px-4 text-[12px]">
         {scored ? (
           <RoundStatus scored={scored} now={snap.now} />
         ) : (
@@ -170,6 +204,20 @@ export function Game() {
             onOpen={setOpenId}
             notify={notify}
           />
+        ) : tab === "trending" ? (
+          <Trending
+            coins={allCoins}
+            now={snap.now}
+            query={query}
+            quickSol={quickPresets[colPreset[0]]}
+            quickEnabled={quickEnabled}
+            onQuickBuy={onQuickBuy}
+            onOpen={setOpenId}
+          />
+        ) : tab === "portfolio" ? (
+          <Portfolio walletSol={snap.walletSol} open={openRows} onOpenCoin={setOpenId} onSell={sellFromPortfolio} />
+        ) : tab === "rewards" ? (
+          <Rewards />
         ) : (
         <PulseBoard
           newPairs={snap.newPairs}

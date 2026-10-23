@@ -102,7 +102,13 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
 
   const sell = (fraction: number, eventTs: number) => {
     const trade = engine.sell(coinId, fraction, engine.fromEventTime(eventTs));
-    notify(trade ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL` : "Nothing to sell");
+    notify(
+      trade
+        ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL`
+        : engine.isMigrating(coinId)
+          ? "Migrating: trading reopens in a moment"
+          : "Nothing to sell",
+    );
   };
 
   // Buy hotkeys 1-8 fire the active preset set (ignored while typing in a field).
@@ -156,7 +162,13 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
     .map((p) => ({ position: p, ticker: engine.getCoinView(p.coinId)?.ticker ?? "?", name: engine.getCoinView(p.coinId)?.name ?? "" }));
   const sellCoin = (id: string, fraction: number, ts: number) => {
     const trade = engine.sell(id, fraction, engine.fromEventTime(ts));
-    notify(trade ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL` : "Nothing to sell");
+    notify(
+      trade
+        ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL`
+        : engine.isMigrating(id)
+          ? "Migrating: trading reopens in a moment"
+          : "Nothing to sell",
+    );
   };
 
   const entryMcUsd =
@@ -285,6 +297,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               entryMcUsd={entryMcUsd}
               earlyAvgMcUsd={coin.earlyAvgMcUsd}
               ticker={coin.ticker}
+              migratedAt={coin.migratedAt}
             />
           </div>
           <div className="flex h-7 shrink-0 items-center gap-2 border-t border-line bg-nav px-3">
