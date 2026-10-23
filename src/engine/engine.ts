@@ -1,5 +1,5 @@
 import * as curveLib from "./curve";
-import { FEE, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
+import { FEE, MIGRATION_LOCK_MS, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor } from "./scoring";
@@ -54,6 +54,7 @@ interface Coin {
   curve: Curve;
   migrated: boolean;
   migratedAt: number | null;
+  lockUntil: number;
   postMc: number;
   moonUntil: number | null;
   stage: Stage;
@@ -165,7 +166,7 @@ export class Engine {
     this.clock = opts.clock ?? (() => performance.now());
     this.seedAmbient();
     this.scheduleAmbientLoops();
-    if (opts.autoRounds) this.at(4000, () => this.startRound());
+    if (opts.autoRounds) this.at(this.rng.range(8000, 50000), () => this.startRound());
     this.snap = this.buildSnapshot();
   }
 
@@ -261,6 +262,7 @@ export class Engine {
       curve,
       migrated: false,
       migratedAt: null,
+      lockUntil: -Infinity,
       postMc: 0,
       moonUntil: null,
       stage: "new",
@@ -366,6 +368,7 @@ export class Engine {
   private migrate(c: Coin, at: number): void {
     c.migrated = true;
     c.migratedAt = at;
+    c.lockUntil = at + MIGRATION_LOCK_MS;
     c.postMc = curveLib.mcSol(c.curve);
     // The winner keeps running for a while after it migrates.
     if (c.spec.role === "target" || c.spec.profile === "run") {
@@ -376,6 +379,8 @@ export class Engine {
 
   /** Returns tokens bought and SOL spent. */
   private applyBuy(c: Coin, sol: number, at: number, by: "bot" | "player"): { tokens: number; spent: number } {
+    // Buys are paused while a coin migrates.
+    if (at < c.lockUntil) return { tokens: 0, spent: 0 };
     let tokens = 0;
     let spent = 0;
     if (c.migrated) {
@@ -591,7 +596,7 @@ export class Engine {
     const chatter = (at: number) => {
       const t = makeNoiseTweet(this.rng);
       this.pushTweet(t.author, t.segments, false, undefined, at);
-      this.at(at + this.rng.range(1200, 3200), chatter);
+      this.at(at + this.rng.range(3000, 7000), chatter);
     };
     this.at(300, chatter);
 
@@ -933,6 +938,12 @@ export class Engine {
     return this.trades.filter((t) => t.coinId === coinId);
   }
 
+  /** True while a coin's migration pause is running (player buys are refused). */
+  isMigrating(coinId: string): boolean {
+    const c = this.coins.get(coinId);
+    return !!c && this.simNow < c.lockUntil;
+  }
+
   /** Keep a coin alive while its page is open. Pass null to release. */
   focus(coinId: string | null): void {
     this.focusId = coinId;
@@ -971,6 +982,7 @@ export class Engine {
       feesSol: c.volumeSol * FEE,
       liqUsd: c.migrated ? toUsd(this.mc(c)) * 0.12 : toUsd(c.curve.realSol),
       earlyAvgMcUsd: c.earlyVol > 0 ? toUsd(c.earlyMcW / c.earlyVol) : toUsd(this.mc(c)),
+      migratingUntil: Number.isFinite(c.lockUntil) ? c.lockUntil : null,
       buyVolUsd: toUsd(c.buyVolSol),
       sellVolUsd: toUsd(c.sellVolSol),
       source: c.source,

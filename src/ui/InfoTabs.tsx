@@ -27,10 +27,12 @@ interface Props {
   now: number;
   positions: { position: Position; ticker: string; name: string }[];
   onSellCoin: (coinId: string, fraction: number, eventTs: number) => void;
+  onOpenCoin: (coinId: string) => void;
+  currentId: string;
 }
 
 /** Bottom-right tabs. Holders shows the distribution stats the engine models, not a fake wallet list. */
-export function InfoTabs({ coin, tape, trades, now, positions, onSellCoin }: Props) {
+export function InfoTabs({ coin, tape, trades, now, positions, onSellCoin, onOpenCoin, currentId }: Props) {
   const [tab, setTab] = useState<Tab>("positions");
 
   const traders = useMemo(() => {
@@ -80,15 +82,20 @@ export function InfoTabs({ coin, tape, trades, now, positions, onSellCoin }: Pro
                   const pct = p.boughtSol > 0 ? (pnl / p.boughtSol) * 100 : 0;
                   const open = p.tokens > 1e-6;
                   return (
-                    <tr key={p.coinId}>
-                      <td className="py-[3px] pl-3 font-bold">{ticker}</td>
+                    <tr
+                      key={p.coinId}
+                      onClick={() => onOpenCoin(p.coinId)}
+                      className={`cursor-pointer transition-colors hover:bg-card-hi ${p.coinId === currentId ? "bg-card" : ""}`}
+                      title="Open this coin's chart"
+                    >
+                      <td className="py-[3px] pl-3 font-bold">{ticker}{p.coinId === currentId && <span className="ml-1.5 text-[9px] font-semibold text-up">viewing</span>}</td>
                       <td className="tabular py-[3px] text-right">◎{sol(p.boughtSol)}</td>
                       <td className="tabular py-[3px] text-right">◎{sol(p.valueSol)}</td>
                       <td className={`tabular py-[3px] text-right font-semibold ${pnl >= 0 ? "text-up" : "text-down"}`}>
                         {signed(pnl)} <span className="text-[10px] opacity-70">{signed(pct, 0)}%</span>
                       </td>
                       <td className="py-[3px] pr-3">
-                        <div className="ml-auto flex w-[132px] gap-1">
+                        <div className="ml-auto flex w-[132px] gap-1" onClick={(e) => e.stopPropagation()}>
                           <FireButton tone="sell" outline pill h="h-6" disabled={!open} label="50%" onFire={(ts) => onSellCoin(p.coinId, 0.5, ts)} />
                           <FireButton tone="sell" outline pill h="h-6" disabled={!open} label="100%" onFire={(ts) => onSellCoin(p.coinId, 1, ts)} />
                         </div>

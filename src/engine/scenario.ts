@@ -147,7 +147,7 @@ export function makeDecoy(rng: Rng, meme: Meme, right: CoinConfig, flaw: Flaw, n
 
 /** Ordinary chatter. Authority accounts post here too, but never name a meme. */
 export function makeNoiseTweet(rng: Rng): { author: Author; segments: TweetSeg[] } {
-  if (rng.chance(0.14)) {
+  if (rng.chance(0.22)) {
     const key = rng.pick(Object.keys(AUTHORITIES));
     return { author: AUTHORITIES[key], segments: [{ text: rng.pick(AUTHORITY_TWEETS[key]) }] };
   }

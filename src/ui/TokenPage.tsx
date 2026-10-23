@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SOL_USD, SUPPLY } from "@/engine/curve";
+import { MIGRATION_MC_USD, SOL_USD, SUPPLY } from "@/engine/curve";
 import type { Engine } from "@/engine/engine";
 import type { Snapshot } from "@/engine/types";
 import { Art } from "./Art";
@@ -17,10 +17,11 @@ import { age, sol, usd } from "./format";
 import { TradePanel } from "./TradePanel";
 import { TradeTape } from "./TradeTape";
 
-const Stat = ({ k, v, tone }: { k: string; v: string; tone?: string }) => (
+const Stat = ({ k, v, tone, sub }: { k: string; v: string; tone?: string; sub?: string }) => (
   <div className="leading-tight">
     <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{k}</div>
     <div className={`tabular text-[14px] font-bold ${tone ?? "text-ink"}`}>{v}</div>
+    {sub && <div className="tabular text-[10px] text-faint">{sub}</div>}
   </div>
 );
 
@@ -70,10 +71,12 @@ interface Props {
   presetSet: number;
   onPresetSet: (i: number) => void;
   onBack: () => void;
+  /** Jump to another coin's page. */
+  onOpen: (coinId: string) => void;
   notify: (text: string) => void;
 }
 
-export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, notify }: Props) {
+export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify }: Props) {
   const coin = engine.getCoinView(coinId);
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
@@ -91,7 +94,9 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
     notify(
       trade
         ? `Bought ${sol(trade.sol)} SOL of ${coin?.ticker ?? "coin"} · ${trade.rank} bot buys ahead of you`
-        : "Buy failed: not enough SOL, or the curve is complete",
+        : engine.isMigrating(coinId)
+          ? "Migrating: buys reopen in a moment"
+          : "Buy failed: not enough SOL, or the curve is complete",
     );
   };
 
@@ -112,7 +117,9 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
       notify(
         trade
           ? `Bought ${sol(trade.sol)} SOL of ${ticker} · ${trade.rank} bot buys ahead of you`
-          : "Buy failed: not enough SOL, or the curve is complete",
+          : engine.isMigrating(coinId)
+            ? "Migrating: buys reopen in a moment"
+            : "Buy failed: not enough SOL, or the curve is complete",
       );
     };
     window.addEventListener("keydown", onKey);
@@ -137,6 +144,8 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
   }
 
   const first = engine.getCandles(coinId)[0];
+  const buyLocked = coin.migratingUntil !== null && coin.migratingUntil > snap.now;
+  const lockSecs = buyLocked ? ((coin.migratingUntil ?? 0) - snap.now) / 1000 : 0;
   const changePct = first && first.o > 0 ? (coin.mcSol / first.o - 1) * 100 : 0;
   const toggleInstant = () => {
     setInstant(!instant);
@@ -214,7 +223,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           <Stat k="Liquidity" v={usd(coin.liqUsd)} />
           <Stat k="Supply" v="1B" />
           <Stat k="Global fees" v={`◎${sol(coin.feesSol, 3)}`} />
-          <Stat k="B.Curve" v={`${(coin.progress * 100).toFixed(2)}%`} />
+          <Stat k="B.Curve" v={`${(coin.progress * 100).toFixed(2)}%`} sub={coin.stage === "migrated" ? "migrated" : `→ ${usd(MIGRATION_MC_USD)}`} />
           <Stat k="Holders" v={String(coin.holders)} />
           <Stat k="Top 10 H." v={`${coin.stats.top10.toFixed(2)}%`} tone={coin.stats.top10 >= 25 ? "text-down" : "text-up"} />
           <Stat k="Dev H." v={`${coin.stats.dev.toFixed(2)}%`} tone={coin.stats.dev >= 5 ? "text-down" : "text-up"} />
@@ -251,6 +260,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
             {instant && widgetOpen && (
               <QuickWidget
                 presets={buyPresets}
+                buyLocked={buyLocked}
                 presetSet={presetSet}
                 onPresetSet={onPresetSet}
                 walletSol={snap.walletSol}
@@ -294,7 +304,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               <TradeTape tape={tape} now={snap.now} />
             </div>
             <div className="min-h-0 min-w-0">
-              <InfoTabs coin={coin} tape={tape} trades={engine.getTradesFor(coinId)} now={snap.now} positions={positionRows} onSellCoin={sellCoin} />
+              <InfoTabs coin={coin} tape={tape} trades={engine.getTradesFor(coinId)} now={snap.now} positions={positionRows} onSellCoin={sellCoin} onOpenCoin={onOpen} currentId={coinId} />
             </div>
           </div>
         </div>
@@ -306,6 +316,8 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           onBuyPresets={onBuyPresets}
           presetSet={presetSet}
           onPresetSet={onPresetSet}
+          buyLocked={buyLocked}
+          lockSecs={lockSecs}
           instant={instant}
           changePct={changePct}
           onBuy={buy}

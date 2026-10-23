@@ -93,3 +93,13 @@ export function sell(c: Curve, tokens: number): SellResult {
 }
 
 export const toUsd = (sol: number) => sol * SOL_USD;
+
+/** Market cap (SOL) at the moment the curve completes and the coin migrates. */
+export const MIGRATION_MC_SOL = (() => {
+  const vTok = INIT_VTOK - REAL_TOK_TOTAL;
+  const vSol = (INIT_VSOL * INIT_VTOK) / vTok;
+  return (vSol / vTok) * SUPPLY;
+})();
+export const MIGRATION_MC_USD = MIGRATION_MC_SOL * SOL_USD;
+/** After a coin migrates, buys are paused for this long. */
+export const MIGRATION_LOCK_MS = 3000;

@@ -58,7 +58,9 @@ export function Game() {
       notify(
         trade
           ? `Bought ${sol(trade.sol, 2)} SOL of ${coin?.ticker ?? "coin"} · ${trade.rank} bot buys ahead of you`
-          : "Buy failed: not enough SOL, or the coin is gone",
+          : engine.isMigrating(coinId)
+            ? "Migrating: buys reopen in a moment"
+            : "Buy failed: not enough SOL, or the coin is gone",
       );
     },
     [engine, notify],
@@ -165,6 +167,7 @@ export function Game() {
             presetSet={presetSet}
             onPresetSet={setPresetSet}
             onBack={() => setOpenId(null)}
+            onOpen={setOpenId}
             notify={notify}
           />
         ) : (

@@ -94,13 +94,15 @@ interface Props {
   presetSet: number;
   onPresetSet: (i: number) => void;
   instant: boolean;
+  buyLocked: boolean;
+  lockSecs: number;
   /** Session change in percent, shown on the window buttons. */
   changePct: number;
   onBuy: (sol: number, eventTs: number) => void;
   onSell: (fraction: number, eventTs: number) => void;
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, changePct, onBuy, onSell }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -225,7 +227,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
               <div className="grid grid-cols-4 gap-1.5">
                 {buyPresets.map((p, i) =>
                   instant ? (
-                    <FireButton key={i} tone="buy" outline pill h="h-9" hint={String(i + 1)} disabled={p > walletSol} label={<>◎{sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)}</>} onFire={(ts) => onBuy(p, ts)} />
+                    <FireButton key={i} tone="buy" outline pill h="h-9" hint={String(i + 1)} disabled={p > walletSol || buyLocked} label={<>◎{sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)}</>} onFire={(ts) => onBuy(p, ts)} />
                   ) : (
                     <button
                       key={i}
@@ -292,8 +294,14 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           ))}
         </div>
 
+        {side === "buy" && buyLocked && (
+          <div className="rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-center text-[12px] font-bold text-amber">
+            Migrating… buys reopen in {lockSecs.toFixed(1)}s
+          </div>
+        )}
+
         {side === "buy" ? (
-          !instant && <FireButton tone="buy" pill h="h-11" label={`Buy ${t}`} disabled={!buyOk} onFire={(ts) => onBuy(buyN, ts)} />
+          !instant && <FireButton tone="buy" pill h="h-11" label={`Buy ${t}`} disabled={!buyOk || buyLocked} onFire={(ts) => onBuy(buyN, ts)} />
         ) : (
           !instant && <FireButton tone="sell" pill h="h-11" label={`Sell ${t}`} disabled={!held || !sellOk} onFire={(ts) => onSell(sellN / 100, ts)} />
         )}

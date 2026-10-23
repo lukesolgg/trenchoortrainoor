@@ -3,7 +3,8 @@
 import { useState } from "react";
 import type { CoinView } from "@/engine/types";
 import { CoinCard } from "./CoinCard";
-import { age } from "./format";
+import { MIGRATION_MC_USD } from "@/engine/curve";
+import { age, usd } from "./format";
 import { usePausable } from "./hooks";
 
 interface ColumnProps {
@@ -69,6 +70,7 @@ function PulseColumn({ title, coins, query, now, presets, preset, onPreset, quic
             ageText={age(now - c.createdAt)}
             quickSol={presets[preset]}
             quickEnabled={quickEnabled}
+            migrating={c.migratingUntil !== null && c.migratingUntil > now}
             onQuickBuy={onQuickBuy}
             onOpen={onOpen}
           />
@@ -169,7 +171,7 @@ export function PulseBoard(p: BoardProps) {
           footer={
             <div className="rounded-lg border border-dashed border-line-hi p-3 text-[12px] text-dim">
               <div className="font-semibold text-ink/90">Next up: 35% bonded</div>
-              Coins past 35% of the curve wait here. They migrate at 100%.
+              Coins past 35% of the curve wait here. They migrate at <span className="font-semibold text-up">{usd(MIGRATION_MC_USD)}</span> market cap, then buys pause for 3 s.
             </div>
           }
           {...common}

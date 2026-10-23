@@ -16,4 +16,5 @@ export function ratingFor(reactionMs: number): string {
 export const MISS_AFTER_MS = 20000;
 export const MAX_ROUND_MS = 90000;
 export const COUNTDOWN_MS = 3000;
-export const ARMED_WAIT_MS: [number, number] = [1500, 4000];
+/** The big tweet can land anywhere in the first minute, so the player has to keep watching the tracker. */
+export const ARMED_WAIT_MS: [number, number] = [4000, 55000];

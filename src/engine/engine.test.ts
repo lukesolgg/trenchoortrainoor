@@ -3,6 +3,7 @@ import * as curve from "./curve";
 import { Engine } from "./engine";
 import { DIFFICULTIES } from "./difficulty";
 import { Rng } from "./rng";
+import { MIGRATION_LOCK_MS, MIGRATION_MC_USD } from "./curve";
 import { MEME_PACK, makeRound, splitTemplate, validateMeme } from "./scenario";
 import type { Meme } from "./types";
 
@@ -337,8 +338,9 @@ describe("scored round", () => {
     const sc = e.getSnapshot().scored!;
     expect(sc.phase).toBe("countdown");
     expect(sc.tArm).toBe(3000);
-    expect(sc.tTweet).toBeGreaterThanOrEqual(4500);
-    expect(sc.tTweet).toBeLessThanOrEqual(7000);
+    // The big tweet lands at a random point in the first minute.
+    expect(sc.tTweet).toBeGreaterThanOrEqual(7000);
+    expect(sc.tTweet).toBeLessThanOrEqual(58000);
     e.advanceTo(3001);
     expect(e.getSnapshot().scored!.phase).toBe("armed");
     e.advanceTo(sc.tTweet - 1);
@@ -546,5 +548,30 @@ describe("rating bands", () => {
     expect(ratingFor(1400)).toBe("Solid");
     expect(ratingFor(2000)).toBe("Slow");
     expect(ratingFor(4000)).toBe("Too slow");
+  });
+});
+
+describe("migration", () => {
+  it("exposes a sensible migration market cap", () => {
+    expect(MIGRATION_MC_USD).toBeGreaterThan(30000);
+    expect(MIGRATION_MC_USD).toBeLessThan(80000);
+  });
+
+  it("pauses player buys for 3 s after a coin migrates, then reopens", () => {
+    const e = new Engine({ seed: 7, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+    e.startRound({ leadMs: 0 });
+    let id: string | null = null;
+    for (let t = 0; t < 120000; t += 50) {
+      e.advanceTo(t);
+      id = e.getRound()?.targetCoinId ?? null;
+      if (id && e.getCoinView(id)?.stage === "migrated") break;
+    }
+    expect(id).not.toBeNull();
+    expect(e.getCoinView(id!)?.stage).toBe("migrated");
+    expect(e.isMigrating(id!)).toBe(true);
+    expect(e.quickBuy(id!, 1)).toBeNull();
+    e.advanceTo(e.now() + MIGRATION_LOCK_MS + 100);
+    expect(e.isMigrating(id!)).toBe(false);
+    expect(e.quickBuy(id!, 1)).not.toBeNull();
   });
 });

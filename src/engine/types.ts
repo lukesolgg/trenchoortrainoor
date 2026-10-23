@@ -57,6 +57,8 @@ export interface CoinView {
   liqUsd: number;
   /** Volume-weighted average market cap of the earliest buys, in USD. Stands in for "top holders' avg buy". */
   earlyAvgMcUsd: number;
+  /** Sim time (ms) until which buys are paused after migration, or null. */
+  migratingUntil: number | null;
   /** USD bought and sold so far. */
   buyVolUsd: number;
   sellVolUsd: number;

@@ -232,8 +232,9 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
       candle.setData(agg.map(bar));
       vol.setData(agg.map(volume));
       const n = agg.length;
-      if (n > 150) chart.timeScale().setVisibleLogicalRange({ from: n - 120, to: n + 6 });
-      else chart.timeScale().fitContent();
+      // Open at a comfortable zoom: never tighter than ~60 bars across, never wider than 150.
+      const bars = Math.min(150, Math.max(60, Math.round(n * 1.15)));
+      chart.timeScale().setVisibleLogicalRange({ from: n - bars, to: n + 8 });
       dataKey.current = key;
       last = agg[agg.length - 1];
     } else {

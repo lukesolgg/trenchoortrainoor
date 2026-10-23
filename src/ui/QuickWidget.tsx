@@ -5,6 +5,7 @@ import { SELL_PRESETS, FireButton } from "./TradePanel";
 
 interface Props {
   presets: number[];
+  buyLocked: boolean;
   presetSet: number;
   onPresetSet: (i: number) => void;
   walletSol: number;
@@ -16,7 +17,7 @@ interface Props {
 }
 
 /** Floating instant-trade pad over the chart. Every button fires on pointerdown. */
-export function QuickWidget({ presets, presetSet, onPresetSet, walletSol, held, ticker, onBuy, onSell, onClose }: Props) {
+export function QuickWidget({ presets, buyLocked, presetSet, onPresetSet, walletSol, held, ticker, onBuy, onSell, onClose }: Props) {
   return (
     <div className="absolute bottom-3 left-3 z-10 w-[230px] rounded-xl border border-line-hi bg-nav/95 p-2.5 shadow-2xl backdrop-blur">
       <div className="mb-2 flex items-center justify-between">
@@ -42,7 +43,7 @@ export function QuickWidget({ presets, presetSet, onPresetSet, walletSol, held, 
       </div>
       <div className="grid grid-cols-4 gap-1">
         {presets.map((p, i) => (
-          <FireButton key={i} tone="buy" outline pill h="h-7" disabled={p > walletSol} label={sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)} onFire={(ts) => onBuy(p, ts)} hint={undefined} />
+          <FireButton key={i} tone="buy" outline pill h="h-7" disabled={p > walletSol || buyLocked} label={sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)} onFire={(ts) => onBuy(p, ts)} hint={undefined} />
         ))}
       </div>
       <div className="mb-1 mt-2.5 text-[11px] font-bold">

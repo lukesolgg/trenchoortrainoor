@@ -36,19 +36,21 @@ interface Props {
   /** SOL amount of the column's selected preset. */
   quickSol: number;
   quickEnabled: boolean;
+  /** Buys are paused while the coin migrates. */
+  migrating: boolean;
   /** Called on pointerdown/keydown with the raw event timestamp. */
   onQuickBuy: (coinId: string, sol: number, eventTs: number) => void;
   onOpen: (coinId: string) => void;
 }
 
-export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickEnabled, onQuickBuy, onOpen }: Props) {
+export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickEnabled, migrating, onQuickBuy, onOpen }: Props) {
   const [flash, setFlash] = useState(0);
   const { config } = coin;
   const total = coin.buys + coin.sells;
   const buyPct = total ? (coin.buys / total) * 100 : 50;
 
   const fire = (ts: number) => {
-    if (!quickEnabled) return;
+    if (!quickEnabled || migrating) return;
     onQuickBuy(coin.id, quickSol, ts);
     setFlash((n) => n + 1);
   };
@@ -125,7 +127,7 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
             <button
               type="button"
               data-fire
-              disabled={!quickEnabled}
+              disabled={!quickEnabled || migrating}
               onPointerDown={(e) => {
                 if (e.button !== 0) return;
                 e.preventDefault();
@@ -138,10 +140,16 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
                   fire(e.nativeEvent.timeStamp);
                 }
               }}
-              className="flex h-7 min-w-[72px] items-center justify-center gap-1 rounded-full bg-buy px-3 text-[12px] font-bold text-white transition-[filter,transform] hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 min-w-[78px] items-center justify-center gap-1 rounded-full bg-buy px-3 text-[12px] font-bold text-white transition-[filter,transform] hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <BoltIcon className="h-3 w-3" />
-              {sol(quickSol, quickSol % 1 ? 2 : 0)}
+              {migrating ? (
+                <span className="text-[11px]">Migrating…</span>
+              ) : (
+                <>
+                  <BoltIcon className="h-3 w-3" />
+                  {sol(quickSol, quickSol % 1 ? 2 : 0)}
+                </>
+              )}
             </button>
           </span>
         </div>
