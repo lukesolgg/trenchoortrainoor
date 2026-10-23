@@ -10,6 +10,7 @@ import { ChartPanel, type ChartHandle, type Metric, type ScaleMode, type Unit } 
 import { fmtPrice } from "./chartData";
 import { InfoTabs } from "./InfoTabs";
 import { BoltIcon } from "./icons";
+import { SourceBadge } from "./SourceBadge";
 import { QuickWidget } from "./QuickWidget";
 import { useUi } from "@/store/ui";
 import { age, sol, usd } from "./format";
@@ -151,18 +152,17 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
 
   const entryMcUsd =
     position && position.boughtTokens > 0 ? (position.boughtSol / position.boughtTokens) * SUPPLY * SOL_USD : null;
-  const bonded = coin.stage === "migrated" ? "Migrated" : `${Math.round(coin.progress * 100)}% bonded`;
   const priceUsd = coin.mcUsd / SUPPLY;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <header className="flex h-[68px] shrink-0 items-center gap-5 border-b border-line bg-nav px-4">
+      <header className="flex h-[68px] shrink-0 items-center gap-4 border-b border-line bg-nav px-4">
         <button
           type="button"
           onClick={onBack}
           className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line-hi px-2.5 py-1.5 text-[12px] font-semibold text-dim transition-colors hover:text-ink"
         >
-          ← Back <kbd className="text-faint">Esc</kbd>
+          ← <kbd className="text-faint">Esc</kbd>
         </button>
         <div className="flex min-w-0 items-center gap-3">
           <div className="relative">
@@ -186,8 +186,18 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
                 <span className="rounded border border-line-hi bg-white/5 px-1.5 py-px text-[10px] font-bold text-dim">BONK</span>
               )}
             </div>
-            <div className="truncate text-[12px] text-dim">
-              {coin.name} · <span className="font-mono text-faint">{coin.mint}</span> · {age(snap.now - coin.createdAt)}
+            <div className="truncate text-[12px] text-dim">{coin.name}</div>
+            <div className="mt-0.5 flex items-center gap-2 text-[11px]">
+              <span className="tabular font-bold text-up">{age(snap.now - coin.createdAt)}</span>
+              <span
+                className={`rounded-full border px-2 py-px text-[10px] font-bold ${
+                  coin.config.launchpad === "pump" ? "border-up/40 bg-up/10 text-up" : "border-amber/40 bg-amber/10 text-amber"
+                }`}
+              >
+                {coin.config.launchpad === "pump" ? "Pump" : "Bonk"}
+              </span>
+              <SourceBadge source={coin.source} />
+              <span className="font-mono text-faint">{coin.mint}</span>
             </div>
           </div>
         </div>
@@ -199,17 +209,15 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           </div>
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-5">
+        <div className="ml-auto flex shrink-0 items-center gap-4">
           <Stat k="Price" v={`$${fmtPrice(priceUsd)}`} />
           <Stat k="Liquidity" v={usd(coin.liqUsd)} />
-          <Stat k="24h Vol" v={usd(coin.volumeUsd)} />
-          <Stat k="Total fees" v={`◎${sol(coin.feesSol)}`} />
-          <div className="w-28 leading-tight">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{bonded}</div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
-              <div className="h-full bg-up" style={{ width: `${Math.round(coin.progress * 100)}%` }} />
-            </div>
-          </div>
+          <Stat k="Supply" v="1B" />
+          <Stat k="Global fees" v={`◎${sol(coin.feesSol, 3)}`} />
+          <Stat k="B.Curve" v={`${(coin.progress * 100).toFixed(2)}%`} />
+          <Stat k="Holders" v={String(coin.holders)} />
+          <Stat k="Top 10 H." v={`${coin.stats.top10.toFixed(2)}%`} tone={coin.stats.top10 >= 25 ? "text-down" : "text-up"} />
+          <Stat k="Dev H." v={`${coin.stats.dev.toFixed(2)}%`} tone={coin.stats.dev >= 5 ? "text-down" : "text-up"} />
           <button
             type="button"
             onClick={toggleInstant}
