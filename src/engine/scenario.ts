@@ -20,7 +20,7 @@ export function validateMeme(m: Meme): Meme {
   if (!(m.author in AUTHORITIES)) throw new Error(`meme ${m.id} has unknown author ${m.author}`);
   if (!m.tweets?.length) throw new Error(`meme ${m.id} needs at least one tweet`);
   for (const t of m.tweets) {
-    if (!t.includes("{name}")) throw new Error(`meme ${m.id} tweet is missing {name}: ${t}`);
+    if (!m.noHighlight && !t.includes("{name}")) throw new Error(`meme ${m.id} tweet is missing {name}: ${t}`);
   }
   return m;
 }
@@ -62,12 +62,15 @@ export interface RoundPlan {
   spawns: TimedSpawn[];
   /** Index into spawns of the right coin. */
   targetIndex: number;
+  /** Where the winner's run should peak, in USD market cap. Undefined: generic run. */
+  athMcUsd?: number;
   snipers: number;
   sniperReactMs: [number, number];
   distractors: DistractorPlan[];
 }
 
 export function splitTemplate(template: string, name: string): TweetSeg[] {
+  if (!template.includes("{name}")) return [{ text: template }];
   const [before, after] = template.split("{name}");
   return [
     { text: before },
@@ -236,6 +239,7 @@ export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
     rightConfig,
     spawns,
     targetIndex,
+    athMcUsd: meme.ath ? rng.range(meme.ath[0], meme.ath[1]) : undefined,
     snipers: rng.int(diff.snipers[0], diff.snipers[1]),
     sniperReactMs: diff.sniperReactMs,
     distractors,

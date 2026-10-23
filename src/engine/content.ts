@@ -6,12 +6,14 @@ export const AUTHORITIES: Record<string, Author> = {
   toly: { name: "toly", handle: "toly", followers: "2.8M", verified: true, hue: 160, authority: true },
   alon: { name: "Alon", handle: "a1lon9", followers: "310K", verified: true, hue: 30, authority: true },
   truthterminal: { name: "Truth Terminal", handle: "truth_terminal", followers: "250K", verified: false, hue: 280, authority: true },
+  ansem: { name: "Ansem", handle: "blknoiz06", followers: "590K", verified: true, hue: 15, authority: true },
+  solana: { name: "Solana", handle: "solana", followers: "3.1M", verified: true, hue: 170, authority: true },
   pumpfun: { name: "pump.fun", handle: "pumpdotfun", followers: "1.1M", verified: true, hue: 145, authority: true },
 };
 
 export const rightPairFor = (author: keyof typeof AUTHORITIES, tag?: "tesla"): Pair => {
   if (author === "elon") return tag === "tesla" ? "TESLA" : "SPACEX";
-  if (author === "toly") return "SOL";
+  if (author === "toly" || author === "solana") return "SOL";
   return "PUMP";
 };
 
@@ -60,6 +62,18 @@ export const NOISE_TWEETS: string[] = [
 
 /** Ordinary tweets from the authority accounts. They never name a meme. */
 export const AUTHORITY_TWEETS: Record<string, string[]> = {
+  ansem: [
+    "size up when you are right, not when you are bored",
+    "this market rewards patience and punishes everyone else",
+    "the best entries feel uncomfortable",
+    "watching, not buying. yet",
+  ],
+  solana: [
+    "Slot times stay low. Builders keep shipping",
+    "Thank you to everyone building on Solana this week",
+    "Network performance update: all systems normal",
+    "New validators joined the network today",
+  ],
   truthterminal: [
     "i dreamt in tokens last night",
     "the memes are not random",

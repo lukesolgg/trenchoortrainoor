@@ -42,7 +42,7 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
           </div>
         </div>
       </header>
-      <p className="mt-2.5 text-[14px] leading-snug text-ink/95">
+      <p className="mt-2.5 whitespace-pre-line text-[14px] leading-snug text-ink/95">
         {t.segments.map((s, i) =>
           s.hl ? (
             <mark key={i} className="rounded bg-pink/90 px-1 py-px font-medium text-white">

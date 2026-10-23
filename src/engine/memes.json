@@ -1,5 +1,5 @@
 {
-  "_comment": "Round 1 pack: five big Solana memes. tickers[0] is the right ticker; the rest are worse variants that become decoys. Tweets are simulated in-game text, not real quotes. `info` is reference only.",
+  "_comment": "Pack: five big Solana memes (no ath: too large to simulate) plus short authority tweets with a suggested ATH range in USD. tickers[0] is the right ticker; the rest become decoys. Tweets are simulated in-game text, not real quotes.",
   "memes": [
     {
       "id": "pnut",
@@ -135,6 +135,274 @@
         "ca": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
         "lesson": "Clean structure (LP burned, no team allocation) and a cat-season rotation."
       }
+    },
+    {
+      "id": "ansem-bag",
+      "name": "Bag",
+      "tickers": [
+        "BAG",
+        "BAGDOG",
+        "BAGS",
+        "BAGGY"
+      ],
+      "art": {
+        "hue": 25,
+        "glyph": "🐕"
+      },
+      "author": "ansem",
+      "tweets": [
+        "my dog just stared at me for 4 minutes straight while I was looking at charts.\n\nI think he knows something.\n\nhis name is {name}."
+      ],
+      "ath": [
+        800000,
+        1050000
+      ]
+    },
+    {
+      "id": "ansem-liquidity",
+      "name": "Liquidity",
+      "tickers": [
+        "LIQUIDITY",
+        "LIQ",
+        "LIQCAT",
+        "LIQUID"
+      ],
+      "art": {
+        "hue": 205,
+        "glyph": "🐈"
+      },
+      "author": "ansem",
+      "tweets": [
+        "just found out my neighbour’s cat has more followers than most KOLs.\n\nhis name is {name}.\n\nI’m not even joking."
+      ],
+      "ath": [
+        600000,
+        850000
+      ]
+    },
+    {
+      "id": "ansem-snipe",
+      "name": "Snipe",
+      "tickers": [
+        "SNIPE",
+        "SNIPEHAM",
+        "SNIPES",
+        "HAMSNIPE"
+      ],
+      "art": {
+        "hue": 35,
+        "glyph": "🐹"
+      },
+      "author": "ansem",
+      "tweets": [
+        "bought my little cousin a hamster.\n\nhe named it {name}.\n\nthis family is cooked."
+      ],
+      "ath": [
+        520000,
+        700000
+      ]
+    },
+    {
+      "id": "toly-tps",
+      "name": "TPS",
+      "tickers": [
+        "TPS",
+        "TPSFISH",
+        "GOLDFISH",
+        "TPSCOIN"
+      ],
+      "art": {
+        "hue": 30,
+        "glyph": "🐠"
+      },
+      "author": "toly",
+      "tweets": [
+        "My daughter named her new goldfish “{name}”.\n\nI have never been more proud.\n\nSolana is inevitable, even in the fish tank."
+      ],
+      "ath": [
+        650000,
+        900000
+      ]
+    },
+    {
+      "id": "toly-firedancer",
+      "name": "Firedancer",
+      "tickers": [
+        "FIREDANCER",
+        "FDANCER",
+        "FIREPLANT",
+        "DANCER"
+      ],
+      "art": {
+        "hue": 120,
+        "glyph": "🪴"
+      },
+      "author": "toly",
+      "tweets": [
+        "Got a new office plant.\n\nNamed it {name}.\n\nIf it dies I’m blaming the validators."
+      ],
+      "ath": [
+        480000,
+        650000
+      ]
+    },
+    {
+      "id": "toly-solana-dog",
+      "name": "Solana Dog",
+      "tickers": [
+        "SOLDOG",
+        "SOLANADOG",
+        "BARK",
+        "SDOG"
+      ],
+      "art": {
+        "hue": 265,
+        "glyph": "🐕"
+      },
+      "author": "toly",
+      "tweets": [
+        "My dog just barked at the Solana logo on my screen.\n\nI think he understands."
+      ],
+      "ath": [
+        700000,
+        950000
+      ],
+      "noHighlight": true
+    },
+    {
+      "id": "pumpfun-bonding-curve",
+      "name": "Bonding Curve",
+      "tickers": [
+        "CURVE",
+        "BONDINGCURVE",
+        "BCURVE",
+        "BONDOG"
+      ],
+      "art": {
+        "hue": 145,
+        "glyph": "🐶"
+      },
+      "author": "pumpfun",
+      "tweets": [
+        "the office dog just walked in and sat on the keyboard.\n\nhis name is {name}.\n\nwe’re launching him."
+      ],
+      "ath": [
+        750000,
+        1000000
+      ]
+    },
+    {
+      "id": "pumpfun-dev-duck",
+      "name": "Dev Duck",
+      "tickers": [
+        "DEVDUCK",
+        "DUCK",
+        "DEV",
+        "RUBBERDUCK"
+      ],
+      "art": {
+        "hue": 55,
+        "glyph": "🦆"
+      },
+      "author": "pumpfun",
+      "tweets": [
+        "someone left a rubber duck on my desk with a sticky note that says “dev”.\n\nI think this is a sign."
+      ],
+      "ath": [
+        550000,
+        750000
+      ],
+      "noHighlight": true
+    },
+    {
+      "id": "pumpfun-graduation",
+      "name": "Graduation",
+      "tickers": [
+        "GRAD",
+        "GRADUATION",
+        "GRADCAT",
+        "GRADS"
+      ],
+      "art": {
+        "hue": 300,
+        "glyph": "🐈"
+      },
+      "author": "pumpfun",
+      "tweets": [
+        "the intern brought his cat to the office.\n\ncat’s name is {name}.\n\nwe’re not making it."
+      ],
+      "ath": [
+        600000,
+        820000
+      ]
+    },
+    {
+      "id": "solana-sealevel",
+      "name": "Sealevel",
+      "tickers": [
+        "SEALEVEL",
+        "SEAL",
+        "LEVEL",
+        "SEALDOG"
+      ],
+      "art": {
+        "hue": 190,
+        "glyph": "🐕"
+      },
+      "author": "solana",
+      "tweets": [
+        "New office dog just joined the team.\n\nHis name is {name}.\n\nAlready more productive than half the ecosystem."
+      ],
+      "ath": [
+        700000,
+        950000
+      ]
+    },
+    {
+      "id": "solana-hat-cat",
+      "name": "Solana Hat Cat",
+      "tickers": [
+        "HATCAT",
+        "SOLHAT",
+        "CATHAT",
+        "TINYHAT"
+      ],
+      "art": {
+        "hue": 165,
+        "glyph": "🐱"
+      },
+      "author": "solana",
+      "tweets": [
+        "Someone put a tiny Solana hat on the office cat.\n\nThe cat did not consent.\n\nNeither did we."
+      ],
+      "ath": [
+        580000,
+        780000
+      ],
+      "noHighlight": true
+    },
+    {
+      "id": "solana-animal-pics",
+      "name": "Animal Pics",
+      "tickers": [
+        "ANIMALS",
+        "PICS",
+        "ZOO",
+        "ANIMALPICS"
+      ],
+      "art": {
+        "hue": 95,
+        "glyph": "🐾"
+      },
+      "author": "solana",
+      "tweets": [
+        "The community keeps sending us animal pictures.\n\nWe’re starting to think this is the real product."
+      ],
+      "ath": [
+        500000,
+        700000
+      ],
+      "noHighlight": true
     }
   ]
 }

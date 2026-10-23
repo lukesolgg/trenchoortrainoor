@@ -67,7 +67,7 @@ export function SourceBadge({ source }: { source: TweetSource | null }) {
                 <div className="text-[11px] text-dim">@{author.handle} · {author.followers}</div>
               </div>
             </div>
-            <p className="mt-2 text-[13px] leading-snug text-ink/95">
+            <p className="mt-2 whitespace-pre-line text-[13px] leading-snug text-ink/95">
               {source.segments.map((s, i) =>
                 s.hl ? (
                   <mark key={i} className="rounded bg-pink/90 px-1 py-px font-medium text-white">

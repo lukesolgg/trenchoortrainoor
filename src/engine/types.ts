@@ -111,11 +111,15 @@ export interface Meme {
   /** Ranked best to worst. Index 0 is the right ticker. */
   tickers: string[];
   art: ArtSpec;
-  author: "elon" | "toly" | "alon" | "pumpfun" | "truthterminal";
+  author: "elon" | "toly" | "alon" | "pumpfun" | "truthterminal" | "ansem" | "solana";
   /** Elon tweets about Tesla memes pair with TESLA instead of SPACEX. */
   tag?: "tesla";
   /** Templates must contain {name}. */
   tweets: string[];
+  /** Target all-time-high market cap in USD (min, max). The round's winner runs to a point in this range. */
+  ath?: [number, number];
+  /** The tweet does not spell out the coin name, so nothing is highlighted and templates need no {name}. */
+  noHighlight?: boolean;
   /** Reference facts for the real coin this meme is based on. Not used in play yet (results screen later). */
   info?: { launch: string; athMcUsd: string; athDate: string; ca: string; lesson: string };
 }

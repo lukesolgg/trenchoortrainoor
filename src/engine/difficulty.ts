@@ -14,6 +14,7 @@ export interface Difficulty {
   rivalDeployMs: [number, number];
   rivalDeployers: [number, number];
   /** How many noise memes (distractor tweets) show up per round. */
+  /** Extra image tweets with their own coins. Zero: the round tweet is the only big tweet. */
   distractors: [number, number];
 }
 
@@ -28,7 +29,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     sniperReactMs: [600, 1500],
     rivalDeployMs: [4000, 8000],
     rivalDeployers: [2, 4],
-    distractors: [0, 1],
+    distractors: [0, 0],
   },
   trencher: {
     id: "trencher",
@@ -40,7 +41,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     sniperReactMs: [300, 800],
     rivalDeployMs: [2000, 4500],
     rivalDeployers: [4, 8],
-    distractors: [1, 2],
+    distractors: [0, 0],
   },
   sniper: {
     id: "sniper",
@@ -52,7 +53,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     sniperReactMs: [140, 420],
     rivalDeployMs: [1000, 2500],
     rivalDeployers: [8, 14],
-    distractors: [1, 3],
+    distractors: [0, 0],
   },
 };
 

@@ -55,6 +55,9 @@ interface Coin {
   migrated: boolean;
   migratedAt: number | null;
   lockUntil: number;
+  /** Where this coin's post-migration run should peak (SOL market cap), if it has a target. */
+  athSol: number | null;
+  moonDrift: number;
   postMc: number;
   moonUntil: number | null;
   stage: Stage;
@@ -263,6 +266,8 @@ export class Engine {
       migrated: false,
       migratedAt: null,
       lockUntil: -Infinity,
+      athSol: null,
+      moonDrift: 0.009,
       postMc: 0,
       moonUntil: null,
       stage: "new",
@@ -373,6 +378,12 @@ export class Engine {
     // The winner keeps running for a while after it migrates.
     if (c.spec.role === "target" || c.spec.profile === "run") {
       c.moonUntil = at + this.rng.range(18000, 30000);
+    }
+    // A coin with an ATH target runs there over 35-60 s (one flow step is 250 ms).
+    if (c.athSol && c.athSol > c.postMc) {
+      const run = this.rng.range(35000, 60000);
+      c.moonUntil = at + run;
+      c.moonDrift = Math.log(c.athSol / c.postMc) / (run / 250);
     }
     this.setStage(c, "migrated", at);
   }
@@ -490,7 +501,7 @@ export class Engine {
   private walkMigrated(c: Coin, at: number): boolean {
     const moon = c.moonUntil !== null && at < c.moonUntil;
     const quiet = c.spec.role !== "target" && c.moonUntil === null;
-    const drift = moon ? 0.009 : c.spec.role === "target" ? -0.0025 : this.rng.range(-0.0005, 0.0005);
+    const drift = moon ? c.moonDrift : c.spec.role === "target" ? -0.0025 : this.rng.range(-0.0005, 0.0005);
     const vol = moon ? 0.02 : quiet ? 0.006 : 0.015;
     const before = c.postMc;
     c.postMc = Math.max(1, c.postMc * Math.exp(drift + vol * this.rng.gauss()));
@@ -501,7 +512,7 @@ export class Engine {
     this.pushTape(c, at, "bot", c.postMc >= before ? "buy" : "sell", size);
     this.touch(c);
     // Targets walk for another minute after the run ends, then go quiet.
-    if (c.spec.role === "target" && c.migratedAt !== null && at > c.migratedAt + 90000) return false;
+    if (c.spec.role === "target" && c.migratedAt !== null && at > Math.max(c.migratedAt + 90000, (c.moonUntil ?? 0) + 40000)) return false;
     return true;
   }
 
@@ -690,6 +701,7 @@ export class Engine {
     if (this.roundView) {
       this.roundView = { ...this.roundView, tTargetAppear: at, targetCoinId: coin.id };
     }
+    if (plan.athMcUsd) coin.athSol = plan.athMcUsd / SOL_USD;
     // Snipers: each lands once, at its own reaction time after the coin appears.
     const times = Array.from({ length: plan.snipers }, () =>
       this.rng.range(plan.sniperReactMs[0], plan.sniperReactMs[1]),

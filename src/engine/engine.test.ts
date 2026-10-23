@@ -575,3 +575,22 @@ describe("migration", () => {
     expect(e.quickBuy(id!, 1)).not.toBeNull();
   });
 });
+
+describe("ath target", () => {
+  it("runs the winner toward the meme's suggested ATH", () => {
+    const meme = MEME_PACK.find((m) => m.id === "ansem-bag")!;
+    for (const seed of [1, 2, 3]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [meme] });
+      e.startRound({ memeId: meme.id, leadMs: 0 });
+      let peak = 0;
+      for (let t = 0; t < 180000; t += 100) {
+        e.advanceTo(t);
+        const id = e.getRound()?.targetCoinId;
+        if (id) peak = Math.max(peak, e.getCoinView(id)?.mcUsd ?? 0);
+      }
+      // Noise makes the peak approximate: stay within a generous band of the 800K-1.05M range.
+      expect(peak).toBeGreaterThan(meme.ath![0] * 0.5);
+      expect(peak).toBeLessThan(meme.ath![1] * 2);
+    }
+  });
+});
