@@ -1,0 +1,225 @@
+import { describe, expect, it } from "vitest";
+import * as curve from "./curve";
+import { Engine } from "./engine";
+import { DIFFICULTIES } from "./difficulty";
+import { Rng } from "./rng";
+import { MEME_PACK, makeRound, splitTemplate, validateMeme } from "./scenario";
+import type { Meme } from "./types";
+
+describe("rng", () => {
+  it("is deterministic per seed", () => {
+    const a = new Rng(42);
+    const b = new Rng(42);
+    expect(Array.from({ length: 5 }, () => a.next())).toEqual(Array.from({ length: 5 }, () => b.next()));
+  });
+  it("differs across seeds", () => {
+    expect(new Rng(1).next()).not.toBe(new Rng(2).next());
+  });
+});
+
+describe("bonding curve", () => {
+  it("starts near $3k market cap and prices rise as people buy", () => {
+    const c0 = curve.newCurve();
+    const usd0 = curve.toUsd(curve.mcSol(c0));
+    expect(usd0).toBeGreaterThan(2500);
+    expect(usd0).toBeLessThan(3500);
+    const { curve: c1 } = curve.buy(c0, 5);
+    expect(curve.mcSol(c1)).toBeGreaterThan(curve.mcSol(c0));
+  });
+  it("later buyers get fewer tokens for the same SOL", () => {
+    const c0 = curve.newCurve();
+    const first = curve.buy(c0, 3);
+    const second = curve.buy(first.curve, 3);
+    expect(second.tokens).toBeLessThan(first.tokens);
+  });
+  it("completes at roughly 85 SOL net and refuses further buys", () => {
+    let c = curve.newCurve();
+    let spent = 0;
+    while (!curve.isComplete(c)) {
+      const r = curve.buy(c, 5);
+      c = r.curve;
+      spent += r.spent;
+    }
+    expect(spent).toBeGreaterThan(80);
+    expect(spent).toBeLessThan(95);
+    expect(curve.buy(c, 5).tokens).toBe(0);
+  });
+  it("a round trip loses fees", () => {
+    const b = curve.buy(curve.newCurve(), 10);
+    const s = curve.sell(b.curve, b.tokens);
+    expect(s.sol).toBeLessThan(10);
+    expect(s.sol).toBeGreaterThan(9);
+  });
+});
+
+describe("meme pack", () => {
+  it("ships valid placeholder memes", () => {
+    expect(MEME_PACK.length).toBeGreaterThan(0);
+  });
+  it("rejects a tweet without {name}", () => {
+    const bad = { ...MEME_PACK[0], tweets: ["no placeholder"] } as Meme;
+    expect(() => validateMeme(bad)).toThrow();
+  });
+  it("highlights the meme name in pink segments", () => {
+    const segs = splitTemplate("Sending a hamster. His name is {name}", "Neil");
+    expect(segs.find((s) => s.hl)?.text).toBe("Neil");
+  });
+});
+
+describe("round generation", () => {
+  const meme = MEME_PACK[0];
+  for (const diff of Object.values(DIFFICULTIES)) {
+    it(`${diff.id}: exactly one right coin, decoys each have one flaw`, () => {
+      const plan = makeRound(new Rng(7), meme, diff);
+      const target = plan.spawns[plan.targetIndex].spec;
+      expect(target.role).toBe("target");
+      expect(target.ticker).toBe(meme.tickers[0]);
+      expect(target.config).toEqual(plan.rightConfig);
+
+      const exact = plan.spawns.filter(
+        (s) =>
+          s.spec.ticker === target.ticker &&
+          s.spec.config.launchpad === plan.rightConfig.launchpad &&
+          s.spec.config.dividends === plan.rightConfig.dividends &&
+          s.spec.config.pair === plan.rightConfig.pair &&
+          s.spec.name === meme.name,
+      );
+      expect(exact).toHaveLength(1);
+
+      for (const s of plan.spawns.filter((x) => x.spec.role === "decoy")) {
+        let wrong = 0;
+        if (s.spec.ticker !== target.ticker) wrong++;
+        if (s.spec.config.launchpad !== plan.rightConfig.launchpad) wrong++;
+        if (s.spec.config.dividends !== plan.rightConfig.dividends) wrong++;
+        if (s.spec.config.pair !== plan.rightConfig.pair) wrong++;
+        expect(wrong).toBe(1);
+      }
+      const count = plan.spawns.length;
+      expect(count).toBeGreaterThanOrEqual(diff.deploys[0]);
+      expect(count).toBeLessThanOrEqual(diff.deploys[1]);
+      expect(plan.spawns.every((s) => s.at >= 0 && s.at <= diff.floodMs)).toBe(true);
+    });
+  }
+  it("pairs follow the author", () => {
+    const byId = (id: string) => MEME_PACK.find((m) => m.id === id)!;
+    const d = DIFFICULTIES.sniper;
+    expect(makeRound(new Rng(1), byId("placeholder-orbit-hamster"), d).rightPair).toBe("SPACEX");
+    expect(makeRound(new Rng(1), byId("placeholder-tesla-cat"), d).rightPair).toBe("TESLA");
+    expect(makeRound(new Rng(1), byId("placeholder-toly-lizard"), d).rightPair).toBe("SOL");
+    expect(makeRound(new Rng(1), byId("placeholder-alon-pigeon"), d).rightPair).toBe("PUMP");
+  });
+});
+
+describe("engine", () => {
+  const make = (seed = 1, difficulty: "paper" | "trencher" | "sniper" = "sniper") =>
+    new Engine({ seed, difficulty, clock: () => 0 });
+
+  it("seeds all three columns", () => {
+    const s = make().getSnapshot();
+    expect(s.newPairs.length).toBeGreaterThan(0);
+    expect(s.finalStretch.length).toBeGreaterThan(0);
+    expect(s.migrated.length).toBeGreaterThan(0);
+  });
+
+  it("is deterministic: same seed and timeline, same board", () => {
+    const run = () => {
+      const e = make(99);
+      e.startRound({ leadMs: 1000 });
+      e.advanceTo(15000);
+      return e.debugCoins().map((c) => `${c.ticker}:${c.role}:${c.stage}`).sort();
+    };
+    expect(run()).toEqual(run());
+  });
+
+  it("frame jitter does not change outcomes", () => {
+    const steady = make(5);
+    steady.startRound({ leadMs: 500 });
+    for (let t = 16; t <= 20000; t += 16) steady.advanceTo(t);
+    const jumpy = make(5);
+    jumpy.startRound({ leadMs: 500 });
+    jumpy.advanceTo(7000);
+    jumpy.advanceTo(20000);
+    const key = (e: Engine) => e.debugCoins().map((c) => `${c.ticker}:${c.role}:${c.stage}`).sort();
+    expect(key(jumpy)).toEqual(key(steady));
+  });
+
+  it("round: tweet lands, right coin appears, snipers hit it, it migrates and runs", () => {
+    const e = make(3);
+    const tTweet = e.startRound({ leadMs: 1000 });
+    expect(tTweet).toBe(1000);
+    e.advanceTo(999);
+    expect(e.getSnapshot().feed.some((t) => t.memeTweet)).toBe(false);
+    e.advanceTo(1000);
+    e.advanceTo(1100);
+    expect(e.getSnapshot().feed.some((t) => t.memeTweet && t.author.authority)).toBe(true);
+
+    e.advanceTo(8000);
+    const round = e.getRound()!;
+    expect(round.targetCoinId).not.toBeNull();
+    expect(round.tTargetAppear).toBeGreaterThanOrEqual(1000);
+
+    e.advanceTo(60000);
+    const snap = e.getSnapshot();
+    const target = snap.migrated.find((c) => c.id === round.targetCoinId);
+    expect(target).toBeDefined();
+    expect(target!.mcUsd).toBeGreaterThan(25000);
+  });
+
+  it("only one coin matches the right config exactly", () => {
+    const e = make(11);
+    e.startRound();
+    e.advanceTo(10000);
+    const plan = e.getRound()!;
+    const all = e.getSnapshot();
+    const views = [...all.newPairs, ...all.finalStretch, ...all.migrated];
+    const meme = MEME_PACK.find((m) => m.id === plan.memeId)!;
+    const exact = views.filter(
+      (v) =>
+        v.name === meme.name &&
+        v.ticker === meme.tickers[0] &&
+        v.config.pair === plan.rightPair &&
+        v.config.launchpad === "pump" &&
+        v.config.dividends,
+    );
+    expect(exact).toHaveLength(1);
+  });
+
+  it("quick-buy updates wallet, position and ranks the player behind earlier bot buys", () => {
+    const e = make(3);
+    e.startRound({ leadMs: 0 });
+    e.advanceTo(6000);
+    const id = e.getRound()!.targetCoinId!;
+    const before = e.getSnapshot().walletSol;
+    const trade = e.quickBuy(id, 3, e.now());
+    expect(trade).not.toBeNull();
+    expect(trade!.rank).toBeGreaterThan(0);
+    const after = e.getSnapshot();
+    expect(after.walletSol).toBeCloseTo(before - 3, 5);
+    expect(after.positions[0].tokens).toBeGreaterThan(0);
+    const sold = e.sell(id, 1);
+    expect(sold).not.toBeNull();
+    expect(e.getSnapshot().positions[0].tokens).toBeCloseTo(0, 5);
+  });
+
+  it("rejects a buy bigger than the wallet", () => {
+    const e = make(3);
+    e.startRound();
+    e.advanceTo(6000);
+    expect(e.quickBuy(e.getRound()!.targetCoinId!, 1e6)).toBeNull();
+  });
+
+  it("snapshot identity is stable between emits", () => {
+    const e = make();
+    expect(e.getSnapshot()).toBe(e.getSnapshot());
+  });
+
+  it("keeps the board bounded over a long session", () => {
+    const e = new Engine({ seed: 8, difficulty: "sniper", autoRounds: true, clock: () => 0 });
+    e.advanceTo(180000);
+    const s = e.getSnapshot();
+    expect(s.newPairs.length).toBeLessThanOrEqual(40);
+    expect(s.finalStretch.length).toBeLessThanOrEqual(14);
+    expect(s.migrated.length).toBeLessThanOrEqual(30);
+    expect(s.feed.length).toBeLessThanOrEqual(50);
+  });
+});

@@ -1,0 +1,123 @@
+import type { Author, Pair } from "./types";
+
+/** Accounts whose tweets can start a round. */
+export const AUTHORITIES: Record<string, Author> = {
+  elon: { name: "Elon Musk", handle: "elonmusk", followers: "241.5M", verified: true, hue: 210, authority: true },
+  toly: { name: "toly", handle: "toly", followers: "2.8M", verified: true, hue: 160, authority: true },
+  alon: { name: "Alon", handle: "a1lon9", followers: "310K", verified: true, hue: 30, authority: true },
+  pumpfun: { name: "pump.fun", handle: "pumpdotfun", followers: "1.1M", verified: true, hue: 145, authority: true },
+};
+
+export const rightPairFor = (author: keyof typeof AUTHORITIES, tag?: "tesla"): Pair => {
+  if (author === "elon") return tag === "tesla" ? "TESLA" : "SPACEX";
+  if (author === "toly") return "SOL";
+  return "PUMP";
+};
+
+/** Fictional accounts that fill the feed. None of them can start a round. */
+export const NOISE_AUTHORS: Author[] = [
+  { name: "Bag Holder Bob", handle: "bagholderbob", followers: "22.4K", verified: false, hue: 20, authority: false },
+  { name: "Curve Cartel", handle: "curvecartel", followers: "88.1K", verified: true, hue: 275, authority: false },
+  { name: "Slippage Sally", handle: "slippagesally", followers: "9.7K", verified: false, hue: 330, authority: false },
+  { name: "Mint Authority", handle: "mintauth", followers: "140.2K", verified: true, hue: 190, authority: false },
+  { name: "Sol Surfer", handle: "solsurfer_", followers: "31.5K", verified: false, hue: 200, authority: false },
+  { name: "Jito Joe", handle: "jitojoe", followers: "12.9K", verified: false, hue: 50, authority: false },
+  { name: "Floor Sweeper", handle: "floorsweeper", followers: "64.0K", verified: true, hue: 100, authority: false },
+  { name: "Gas Fee Gary", handle: "gasfeegary", followers: "5.3K", verified: false, hue: 5, authority: false },
+  { name: "Liquidity Lena", handle: "liqlena", followers: "47.8K", verified: true, hue: 300, authority: false },
+  { name: "Dust Collector", handle: "dustcollector", followers: "18.2K", verified: false, hue: 240, authority: false },
+  { name: "Airdrop Andy", handle: "airdropandy", followers: "76.6K", verified: false, hue: 80, authority: false },
+  { name: "Chart Crimes", handle: "chartcrimes", followers: "203.9K", verified: true, hue: 340, authority: false },
+];
+
+export const NOISE_TWEETS: string[] = [
+  "gm. who is still up",
+  "this chop is going to take years off my life",
+  "every green candle is a trap and I keep walking in",
+  "wallet says I am up 4x. wallet is lying",
+  "bought the top again. consistency is a skill",
+  "fresh wallet just bought 40 SOL of nothing. interesting",
+  "anyone else refresh the board like it owes them money",
+  "slippage set to 50 percent and a prayer",
+  "I do not need sleep, I need a migration",
+  "reminder that most launches go to zero. size accordingly",
+  "just watched a dev sell in the same block. classic",
+  "the best trade today was the one I did not take",
+  "bundlers are back on the menu",
+  "rotating out of conviction, into vibes",
+  "market cap is a feeling and today I feel nothing",
+  "that candle was personal",
+  "set a stop loss, ignored it, here we are",
+  "ser the chart looks like a staircase to heaven. or a trapdoor",
+  "if you are reading this, take profits",
+  "new wallet, same mistakes",
+  "snipers ate again. nothing new",
+  "good luck to everyone buying the third copy of anything",
+  "touch grass. then come back and ape",
+  "liquidity is a state of mind",
+];
+
+/** Ordinary tweets from the authority accounts. They never name a meme. */
+export const AUTHORITY_TWEETS: Record<string, string[]> = {
+  elon: [
+    "Physics is the law. Everything else is a recommendation",
+    "Humans will be multiplanetary or we will not be",
+    "Static fire went well. Great work by the team",
+    "The most entertaining outcome is the most likely",
+    "Reading is underrated",
+  ],
+  toly: [
+    "Block times are down again. Shipping continues",
+    "Throughput is a product feature",
+    "Great to see so many builders this week",
+    "Validators keep getting better. Thank you all",
+  ],
+  alon: [
+    "Livestream starts soon",
+    "Shipping something small today",
+    "Creators earned a lot this week. Proud of that",
+  ],
+  pumpfun: [
+    "New coins launched today: too many to count",
+    "Creator rewards are live for everyone",
+    "Livestreams are back. Go watch one",
+  ],
+};
+
+/** Memes that only exist to bait the wrong tweet. Their coins are noise. */
+export const NOISE_MEMES: { name: string; ticker: string; glyph: string; hue: number; tweets: string[] }[] = [
+  { name: "Ghostie", ticker: "GHOSTIE", glyph: "👻", hue: 260, tweets: ["ok {name} is actually cute. small bag", "{name} season is early imo"] },
+  { name: "Lawn Mower", ticker: "MOWER", glyph: "🚜", hue: 120, tweets: ["{name} holders are the most patient people in the trenches"] },
+  { name: "Patches", ticker: "PATCHES", glyph: "🐈", hue: 35, tweets: ["{name} got locked out for thirty seconds and will never forgive us"] },
+  { name: "Soup", ticker: "SOUP", glyph: "🍲", hue: 15, tweets: ["{name} is the only thing keeping me warm tonight"] },
+  { name: "Dentist", ticker: "DENTIST", glyph: "🦷", hue: 190, tweets: ["{name} 100x and I still will not book the appointment"] },
+  { name: "Cactus Jack", ticker: "CACTUS", glyph: "🌵", hue: 140, tweets: ["{name} has been sitting there all day. patient little guy"] },
+];
+
+/** Names for filler launches in New Pairs. */
+export const FILLER_COINS: { name: string; ticker: string; glyph: string }[] = [
+  { name: "Microwave Mess", ticker: "SPLATTER", glyph: "🍝" },
+  { name: "Bundled Gift", ticker: "BUNDLED", glyph: "🎁" },
+  { name: "Sticky Notes", ticker: "STICKY", glyph: "🗒️" },
+  { name: "Bull Run", ticker: "BULLRUN", glyph: "🐂" },
+  { name: "Sunken City", ticker: "SUNKEN", glyph: "🏛️" },
+  { name: "Umbrella", ticker: "BRELLA", glyph: "☂️" },
+  { name: "Bowling Pin", ticker: "STRIKE", glyph: "🎳" },
+  { name: "Gingerbread", ticker: "GINGER", glyph: "🍪" },
+  { name: "Leaf", ticker: "LEAF", glyph: "🍂" },
+  { name: "Samosa", ticker: "SAMOSA", glyph: "🥟" },
+  { name: "Heart CTO", ticker: "HEART", glyph: "❤️" },
+  { name: "Plant CTO", ticker: "ESP", glyph: "🪴" },
+  { name: "Daruma", ticker: "DARUMA", glyph: "🎎" },
+  { name: "Foghorn", ticker: "HORN", glyph: "📯" },
+  { name: "Marble", ticker: "MARBLE", glyph: "🔮" },
+  { name: "Pretzel", ticker: "PRETZEL", glyph: "🥨" },
+  { name: "Kettle", ticker: "KETTLE", glyph: "🫖" },
+  { name: "Lighthouse", ticker: "BEAM", glyph: "🗼" },
+  { name: "Paper Plane", ticker: "PLANE", glyph: "✈️" },
+  { name: "Rubber Duck", ticker: "SQUEAK", glyph: "🛁" },
+  { name: "Cheese Wheel", ticker: "WHEEL", glyph: "🧀" },
+  { name: "Snow Globe", ticker: "GLOBE", glyph: "🔮" },
+  { name: "Tin Robot", ticker: "TINBOT", glyph: "🤖" },
+  { name: "Mushroom", ticker: "SHROOM", glyph: "🍄" },
+];

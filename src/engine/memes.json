@@ -1,0 +1,50 @@
+{
+  "_comment": "PLACEHOLDER pack. Replace with the real 10-30 memes. Schema is Meme in types.ts. tickers[0] is the right ticker; the rest are worse variants that become decoys.",
+  "memes": [
+    {
+      "id": "placeholder-orbit-hamster",
+      "name": "Neil Hamstrong",
+      "tickers": ["HAMSTRONG", "NEILHAM", "HAMSTER"],
+      "art": { "hue": 28, "glyph": "🐹" },
+      "author": "elon",
+      "tweets": [
+        "Sending a hamster to orbit on the next test flight. His name is {name}",
+        "{name} is cleared for launch"
+      ]
+    },
+    {
+      "id": "placeholder-tesla-cat",
+      "name": "Cyber Whiskers",
+      "tickers": ["WHISKERS", "CYBERCAT", "WHISK"],
+      "art": { "hue": 350, "glyph": "🐈‍⬛" },
+      "author": "elon",
+      "tag": "tesla",
+      "tweets": [
+        "Our Cybertruck now has a cat on the dashboard. Say hi to {name}",
+        "{name} approves of the new software update"
+      ]
+    },
+    {
+      "id": "placeholder-toly-lizard",
+      "name": "Validator Gecko",
+      "tickers": ["GECKO", "VGECKO", "LIZARD"],
+      "art": { "hue": 150, "glyph": "🦎" },
+      "author": "toly",
+      "tweets": [
+        "Met a gecko at the conference. Everyone calls him {name}",
+        "{name} runs a validator now, apparently"
+      ]
+    },
+    {
+      "id": "placeholder-alon-pigeon",
+      "name": "Stream Pigeon",
+      "tickers": ["PIGEON", "STREAMPIG", "COO"],
+      "art": { "hue": 215, "glyph": "🕊️" },
+      "author": "alon",
+      "tweets": [
+        "A pigeon wandered onto the livestream set. We are calling it {name}",
+        "{name} has more viewers than we do"
+      ]
+    }
+  ]
+}
