@@ -43,7 +43,7 @@ npm run typecheck
 
 ## FIRST TX scoring
 
-A round is: 3 s countdown, an armed wait of 1.5 to 4 s, then the tweet and the flood.
+A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the flood.
 
 - **False start:** any buy before the tweet (judged by the click's own timestamp). The buy is not executed.
 - **Wrong coin:** your first buy after the tweet is anything but the right coin. The round ends and the results name that coin's flaw.
