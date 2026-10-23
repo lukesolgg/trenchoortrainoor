@@ -32,6 +32,7 @@ function FireButton({ label, hint, tone, disabled, onFire, className = "" }: Fir
     <span key={flash} className={`block rounded-lg ${flash ? "anim-flash" : ""}`}>
       <button
         type="button"
+        data-fire
         disabled={disabled}
         onPointerDown={(e) => {
           if (e.button !== 0) return;

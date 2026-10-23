@@ -303,3 +303,246 @@ describe("token page data", () => {
     expect(e.getCoinView(id)).toBeNull();
   });
 });
+
+describe("scored round", () => {
+  const make = (seed = 3, difficulty: "paper" | "trencher" | "sniper" = "sniper") =>
+    new Engine({ seed, difficulty, clock: () => 0 });
+
+  /** Run to the moment just after the tweet lands. */
+  const toLive = (e: Engine) => {
+    e.startScored();
+    const sc = e.getSnapshot().scored!;
+    e.advanceTo(sc.tTweet + 1);
+    return sc;
+  };
+  /** Run until the right coin exists, then return its id. */
+  const toTarget = (e: Engine) => {
+    toLive(e);
+    for (let t = e.now(); t < e.now() + 20000 && !e.getRound()?.targetCoinId; t += 50) e.advanceTo(t);
+    return e.getRound()!.targetCoinId!;
+  };
+  const decoyId = (e: Engine) => {
+    const s = e.getSnapshot();
+    const targetId = e.getRound()!.targetCoinId;
+    const decoy = e.debugCoins().find((c) => c.role === "decoy" && c.id !== targetId);
+    expect(decoy).toBeDefined();
+    return { id: decoy!.id, flaw: decoy!.flaw, snap: s };
+  };
+
+  it("walks countdown, armed, live", () => {
+    const e = make();
+    e.startScored();
+    const sc = e.getSnapshot().scored!;
+    expect(sc.phase).toBe("countdown");
+    expect(sc.tArm).toBe(3000);
+    expect(sc.tTweet).toBeGreaterThanOrEqual(4500);
+    expect(sc.tTweet).toBeLessThanOrEqual(7000);
+    e.advanceTo(3001);
+    expect(e.getSnapshot().scored!.phase).toBe("armed");
+    e.advanceTo(sc.tTweet - 1);
+    expect(e.getSnapshot().scored!.phase).toBe("armed");
+    e.advanceTo(sc.tTweet);
+    expect(e.getSnapshot().scored!.phase).toBe("live");
+  });
+
+  it("is safe to start twice", () => {
+    const e = make();
+    e.startScored();
+    const tTweet = e.getSnapshot().scored!.tTweet;
+    e.startScored();
+    expect(e.getSnapshot().scored!.tTweet).toBe(tTweet);
+    e.advanceTo(tTweet + 3000);
+    expect(e.getSnapshot().feed.filter((t) => t.memeTweet && t.author.authority)).toHaveLength(1);
+  });
+
+  it("a buy during the countdown is a false start and spends nothing", () => {
+    const e = make();
+    e.startScored();
+    e.advanceTo(1000);
+    const id = e.getSnapshot().newPairs[0].id;
+    expect(e.quickBuy(id, 3, 1000)).toBeNull();
+    const sc = e.getSnapshot().scored!;
+    expect(sc.phase).toBe("ended");
+    expect(sc.result!.outcome).toBe("false_start");
+    expect(sc.result!.earlyMs).toBeGreaterThan(3000);
+    expect(e.getSnapshot().walletSol).toBe(100);
+    expect(e.getSnapshot().positions).toHaveLength(0);
+  });
+
+  it("a buy while armed is a false start", () => {
+    const e = make();
+    e.startScored();
+    const sc = e.getSnapshot().scored!;
+    e.advanceTo(sc.tTweet - 200);
+    e.quickBuy(e.getSnapshot().newPairs[0].id, 1, sc.tTweet - 100);
+    const r = e.getSnapshot().scored!.result!;
+    expect(r.outcome).toBe("false_start");
+    expect(r.earlyMs).toBeCloseTo(100, 0);
+  });
+
+  it("judges by click time: a click just before the tweet is early even if the frame ran late", () => {
+    const e = make();
+    e.startScored();
+    const sc = e.getSnapshot().scored!;
+    e.advanceTo(sc.tTweet - 50); // last frame before the tweet
+    const id = e.getSnapshot().newPairs[0].id;
+    e.quickBuy(id, 1, sc.tTweet - 10); // click 10 ms before the tweet
+    expect(e.getSnapshot().scored!.result!.outcome).toBe("false_start");
+  });
+
+  it("a click just after the tweet counts as live even if the last frame was before it", () => {
+    const e = make();
+    e.startScored();
+    const sc = e.getSnapshot().scored!;
+    e.advanceTo(sc.tTweet - 5);
+    expect(e.getSnapshot().scored!.phase).toBe("armed");
+    const id = e.getSnapshot().newPairs[0].id;
+    e.quickBuy(id, 1, sc.tTweet + 20);
+    expect(e.getSnapshot().scored!.result!.outcome).toBe("wrong_coin");
+  });
+
+  it("buying a look-alike ends the round as the wrong coin and names the flaw", () => {
+    const e = make();
+    const targetId = toTarget(e);
+    e.advanceTo(e.now() + 4000);
+    const d = decoyId(e);
+    const t = e.quickBuy(d.id, 2);
+    expect(t).not.toBeNull();
+    const r = e.getSnapshot().scored!.result!;
+    expect(r.outcome).toBe("wrong_coin");
+    expect(r.bought!.flaw).toBe(d.flaw);
+    expect(r.bought!.ticker).not.toBe("");
+    expect(r.reactionMs).toBeNull();
+    expect(r.decoys.length).toBeGreaterThan(0);
+    expect(r.decoys.every((x) => ["ticker", "launchpad", "dividends", "pair"].includes(x.flaw))).toBe(true);
+    // position is closed at the end
+    expect(e.getSnapshot().positions.every((p) => p.tokens === 0)).toBe(true);
+    expect(e.getRound()!.targetCoinId).toBe(targetId);
+  });
+
+  it("buying an unrelated coin counts as wrong with an unrelated flaw", () => {
+    const e = make();
+    toLive(e);
+    e.advanceTo(e.now() + 1500);
+    const s = e.getSnapshot();
+    const filler = e.debugCoins().find((c) => c.role === "noise");
+    expect(filler).toBeDefined();
+    e.quickBuy(filler!.id, 1);
+    expect(s).toBeDefined();
+    expect(e.getSnapshot().scored!.result!.outcome).toBe("wrong_coin");
+    expect(e.getSnapshot().scored!.result!.bought!.flaw).toBe("unrelated");
+  });
+
+  it("buying the right coin keeps the round live and scores reaction from the moment it landed", () => {
+    const e = make();
+    const id = toTarget(e);
+    const appear = e.getRound()!.tTargetAppear!;
+    e.advanceTo(appear + 700);
+    const trade = e.quickBuy(id, 3, appear + 650)!;
+    expect(trade).not.toBeNull();
+    expect(e.getSnapshot().scored!.phase).toBe("live");
+    e.sell(id, 1);
+    const sc = e.getSnapshot().scored!;
+    expect(sc.phase).toBe("ended");
+    const r = sc.result!;
+    expect(r.outcome).toBe("success");
+    expect(r.reactionMs).toBeCloseTo(650, 0);
+    expect(r.rating).toBe("Fast");
+    expect(r.buyNumber).toBe(trade.rank + 1);
+    expect(r.buyNumber).toBeGreaterThan(1);
+    expect(r.entryMcUsd).toBeGreaterThan(2500);
+    expect(r.boughtSol).toBeCloseTo(3, 5);
+    expect(r.pnlSol).toBeCloseTo(r.closedSol - r.boughtSol, 8);
+    expect(r.bought!.flaw).toBeNull();
+    expect(r.tweetToBuyMs).toBeGreaterThan(r.reactionMs!);
+  });
+
+  it("selling only part keeps the round live; Space (endRound) closes the bag and scores it", () => {
+    const e = make();
+    const id = toTarget(e);
+    e.advanceTo(e.now() + 500);
+    e.quickBuy(id, 4);
+    e.sell(id, 0.5);
+    expect(e.getSnapshot().scored!.phase).toBe("live");
+    e.advanceTo(e.now() + 8000);
+    e.endRound();
+    const r = e.getSnapshot().scored!.result!;
+    expect(r.outcome).toBe("success");
+    expect(r.closedSol).toBeGreaterThan(0);
+    expect(e.getSnapshot().positions[0].tokens).toBe(0);
+    expect(e.getSnapshot().walletSol).toBeCloseTo(100 - r.boughtSol + r.closedSol, 6);
+  });
+
+  it("ending without a buy is a miss; waiting too long is a miss", () => {
+    const a = make();
+    toLive(a);
+    a.endRound();
+    expect(a.getSnapshot().scored!.result!.outcome).toBe("missed");
+
+    const b = make(4);
+    const sc = toLive(b);
+    b.advanceTo(sc.tTweet + 19000);
+    expect(b.getSnapshot().scored!.phase).toBe("live");
+    b.advanceTo(sc.tTweet + 20001);
+    expect(b.getSnapshot().scored!.result!.outcome).toBe("missed");
+  });
+
+  it("holding the right coin to the time limit still scores a success", () => {
+    const e = make();
+    const id = toTarget(e);
+    e.quickBuy(id, 2);
+    e.advanceTo(e.getSnapshot().scored!.tTweet + 91000);
+    expect(e.getSnapshot().scored!.result!.outcome).toBe("success");
+  });
+
+  it("no trading after the round ends", () => {
+    const e = make();
+    toLive(e);
+    e.endRound();
+    expect(e.quickBuy(e.getSnapshot().newPairs[0].id, 1)).toBeNull();
+    expect(e.getSnapshot().walletSol).toBe(100);
+  });
+
+  it("the result reveals the right coin, the tweet and when it landed", () => {
+    const e = make();
+    toTarget(e);
+    e.advanceTo(e.now() + 2000);
+    e.endRound();
+    const r = e.getSnapshot().scored!.result!;
+    expect(r.rightCoin.ticker).toBe(MEME_PACK.find((m) => m.name === r.memeName)!.tickers[0]);
+    expect(r.rightAppearMs).toBeGreaterThan(0);
+    expect(r.tweetSegments.some((s) => s.hl && s.text === r.memeName)).toBe(true);
+    expect(r.rightCoin.config.launchpad).toBe("pump");
+    expect(r.rightCoin.config.dividends).toBe(true);
+  });
+
+  it("is deterministic for a given seed", () => {
+    const run = () => {
+      const e = make(21);
+      const id = toTarget(e);
+      e.advanceTo(e.now() + 600);
+      e.quickBuy(id, 2);
+      e.advanceTo(e.now() + 3000);
+      e.endRound();
+      const r = e.getSnapshot().scored!.result!;
+      return [r.outcome, r.reactionMs, r.buyNumber, r.entryMcUsd?.toFixed(2), r.pnlSol.toFixed(6)];
+    };
+    expect(run()).toEqual(run());
+  });
+
+  it("unscored engines never expose a scored view", () => {
+    expect(make().getSnapshot().scored).toBeNull();
+  });
+});
+
+describe("rating bands", () => {
+  it("maps reaction time to a label", async () => {
+    const { ratingFor } = await import("./scoring");
+    expect(ratingFor(250)).toBe("Bot speed");
+    expect(ratingFor(450)).toBe("Elite");
+    expect(ratingFor(900)).toBe("Fast");
+    expect(ratingFor(1400)).toBe("Solid");
+    expect(ratingFor(2000)).toBe("Slow");
+    expect(ratingFor(4000)).toBe("Too slow");
+  });
+});

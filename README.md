@@ -20,8 +20,8 @@ npm run typecheck
 | 3 | Scenario generator, decoy rules, placeholder meme pack | done |
 | 4 | Pulse UI, streaming board, quick-buy, hover-pause | done |
 | 5 | Token page: chart, buy/sell, position PnL, trades tape | done |
-| 6 | FIRST TX scored round: false starts, wrong coin, reaction ms, results | next |
-| 7 | DEV mode: deploy form, pre-fill, rival deployers | |
+| 6 | FIRST TX scored round: false starts, wrong coin, reaction ms, results | done |
+| 7 | DEV mode: deploy form, pre-fill, rival deployers | next |
 | 8 | Results, personal bests, settings (localStorage) | |
 | 9 | Polish: audio, animation, perf, keyboard pass | |
 
@@ -36,6 +36,22 @@ npm run typecheck
 | `/` | Pulse | Search |
 | Esc | Token page | Back to Pulse |
 | Esc Esc | Pulse | Back to menu |
+| Space | Live FIRST TX round | End the round and close your position |
+| `R` / Enter | Results | Next round |
+| Esc | Results | Back to menu |
+
+## FIRST TX scoring
+
+A round is: 3 s countdown, an armed wait of 1.5 to 4 s, then the tweet and the flood.
+
+- **False start:** any buy before the tweet (judged by the click's own timestamp). The buy is not executed.
+- **Wrong coin:** your first buy after the tweet is anything but the right coin. The round ends and the results name that coin's flaw.
+- **Success:** your first buy is the right coin. Reaction = your click time minus the moment the right coin landed in New Pairs
+  (accurate to one display frame). The round ends when you sell out, press Space, or after 90 s; the position is market-sold at the end,
+  so PnL includes fees and slippage.
+- **Missed:** no buy within 20 s of the tweet, or Space with no buy.
+- Hover-pause is off during scored rounds, and the board updates every frame so nothing you are racing for is hidden.
+- Reaction bands (`src/engine/scoring.ts`): under 300 ms Bot speed, 600 Elite, 1000 Fast, 1500 Solid, 2500 Slow, then Too slow.
 
 ## Architecture
 

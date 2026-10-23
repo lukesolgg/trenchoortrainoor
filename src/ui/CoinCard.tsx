@@ -1,16 +1,10 @@
 "use client";
 
 import { memo, useState } from "react";
-import type { CoinView, Pair } from "@/engine/types";
+import type { CoinView } from "@/engine/types";
 import { Art } from "./Art";
+import { PAIR_STYLE } from "./chips";
 import { sol, usd } from "./format";
-
-const PAIR_STYLE: Record<Pair, string> = {
-  SPACEX: "bg-buy/15 text-[#7f9bff] border-buy/40",
-  TESLA: "bg-down/15 text-down border-down/40",
-  PUMP: "bg-white/10 text-ink border-white/20",
-  SOL: "bg-violet/15 text-[#b79cff] border-violet/40",
-};
 
 const Chip = ({ className, children }: { className: string; children: React.ReactNode }) => (
   <span className={`rounded border px-1.5 py-px text-[10px] font-bold leading-4 tracking-wide ${className}`}>
@@ -117,6 +111,7 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
           <span key={flash} className={`rounded-lg ${flash ? "anim-flash" : ""}`}>
             <button
               type="button"
+              data-fire
               disabled={!quickEnabled}
               onPointerDown={(e) => {
                 if (e.button !== 0) return;

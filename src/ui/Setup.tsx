@@ -11,7 +11,7 @@ const COPY = {
     steps: [
       ["Read the tweet", "Work out the meme from an authority account and its best ticker."],
       ["Check the config", "The right coin is on Pump with Dividends on. The pair follows the author: /SPACEX for Elon (/TESLA for Tesla tweets), SOL for Toly, /PUMP for Alon and pump.fun. Look-alikes get exactly one thing wrong."],
-      ["Quick-buy it first", "Hit the ⚡ button on its New Pairs card. Sell into the run, Space ends the round."],
+      ["Quick-buy it first", "Hit the ⚡ button on its New Pairs card. Buy before the tweet and it is a false start; buy a look-alike and the round ends. Then sell into the run, or press Space to close out."],
     ],
   },
   dev: {
@@ -106,7 +106,9 @@ export function Setup() {
       </div>
 
       <p className="mt-4 text-[12px] text-amber">
-        Phase 4 build: Start opens the live board preview. Round scoring and DEV deploy land in the next phases.
+        {mode === "dev"
+          ? "DEV deploy arrives in phase 7: Start opens the free-running board for now."
+          : "Each round: 3 s countdown, then an armed wait of 1.5 to 4 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
       </p>
 
       <div className="mt-6 flex items-center justify-between">

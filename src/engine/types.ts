@@ -142,4 +142,58 @@ export interface Snapshot {
   walletSol: number;
   positions: Position[];
   round: RoundView | null;
+  /** Present only in scored rounds. */
+  scored: ScoredView | null;
+}
+
+export type RoundPhase = "countdown" | "armed" | "live" | "ended";
+export type RoundOutcome = "success" | "false_start" | "wrong_coin" | "missed";
+
+export interface CoinSummary {
+  ticker: string;
+  name: string;
+  art: ArtSpec;
+  config: CoinConfig;
+}
+
+export interface DecoySummary extends CoinSummary {
+  flaw: Flaw;
+}
+
+export interface RoundResult {
+  outcome: RoundOutcome;
+  memeName: string;
+  authorName: string;
+  authorHandle: string;
+  tweetSegments: TweetSeg[];
+  rightCoin: CoinSummary;
+  /** ms after the tweet that the right coin landed. Null if it never did. */
+  rightAppearMs: number | null;
+  /** Look-alikes that had landed by the end, each with its one flaw. */
+  decoys: DecoySummary[];
+  /** The coin you bought first, if any. `flaw` is null for the right coin. */
+  bought: (CoinSummary & { flaw: Flaw | "unrelated" | null }) | null;
+  /** False start only: how long before the tweet you bought. */
+  earlyMs: number | null;
+  /** Right coin landed to your buy. Success only. */
+  reactionMs: number | null;
+  tweetToBuyMs: number | null;
+  /** 1 = first buyer (the dev counts as a buyer). */
+  buyNumber: number | null;
+  entryMcUsd: number | null;
+  boughtSol: number;
+  closedSol: number;
+  pnlSol: number;
+  pnlPct: number;
+  rating: string | null;
+}
+
+export interface ScoredView {
+  phase: RoundPhase;
+  tStart: number;
+  /** Countdown ends, board is armed. */
+  tArm: number;
+  tTweet: number;
+  tEnd: number | null;
+  result: RoundResult | null;
 }

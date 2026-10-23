@@ -62,11 +62,13 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
 interface Props {
   tweets: TweetView[];
   wallStart: number;
+  pauseOnHover: boolean;
 }
 
-export function TweetFeed({ tweets, wallStart }: Props) {
+export function TweetFeed({ tweets, wallStart, pauseOnHover }: Props) {
   const [hovered, setHovered] = useState(false);
-  const { items, newCount } = usePausable(tweets, hovered);
+  const paused = hovered && pauseOnHover;
+  const { items, newCount } = usePausable(tweets, paused);
 
   return (
     <aside
@@ -79,7 +81,7 @@ export function TweetFeed({ tweets, wallStart }: Props) {
           <TweetCard key={t.id} t={t} wallStart={wallStart} />
         ))}
       </div>
-      {hovered && (
+      {paused && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center gap-2 text-[11px] font-semibold">
           <span className="rounded-full border border-line-hi bg-card-hi px-2.5 py-1 text-dim">Paused</span>
           {newCount > 0 && (

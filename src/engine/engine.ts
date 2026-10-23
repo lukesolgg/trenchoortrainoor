@@ -1,7 +1,8 @@
 import * as curveLib from "./curve";
-import { FEE, SUPPLY, toUsd, type Curve } from "./curve";
+import { FEE, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
+import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor } from "./scoring";
 import {
   MEME_PACK,
   makeFillerCoin,
@@ -14,12 +15,18 @@ import type {
   ArtSpec,
   Author,
   Candle,
+  CoinSummary,
   CoinView,
   DifficultyId,
+  Flaw,
   Meme,
   PlayerTrade,
   Position,
+  RoundOutcome,
+  RoundPhase,
+  RoundResult,
   RoundView,
+  ScoredView,
   Snapshot,
   Stage,
   TapeEntry,
@@ -66,6 +73,17 @@ interface Coin {
   viewRev: number;
 }
 
+interface ScoredState {
+  phase: RoundPhase;
+  tStart: number;
+  tArm: number;
+  tTweet: number;
+  tEnd: number | null;
+  firstBuy: { trade: PlayerTrade; coinId: string; isTarget: boolean; flaw: Flaw | "unrelated" | null } | null;
+  result: RoundResult | null;
+  view: ScoredView;
+}
+
 interface QueuedEvent {
   at: number;
   seq: number;
@@ -78,6 +96,8 @@ const MAX_FINAL = 14;
 const MAX_MIGRATED = 30;
 const FEED_CAP = 50;
 const EMIT_EVERY_MS = 100;
+/** During a scored round the board updates every frame so reaction times stay honest. */
+const EMIT_SCORED_MS = 15;
 const TAPE_CAP = 60;
 const CANDLE_CAP = 2400;
 const MAX_GAP_FILL = 300;
@@ -110,6 +130,8 @@ export class Engine {
   private tapeSeq = 1;
   private trades: PlayerTrade[] = [];
 
+  private scored: ScoredState | null = null;
+  private emitEvery = EMIT_EVERY_MS;
   private roundPlan: RoundPlan | null = null;
   private roundView: RoundView | null = null;
 
@@ -169,7 +191,7 @@ export class Engine {
       ev.run(ev.at);
     }
     this.simNow = Math.max(this.simNow, t);
-    if (this.dirty && t - this.lastEmit >= EMIT_EVERY_MS) this.emit();
+    if (this.dirty && t - this.lastEmit >= this.emitEvery) this.emit();
   }
 
   private at(at: number, run: (at: number) => void): void {
@@ -628,10 +650,22 @@ export class Engine {
   /**
    * Buy at the current price. `at` should come from the input event timestamp
    * (via fromEventTime) so click latency is not charged to the player.
+   * In a scored round this is also where false starts and wrong coins are judged.
    */
   quickBuy(coinId: string, sol: number, at: number = this.simNow): PlayerTrade | null {
+    // Catch the simulation up to the moment of the click, so the phase and the
+    // price are the ones the player actually saw.
+    if (at > this.simNow) this.advanceTo(at);
+    const sc = this.scored;
+    if (sc?.phase === "ended") return null;
     const c = this.coins.get(coinId);
-    if (!c || sol <= 0 || sol > this.wallet + 1e-9) return null;
+    if (!c) return null;
+    if (sc && (sc.phase === "countdown" || sc.phase === "armed")) {
+      this.endScored("false_start", { buyAt: at });
+      return null;
+    }
+    if (sol <= 0 || sol > this.wallet + 1e-9) return null;
+
     const rank = c.botBuys;
     const { tokens, spent } = this.applyBuy(c, sol, this.simNow, "player");
     if (tokens <= 0) return null;
@@ -643,11 +677,18 @@ export class Engine {
     this.positions.set(coinId, pos);
     const trade: PlayerTrade = { coinId, side: "buy", at, execAt: this.simNow, sol: spent, tokens, rank };
     this.trades.push(trade);
+
+    if (sc && sc.phase === "live" && !sc.firstBuy) {
+      const isTarget = c.spec.role === "target";
+      sc.firstBuy = { trade, coinId, isTarget, flaw: isTarget ? null : (c.spec.flaw ?? "unrelated") };
+      if (!isTarget) this.endScored("wrong_coin");
+    }
     this.emitNow();
     return trade;
   }
 
   sell(coinId: string, fraction: number, at: number = this.simNow): PlayerTrade | null {
+    if (at > this.simNow) this.advanceTo(at);
     const c = this.coins.get(coinId);
     const pos = this.positions.get(coinId);
     if (!c || !pos || pos.tokens <= 0) return null;
@@ -659,8 +700,150 @@ export class Engine {
     this.wallet += sol;
     const trade: PlayerTrade = { coinId, side: "sell", at, execAt: this.simNow, sol, tokens, rank: c.botBuys };
     this.trades.push(trade);
+
+    // Selling out of the right coin finishes a successful round.
+    const sc = this.scored;
+    if (sc?.phase === "live" && sc.firstBuy?.isTarget && this.allClosed()) this.endScored("success");
     this.emitNow();
     return trade;
+  }
+
+  private allClosed(): boolean {
+    return [...this.positions.values()].every((p) => p.tokens < 1e-6);
+  }
+
+  // ------------------------------------------------------------ scored round
+
+  /**
+   * Start a scored FIRST TX round: 3 s countdown, a random armed wait, then the
+   * tweet and the flood. Safe to call twice (React strict mode).
+   */
+  startScored(opts: { memeId?: string } = {}): void {
+    if (this.scored) return;
+    const tStart = this.simNow;
+    const tArm = tStart + COUNTDOWN_MS;
+    const tTweet = tArm + this.rng.range(ARMED_WAIT_MS[0], ARMED_WAIT_MS[1]);
+    const sc: ScoredState = {
+      phase: "countdown",
+      tStart,
+      tArm,
+      tTweet,
+      tEnd: null,
+      firstBuy: null,
+      result: null,
+      view: { phase: "countdown", tStart, tArm, tTweet, tEnd: null, result: null },
+    };
+    this.scored = sc;
+    this.emitEvery = EMIT_SCORED_MS;
+    this.startRound({ memeId: opts.memeId, leadMs: tTweet - this.simNow });
+
+    this.at(tArm, () => {
+      if (sc.phase !== "countdown") return;
+      this.setPhase(sc, "armed");
+    });
+    this.at(tTweet, () => {
+      if (sc.phase !== "armed" && sc.phase !== "countdown") return;
+      this.setPhase(sc, "live");
+    });
+    this.at(tTweet + MISS_AFTER_MS, () => {
+      if (sc.phase === "live" && !sc.firstBuy) this.endScored("missed");
+    });
+    this.at(tTweet + MAX_ROUND_MS, () => {
+      if (sc.phase === "live") this.finishLive();
+    });
+    this.emitNow();
+  }
+
+  /** End a live round on request (Space): success if you hold the right coin, else missed. */
+  endRound(): void {
+    if (this.scored?.phase === "live") this.finishLive();
+  }
+
+  isScoredOver(): boolean {
+    return this.scored?.phase === "ended";
+  }
+
+  private finishLive(): void {
+    const sc = this.scored;
+    if (!sc || sc.phase !== "live") return;
+    this.endScored(sc.firstBuy?.isTarget ? "success" : "missed");
+  }
+
+  private setPhase(sc: ScoredState, phase: RoundPhase): void {
+    sc.phase = phase;
+    sc.view = { ...sc.view, phase };
+    this.emitNow();
+  }
+
+  private endScored(outcome: RoundOutcome, extra: { buyAt?: number } = {}): void {
+    const sc = this.scored;
+    if (!sc || sc.phase === "ended") return;
+    this.closeAllPositions();
+    sc.phase = "ended";
+    sc.tEnd = this.simNow;
+    sc.result = this.buildResult(sc, outcome, extra.buyAt ?? null);
+    sc.view = { phase: "ended", tStart: sc.tStart, tArm: sc.tArm, tTweet: sc.tTweet, tEnd: sc.tEnd, result: sc.result };
+    this.emitEvery = EMIT_EVERY_MS;
+    this.emitNow();
+  }
+
+  /** Market-sell everything so the round's PnL is realised, slippage and fees included. */
+  private closeAllPositions(): void {
+    for (const [coinId, pos] of this.positions) {
+      const c = this.coins.get(coinId);
+      if (!c || pos.tokens < 1e-6) continue;
+      const tokens = pos.tokens;
+      const sol = this.applySell(c, tokens, this.simNow, "player");
+      pos.tokens = 0;
+      pos.soldSol += sol;
+      this.wallet += sol;
+      this.trades.push({ coinId, side: "sell", at: this.simNow, execAt: this.simNow, sol, tokens, rank: c.botBuys });
+    }
+  }
+
+  private summary(spec: CoinSpec): CoinSummary {
+    return { ticker: spec.ticker, name: spec.name, art: spec.art, config: spec.config };
+  }
+
+  private buildResult(sc: ScoredState, outcome: RoundOutcome, falseStartAt: number | null): RoundResult {
+    const plan = this.roundPlan!;
+    const view = this.roundView!;
+    const right = plan.spawns[plan.targetIndex].spec;
+    const elapsed = this.simNow - sc.tTweet;
+    const decoys = plan.spawns
+      .filter((s) => s.spec.role === "decoy" && s.at <= elapsed)
+      .map((s) => ({ ...this.summary(s.spec), flaw: s.spec.flaw! }));
+
+    const fb = sc.firstBuy;
+    const boughtCoin = fb ? this.coins.get(fb.coinId) : undefined;
+    const pos = fb ? this.positions.get(fb.coinId) : undefined;
+    const boughtSol = pos?.boughtSol ?? 0;
+    const closedSol = pos?.soldSol ?? 0;
+    const pnlSol = closedSol - boughtSol;
+    const success = outcome === "success" && fb?.isTarget === true;
+    const reactionMs = success && view.tTargetAppear !== null ? Math.max(0, fb.trade.at - view.tTargetAppear) : null;
+
+    return {
+      outcome,
+      memeName: plan.meme.name,
+      authorName: plan.author.name,
+      authorHandle: plan.author.handle,
+      tweetSegments: plan.segments,
+      rightCoin: this.summary(right),
+      rightAppearMs: view.tTargetAppear !== null ? view.tTargetAppear - sc.tTweet : null,
+      decoys,
+      bought: fb && boughtCoin ? { ...this.summary(boughtCoin.spec), flaw: fb.flaw } : null,
+      earlyMs: falseStartAt !== null ? Math.max(0, sc.tTweet - falseStartAt) : null,
+      reactionMs,
+      tweetToBuyMs: success ? fb.trade.at - sc.tTweet : null,
+      buyNumber: fb ? fb.trade.rank + 1 : null,
+      entryMcUsd: fb ? (fb.trade.sol / fb.trade.tokens) * SUPPLY * SOL_USD : null,
+      boughtSol,
+      closedSol,
+      pnlSol,
+      pnlPct: boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0,
+      rating: reactionMs !== null ? ratingFor(reactionMs) : null,
+    };
   }
 
   getTrades(): readonly PlayerTrade[] {
@@ -760,6 +943,7 @@ export class Engine {
       walletSol: this.wallet,
       positions,
       round: this.roundView,
+      scored: this.scored?.view ?? null,
     };
   }
 }

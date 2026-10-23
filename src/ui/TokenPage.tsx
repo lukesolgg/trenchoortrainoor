@@ -3,19 +3,13 @@
 import { useEffect } from "react";
 import { SOL_USD, SUPPLY } from "@/engine/curve";
 import type { Engine } from "@/engine/engine";
-import type { Pair, Snapshot } from "@/engine/types";
+import type { Snapshot } from "@/engine/types";
 import { Art } from "./Art";
+import { PAIR_STYLE } from "./chips";
 import { ChartPanel } from "./ChartPanel";
 import { age, sol, usd } from "./format";
 import { TradePanel } from "./TradePanel";
 import { TradeTape } from "./TradeTape";
-
-const PAIR_STYLE: Record<Pair, string> = {
-  SPACEX: "bg-buy/15 text-[#7f9bff] border-buy/40",
-  TESLA: "bg-down/15 text-down border-down/40",
-  PUMP: "bg-white/10 text-ink border-white/20",
-  SOL: "bg-violet/15 text-[#b79cff] border-violet/40",
-};
 
 const Stat = ({ k, v, tone }: { k: string; v: string; tone?: string }) => (
   <div className="leading-tight">

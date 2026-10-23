@@ -15,17 +15,19 @@ interface ColumnProps {
   quickEnabled: boolean;
   onQuickBuy: (coinId: string, eventTs: number) => void;
   onOpen: (coinId: string) => void;
+  pauseOnHover: boolean;
   footer?: React.ReactNode;
   empty: string;
 }
 
-function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuickBuy, onOpen, footer, empty }: ColumnProps) {
+function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuickBuy, onOpen, pauseOnHover, footer, empty }: ColumnProps) {
   const [hovered, setHovered] = useState(false);
   const q = query.trim().toLowerCase();
   const filtered = q
     ? coins.filter((c) => c.ticker.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) || c.mint.toLowerCase().includes(q))
     : coins;
-  const { items, newCount } = usePausable(filtered, hovered);
+  const paused = hovered && pauseOnHover;
+  const { items, newCount } = usePausable(filtered, paused);
 
   return (
     <section
@@ -52,7 +54,7 @@ function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuick
         ))}
         {footer}
       </div>
-      {hovered && (
+      {paused && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center gap-2 text-[11px] font-semibold">
           <span className="rounded-full border border-line-hi bg-card-hi px-2.5 py-1 text-dim">Paused</span>
           {newCount > 0 && <span className="rounded-full bg-amber px-2.5 py-1 text-black">{newCount} new ↑</span>}
@@ -74,6 +76,8 @@ interface BoardProps {
   onQuickEnabled: (b: boolean) => void;
   onQuickBuy: (coinId: string, eventTs: number) => void;
   onOpen: (coinId: string) => void;
+  /** Off in scored rounds: a frozen column would hide the coin you are racing for. */
+  pauseOnHover: boolean;
 }
 
 export function PulseBoard(p: BoardProps) {
@@ -84,6 +88,7 @@ export function PulseBoard(p: BoardProps) {
     quickEnabled: p.quickEnabled,
     onQuickBuy: p.onQuickBuy,
     onOpen: p.onOpen,
+    pauseOnHover: p.pauseOnHover,
   };
   const [draft, setDraft] = useState(String(p.quickSol));
   const commit = useCallback(

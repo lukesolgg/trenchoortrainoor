@@ -90,3 +90,61 @@ body {
     animation: none;
   }
 }
+
+@keyframes count-pop {
+  0% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.85;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes go-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 185, 66, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 185, 66, 0);
+  }
+}
+
+.anim-count {
+  animation: count-pop 1000ms ease-out both;
+}
+.anim-go {
+  animation: go-flash 900ms ease-out both;
+}
+.anim-armed {
+  animation: pulse-ring 1100ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-count,
+  .anim-go,
+  .anim-armed {
+    animation: none;
+  }
+}
