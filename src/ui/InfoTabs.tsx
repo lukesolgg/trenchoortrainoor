@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CoinView, PlayerTrade, TapeEntry } from "@/engine/types";
+import type { CoinView, PlayerTrade, Position, TapeEntry } from "@/engine/types";
 import { age, sol, signed } from "./format";
+import { FireButton } from "./TradePanel";
 
-type Tab = "holders" | "traders" | "mine";
+type Tab = "positions" | "holders" | "traders" | "mine";
 const TABS: { id: Tab; label: string }[] = [
+  { id: "positions", label: "Positions" },
   { id: "holders", label: "Holders" },
   { id: "traders", label: "Top Traders" },
   { id: "mine", label: "My Trades" },
@@ -23,11 +25,13 @@ interface Props {
   tape: readonly TapeEntry[];
   trades: readonly PlayerTrade[];
   now: number;
+  positions: { position: Position; ticker: string; name: string }[];
+  onSellCoin: (coinId: string, fraction: number, eventTs: number) => void;
 }
 
 /** Bottom-right tabs. Holders shows the distribution stats the engine models, not a fake wallet list. */
-export function InfoTabs({ coin, tape, trades, now }: Props) {
-  const [tab, setTab] = useState<Tab>("holders");
+export function InfoTabs({ coin, tape, trades, now, positions, onSellCoin }: Props) {
+  const [tab, setTab] = useState<Tab>("positions");
 
   const traders = useMemo(() => {
     const by = new Map<string, { buy: number; sell: number; n: number }>();
@@ -56,6 +60,45 @@ export function InfoTabs({ coin, tape, trades, now }: Props) {
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {tab === "positions" &&
+          (positions.length === 0 ? (
+            <p className="px-3 py-4 text-[12px] text-faint">No positions yet.</p>
+          ) : (
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 bg-panel text-[10px] uppercase tracking-wider text-faint">
+                <tr>
+                  <th className="py-1 pl-3 text-left font-semibold">Token</th>
+                  <th className="py-1 text-right font-semibold">Bought</th>
+                  <th className="py-1 text-right font-semibold">Value</th>
+                  <th className="py-1 text-right font-semibold">PnL</th>
+                  <th className="py-1 pr-3 text-right font-semibold">Sell</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map(({ position: p, ticker }) => {
+                  const pnl = p.soldSol + p.valueSol - p.boughtSol;
+                  const pct = p.boughtSol > 0 ? (pnl / p.boughtSol) * 100 : 0;
+                  const open = p.tokens > 1e-6;
+                  return (
+                    <tr key={p.coinId}>
+                      <td className="py-[3px] pl-3 font-bold">{ticker}</td>
+                      <td className="tabular py-[3px] text-right">◎{sol(p.boughtSol)}</td>
+                      <td className="tabular py-[3px] text-right">◎{sol(p.valueSol)}</td>
+                      <td className={`tabular py-[3px] text-right font-semibold ${pnl >= 0 ? "text-up" : "text-down"}`}>
+                        {signed(pnl)} <span className="text-[10px] opacity-70">{signed(pct, 0)}%</span>
+                      </td>
+                      <td className="py-[3px] pr-3">
+                        <div className="ml-auto flex w-[132px] gap-1">
+                          <FireButton tone="sell" outline pill h="h-6" disabled={!open} label="50%" onFire={(ts) => onSellCoin(p.coinId, 0.5, ts)} />
+                          <FireButton tone="sell" outline pill h="h-6" disabled={!open} label="100%" onFire={(ts) => onSellCoin(p.coinId, 1, ts)} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ))}
         {tab === "holders" && (
           <div className="grid grid-cols-3 gap-2 p-3">
             <Stat k="Holders" v={String(coin.holders)} />

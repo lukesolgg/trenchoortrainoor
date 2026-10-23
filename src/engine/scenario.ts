@@ -10,7 +10,7 @@ import {
 } from "./content";
 import type { Rng } from "./rng";
 import type { Difficulty } from "./difficulty";
-import type { ArtSpec, Author, CoinConfig, CoinRole, Flaw, Meme, Pair, Profile, TweetSeg } from "./types";
+import type { ArtSpec, Author, TweetSource, CoinConfig, CoinRole, Flaw, Meme, Pair, Profile, TweetSeg } from "./types";
 
 const PAIRS: Pair[] = ["SOL", "SPACEX", "TESLA", "PUMP"];
 
@@ -240,4 +240,20 @@ export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
     sniperReactMs: diff.sniperReactMs,
     distractors,
   };
+}
+
+const FILLER_TWEETS = [
+  "just deployed {name}. fair launch, no presale, no promises",
+  "{name} is live. dev is based, chart will do the talking",
+  "who's aping {name}? contract in bio",
+  "{name} on pump. first 100 holders get remembered",
+  "new meta: {name}. you saw it here first",
+  "{name} will make sense in 3 days. 3 days too late",
+];
+
+/** A throwaway deployer tweet for coins that are not part of a round, or null (no socials). Uses its own generator. */
+export function fillerSource(rng: Rng, name: string): TweetSource | null {
+  if (rng.chance(0.3)) return null;
+  const author = rng.pick(NOISE_AUTHORS);
+  return { author, segments: splitTemplate(rng.pick(FILLER_TWEETS), name) };
 }

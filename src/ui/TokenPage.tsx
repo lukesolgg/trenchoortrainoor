@@ -9,6 +9,8 @@ import { PAIR_STYLE } from "./chips";
 import { ChartPanel, type ChartHandle, type Metric, type ScaleMode, type Unit } from "./ChartPanel";
 import { fmtPrice } from "./chartData";
 import { InfoTabs } from "./InfoTabs";
+import { BoltIcon } from "./icons";
+import { QuickWidget } from "./QuickWidget";
 import { useUi } from "@/store/ui";
 import { age, sol, usd } from "./format";
 import { TradePanel } from "./TradePanel";
@@ -64,11 +66,13 @@ interface Props {
   wallStart: number;
   buyPresets: number[];
   onBuyPresets: (p: number[]) => void;
+  presetSet: number;
+  onPresetSet: (i: number) => void;
   onBack: () => void;
   notify: (text: string) => void;
 }
 
-export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, onBack, notify }: Props) {
+export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, notify }: Props) {
   const coin = engine.getCoinView(coinId);
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
@@ -79,6 +83,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
   const [metric, setMetric] = useState<Metric>("mc");
   const [unit, setUnit] = useState<Unit>("usd");
   const [scale, setScale] = useState<ScaleMode>("auto");
+  const [widgetOpen, setWidgetOpen] = useState(true);
 
   const buy = (amount: number, eventTs: number) => {
     const trade = engine.quickBuy(coinId, amount, engine.fromEventTime(eventTs));
@@ -94,11 +99,11 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
     notify(trade ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL` : "Nothing to sell");
   };
 
-  // Buy hotkeys 1-4 (ignored while typing in a field).
+  // Buy hotkeys 1-8 fire the active preset set (ignored while typing in a field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.repeat) return;
-      const i = ["1", "2", "3", "4"].indexOf(e.key);
+      const i = ["1", "2", "3", "4", "5", "6", "7", "8"].indexOf(e.key);
       if (i < 0 || i >= buyPresets.length) return;
       e.preventDefault();
       const trade = engine.quickBuy(coinId, buyPresets[i], engine.fromEventTime(e.timeStamp));
@@ -130,6 +135,20 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
     );
   }
 
+  const first = engine.getCandles(coinId)[0];
+  const changePct = first && first.o > 0 ? (coin.mcSol / first.o - 1) * 100 : 0;
+  const toggleInstant = () => {
+    setInstant(!instant);
+    if (!instant) setWidgetOpen(true);
+  };
+  const positionRows = snap.positions
+    .filter((p) => p.tokens > 1e-6 || p.boughtSol > 0)
+    .map((p) => ({ position: p, ticker: engine.getCoinView(p.coinId)?.ticker ?? "?", name: engine.getCoinView(p.coinId)?.name ?? "" }));
+  const sellCoin = (id: string, fraction: number, ts: number) => {
+    const trade = engine.sell(id, fraction, engine.fromEventTime(ts));
+    notify(trade ? `Sold ${Math.round(fraction * 100)}% for ${sol(trade.sol)} SOL` : "Nothing to sell");
+  };
+
   const entryMcUsd =
     position && position.boughtTokens > 0 ? (position.boughtSol / position.boughtTokens) * SUPPLY * SOL_USD : null;
   const bonded = coin.stage === "migrated" ? "Migrated" : `${Math.round(coin.progress * 100)}% bonded`;
@@ -141,9 +160,9 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 rounded-lg border border-line-hi px-2.5 py-1.5 text-[12px] font-semibold text-dim transition-colors hover:text-ink"
+          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line-hi px-2.5 py-1.5 text-[12px] font-semibold text-dim transition-colors hover:text-ink"
         >
-          ← Trenches <kbd className="text-faint">Esc</kbd>
+          ← Back <kbd className="text-faint">Esc</kbd>
         </button>
         <div className="flex min-w-0 items-center gap-3">
           <div className="relative">
@@ -180,18 +199,27 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-6">
+        <div className="ml-auto flex shrink-0 items-center gap-5">
           <Stat k="Price" v={`$${fmtPrice(priceUsd)}`} />
           <Stat k="Liquidity" v={usd(coin.liqUsd)} />
           <Stat k="24h Vol" v={usd(coin.volumeUsd)} />
           <Stat k="Total fees" v={`◎${sol(coin.feesSol)}`} />
-          <Stat k="Txns" v={`${coin.buys}/${coin.sells}`} />
           <div className="w-28 leading-tight">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{bonded}</div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
               <div className="h-full bg-up" style={{ width: `${Math.round(coin.progress * 100)}%` }} />
             </div>
           </div>
+          <button
+            type="button"
+            onClick={toggleInstant}
+            aria-pressed={instant}
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12px] font-bold transition-colors ${
+              instant ? "border-buy bg-buy/20 text-[#9db0ff]" : "border-line-hi text-dim hover:text-ink"
+            }`}
+          >
+            <BoltIcon className="h-3 w-3" /> Instant Trade
+          </button>
         </div>
       </header>
 
@@ -211,7 +239,20 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               <Tool onClick={() => chart.current?.fullscreen()} title="Fullscreen chart">⛶</Tool>
             </div>
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
+            {instant && widgetOpen && (
+              <QuickWidget
+                presets={buyPresets}
+                presetSet={presetSet}
+                onPresetSet={onPresetSet}
+                walletSol={snap.walletSol}
+                held={!!position && position.tokens > 1e-6}
+                ticker={coin.ticker}
+                onBuy={buy}
+                onSell={sell}
+                onClose={() => setWidgetOpen(false)}
+              />
+            )}
             <ChartPanel
               key={coinId}
               ref={chart}
@@ -245,7 +286,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               <TradeTape tape={tape} now={snap.now} />
             </div>
             <div className="min-h-0 min-w-0">
-              <InfoTabs coin={coin} tape={tape} trades={engine.getTradesFor(coinId)} now={snap.now} />
+              <InfoTabs coin={coin} tape={tape} trades={engine.getTradesFor(coinId)} now={snap.now} positions={positionRows} onSellCoin={sellCoin} />
             </div>
           </div>
         </div>
@@ -255,8 +296,10 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           position={position}
           buyPresets={buyPresets}
           onBuyPresets={onBuyPresets}
+          presetSet={presetSet}
+          onPresetSet={onPresetSet}
           instant={instant}
-          onInstant={setInstant}
+          changePct={changePct}
           onBuy={buy}
           onSell={sell}
         />

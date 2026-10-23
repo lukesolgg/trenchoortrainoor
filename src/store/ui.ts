@@ -17,8 +17,9 @@ interface UiState {
   feedOpen: boolean;
   /** Token page: preset buttons fire immediately instead of arming an amount. */
   instantTrade: boolean;
-  /** Token page buy buttons, in SOL. Hotkeys 1-4. */
-  buyPresets: number[];
+  /** Token page buy buttons, in SOL: three sets of eight. Hotkeys 1-8 fire the active set. */
+  buySets: number[][];
+  presetSet: number;
   /** Bumped on every round start so the Game remounts with a fresh engine. */
   runId: number;
   pickMode: (m: ModeId) => void;
@@ -29,6 +30,7 @@ interface UiState {
   setInstantTrade: (b: boolean) => void;
   setQuickEnabled: (b: boolean) => void;
   setBuyPresets: (p: number[]) => void;
+  setPresetSet: (i: number) => void;
   start: () => void;
   toModes: () => void;
 }
@@ -43,7 +45,12 @@ export const useUi = create<UiState>((set) => ({
   feedOpen: true,
   instantTrade: true,
   quickEnabled: true,
-  buyPresets: [0.5, 1, 3, 5],
+  buySets: [
+    [1, 3, 5, 10, 2, 4, 0.5, 0.1],
+    [0.1, 0.2, 0.3, 0.5, 0.15, 0.25, 0.75, 1],
+    [5, 10, 15, 20, 7.5, 12, 25, 50],
+  ],
+  presetSet: 0,
   runId: 0,
   pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : "setup", runId: Date.now() }),
   setDifficulty: (difficulty) => set({ difficulty }),
@@ -52,7 +59,8 @@ export const useUi = create<UiState>((set) => ({
   setFeedOpen: (feedOpen) => set({ feedOpen }),
   setInstantTrade: (instantTrade) => set({ instantTrade }),
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),
-  setBuyPresets: (buyPresets) => set({ buyPresets }),
+  setBuyPresets: (p) => set((st) => ({ buySets: st.buySets.map((x, i) => (i === st.presetSet ? p : x)) })),
+  setPresetSet: (presetSet) => set({ presetSet }),
   start: () => set({ screen: "play", runId: Date.now() }),
   toModes: () => set({ screen: "modes" }),
 }));

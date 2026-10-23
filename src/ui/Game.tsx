@@ -21,8 +21,8 @@ interface Toast {
 
 export function Game() {
   const {
-    mode, difficulty, quickPresets, colPreset, quickEnabled, feedOpen, buyPresets,
-    setQuickPreset, setColPreset, setQuickEnabled, setBuyPresets, setFeedOpen, toModes, start,
+    mode, difficulty, quickPresets, colPreset, quickEnabled, feedOpen, buySets, presetSet,
+    setQuickPreset, setColPreset, setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start,
   } = useUi();
   // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
   const scoredMode = mode === "firsttx";
@@ -125,6 +125,7 @@ export function Game() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toModes, openId, start, engine]);
 
+  const buyPresets = buySets[presetSet];
   const diff = DIFFICULTIES[difficulty];
 
   return (
@@ -150,8 +151,9 @@ export function Game() {
         )}
       </div>
 
-      <div className={`grid min-h-0 flex-1 ${feedOpen ? "grid-cols-[minmax(300px,360px)_1fr]" : "grid-cols-[40px_1fr]"}`}>
+      <div className={`grid min-h-0 flex-1 gap-2 bg-bg p-2 ${feedOpen ? "grid-cols-[minmax(300px,350px)_1fr]" : "grid-cols-[40px_1fr]"}`}>
         <TweetFeed tweets={snap.feed} wallStart={wallStart} pauseOnHover={!scoredMode} open={feedOpen} onToggle={() => setFeedOpen(!feedOpen)} />
+        <div className="min-h-0 min-w-0 overflow-hidden rounded-xl border border-line bg-bg">
         {openId ? (
           <TokenPage
             engine={engine}
@@ -160,6 +162,8 @@ export function Game() {
             wallStart={wallStart}
             buyPresets={buyPresets}
             onBuyPresets={setBuyPresets}
+            presetSet={presetSet}
+            onPresetSet={setPresetSet}
             onBack={() => setOpenId(null)}
             notify={notify}
           />
@@ -181,6 +185,7 @@ export function Game() {
           pauseOnHover={!scoredMode}
         />
         )}
+        </div>
       </div>
 
       <StatusBar hint={scoredMode ? "Scored round: the board never pauses" : "Hover a column or the feed to pause it"} />

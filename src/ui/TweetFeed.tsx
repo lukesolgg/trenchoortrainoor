@@ -3,6 +3,7 @@
 import { memo, useState } from "react";
 import type { TweetView } from "@/engine/types";
 import { Art } from "./Art";
+import { XIcon } from "./icons";
 import { clockTime } from "./format";
 import { usePausable } from "./hooks";
 
@@ -13,8 +14,8 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
   const { author } = t;
   return (
     <article
-      className={`anim-tweet rounded-xl border bg-card p-3 ${
-        t.memeTweet ? "border-violet/60 shadow-[0_0_0_1px_rgba(139,92,246,.15)]" : "border-line"
+      className={`anim-tweet rounded-xl border bg-tk-card p-3 ${
+        t.memeTweet ? "border-violet/60 shadow-[0_0_0_1px_rgba(139,92,246,.15)]" : "border-tk-line"
       }`}
     >
       <header className="flex items-center gap-2.5">
@@ -53,7 +54,7 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
         )}
       </p>
       {t.art && (
-        <Art art={t.art} className="mt-2.5 aspect-[16/10] w-full rounded-lg border border-line" glyphSize={64} />
+        <Art art={t.art} className="mt-2.5 aspect-[16/10] w-full rounded-lg border border-tk-line" glyphSize={64} />
       )}
     </article>
   );
@@ -74,12 +75,16 @@ export function TweetFeed({ tweets, wallStart, pauseOnHover, open, onToggle }: P
 
   return (
     <aside
-      className="relative flex h-full min-h-0 flex-col border-r border-line bg-panel"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-tk-line bg-tk"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-line px-3">
-        {open && <h2 className="text-[13px] font-bold tracking-tight">Feed</h2>}
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-tk-line px-3">
+        {open && (
+          <h2 className="flex items-center gap-2 text-[13px] font-bold tracking-tight">
+            <XIcon className="h-3 w-3" /> Tracker
+          </h2>
+        )}
         <button
           type="button"
           onClick={onToggle}

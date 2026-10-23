@@ -29,6 +29,12 @@ export interface Candle {
   v: number;
 }
 
+/** The tweet a coin was deployed off, shown on hover. */
+export interface TweetSource {
+  author: Author;
+  segments: TweetSeg[];
+}
+
 export interface CoinView {
   id: string;
   ticker: string;
@@ -51,6 +57,18 @@ export interface CoinView {
   liqUsd: number;
   /** Volume-weighted average market cap of the earliest buys, in USD. Stands in for "top holders' avg buy". */
   earlyAvgMcUsd: number;
+  /** USD bought and sold so far. */
+  buyVolUsd: number;
+  sellVolUsd: number;
+  /** Tweet this coin was deployed off, or null when it has no socials. */
+  source: TweetSource | null;
+  /** How many of the deployer's earlier coins migrated. */
+  devMigrated: number;
+  proTraders: number;
+  bundlers: number;
+  dexPaid: boolean;
+  /** Shortened pool address. */
+  pair: string;
   /** Shortened mint address, e.g. "cJK...pump". */
   mint: string;
   creator: string;

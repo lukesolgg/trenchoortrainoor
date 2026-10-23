@@ -141,7 +141,7 @@ export function PulseBoard(p: BoardProps) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-line bg-nav px-4">
-        <h1 className="text-[15px] font-extrabold tracking-tight">Trenches</h1>
+        <h1 className="text-[15px] font-extrabold tracking-tight">Memescope</h1>
         <div className="flex items-center gap-4">
           <PresetEditor presets={p.presets} onChange={p.onPresetValue} />
           <label className="flex items-center gap-2 text-[11px] font-semibold text-dim">

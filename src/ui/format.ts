@@ -32,6 +32,13 @@ export function tokens(n: number): string {
   return n.toFixed(0);
 }
 
+/** Percent change, compact for huge moves: +48.7K%. */
+export function pct(n: number): string {
+  const a = Math.abs(n);
+  const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(a / 1e3).toFixed(1)}K` : a.toFixed(2);
+  return `${n >= 0 ? "+" : "-"}${s}%`;
+}
+
 export function signed(n: number, dp = 2): string {
   return `${n >= 0 ? "+" : "-"}${Math.abs(n).toFixed(dp)}`;
 }

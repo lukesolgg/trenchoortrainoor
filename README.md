@@ -33,7 +33,7 @@ npm run typecheck
 | `3` / `1` / `F` | Home | FIRST TX / DEV / Free play |
 | Space | Setup | Start |
 | click a card, or hover + `T` | Pulse | Open the coin's page |
-| `1`-`4` | Token page | Buy preset 1-4 (editable), fires instantly |
+| `1`-`8` | Token page | Fires buy preset 1-8 of the active set (3 editable sets) |
 | `/` | Pulse | Search |
 | Esc | Token page | Back to Pulse |
 | Esc Esc | Pulse | Back to menu |

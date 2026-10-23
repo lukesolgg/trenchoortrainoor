@@ -5,6 +5,7 @@ import { Rng } from "./rng";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor } from "./scoring";
 import {
   MEME_PACK,
+  fillerSource,
   makeFillerCoin,
   makeNoiseTweet,
   makeRound,
@@ -31,6 +32,7 @@ import type {
   Stage,
   TapeEntry,
   TweetSeg,
+  TweetSource,
   TweetView,
 } from "./types";
 
@@ -61,6 +63,14 @@ interface Coin {
   sells: number;
   earlyVol: number;
   earlyMcW: number;
+  buyVolSol: number;
+  sellVolSol: number;
+  source: TweetSource | null;
+  devMigrated: number;
+  proFrac: number;
+  bundlers: number;
+  dexPaid: boolean;
+  pair: string;
   botBuys: number;
   holders: number;
   volumeSol: number;
@@ -238,9 +248,12 @@ export class Engine {
 
   // ------------------------------------------------------------------ coins
 
-  private spawn(spec: CoinSpec, at: number): Coin {
+  private spawn(spec: CoinSpec, at: number, source?: TweetSource | null): Coin {
     const id = `c${this.nextId++}`;
     const curve = curveLib.newCurve();
+    // Cosmetic extras come from their own generator so they never shift the simulation's random stream.
+    const x = new Rng(this.nextId * 2246822519 + 374761393);
+    const src = source !== undefined ? source : fillerSource(x, spec.name);
     const coin: Coin = {
       id,
       spec,
@@ -257,6 +270,14 @@ export class Engine {
       sells: 0,
       earlyVol: 0,
       earlyMcW: 0,
+      buyVolSol: 0,
+      sellVolSol: 0,
+      source: src,
+      devMigrated: x.chance(0.55) ? 0 : x.int(1, 9),
+      proFrac: x.range(0.03, 0.2),
+      bundlers: x.chance(0.6) ? 0 : x.int(1, 14),
+      dexPaid: x.chance(0.3),
+      pair: `${x.addr(4)}...${x.addr(4)}`,
       botBuys: 0,
       holders: 0,
       volumeSol: 0,
@@ -373,6 +394,7 @@ export class Engine {
     if (spent <= 0) return { tokens: 0, spent: 0 };
     c.txCount++;
     c.buys++;
+    c.buyVolSol += spent;
     c.volumeSol += spent;
     if (c.earlyVol < EARLY_VOL_SOL) {
       c.earlyVol += spent;
@@ -404,6 +426,7 @@ export class Engine {
     }
     c.txCount++;
     c.sells++;
+    c.sellVolSol += sol;
     c.volumeSol += sol;
     if (by === "bot" && this.rng.chance(0.3)) c.holders = Math.max(1, c.holders - 1);
     this.record(c, at, sol);
@@ -519,6 +542,9 @@ export class Engine {
     }
     if (!c.migrated && curveLib.progress(c.curve) >= FINAL_AT) c.stage = "final";
     c.buys += path.length;
+    const pathVol = path.reduce((a, p) => a + p.vol, 0);
+    c.buyVolSol += pathVol;
+    c.sellVolSol += pathVol * 0.25;
     c.sells += Math.floor(path.length * this.rng.range(0.1, 0.4));
     c.txCount = c.buys + c.sells;
     for (const p of path) {
@@ -627,6 +653,7 @@ export class Engine {
       rightPair: plan.rightPair,
     };
 
+    const mainSource: TweetSource = { author: plan.author, segments: plan.segments };
     this.at(tTweet, (at) => {
       this.pushTweet(plan.author, plan.segments, true, meme.art, at);
       this.emitNow();
@@ -634,7 +661,8 @@ export class Engine {
 
     plan.spawns.forEach((s, i) => {
       this.at(tTweet + s.at, (at) => {
-        const coin = this.spawn(s.spec, at);
+        // Look-alikes and the right coin were all deployed off the round's tweet; fillers were not.
+        const coin = this.spawn(s.spec, at, s.spec.role === "noise" ? undefined : mainSource);
         if (i === plan.targetIndex) this.onTargetSpawn(coin, at, plan);
       });
     });
@@ -643,7 +671,8 @@ export class Engine {
       this.at(tTweet + d.at, (at) => {
         this.pushTweet(d.author, d.segments, true, d.art, at);
       });
-      d.spawns.forEach((s) => this.at(tTweet + s.at, (at) => this.spawn(s.spec, at)));
+      const dSource: TweetSource = { author: d.author, segments: d.segments };
+      d.spawns.forEach((s) => this.at(tTweet + s.at, (at) => this.spawn(s.spec, at, dSource)));
     });
 
     if (this.opts.autoRounds) {
@@ -942,6 +971,14 @@ export class Engine {
       feesSol: c.volumeSol * FEE,
       liqUsd: c.migrated ? toUsd(this.mc(c)) * 0.12 : toUsd(c.curve.realSol),
       earlyAvgMcUsd: c.earlyVol > 0 ? toUsd(c.earlyMcW / c.earlyVol) : toUsd(this.mc(c)),
+      buyVolUsd: toUsd(c.buyVolSol),
+      sellVolUsd: toUsd(c.sellVolSol),
+      source: c.source,
+      devMigrated: c.devMigrated,
+      proTraders: Math.round(c.holders * c.proFrac),
+      bundlers: c.bundlers,
+      dexPaid: c.dexPaid,
+      pair: c.pair,
       mint: c.mint,
       creator: c.creator,
       stats: c.stats,
