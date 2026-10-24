@@ -90,7 +90,8 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
   opens with a full New column, 3-4 coins in Almost bonded and the Tracker already scrolled.
 - Price action after migration has two layers: the level only moves on size (slow drift plus whale buys/sells that close the gap
   to the script), and a volume bot bounces the price around it with micro fills, so candles get wicks both ways.
-- X avatars: drop `public/avatars/<handle>.jpg` (e.g. `elonmusk.jpg`) and authority tweets use it; otherwise the gradient initial.
+- X avatars: `public/avatars/<handle>.jpg` (elonmusk, toly, a1lon9, truth_terminal, blknoiz06, solana are in; pumpdotfun is not yet). Missing files fall back to the gradient initial.
+- Your trades show on the chart as round B / S badges at the market cap you traded at (`TradeDots` primitive in ChartPanel.tsx).
 - The Tracker is a separate full-height column outside the app chrome. `MultiplierFlash` flashes 2x/5x/10x/20x/50x/100x on open positions.
 - Tracker keywords are highlighted pink (`highlightPhrases` in `scenario.ts`); memes can set `highlight` phrases and `noHighlight`.
 

@@ -9,11 +9,11 @@ import {
   PriceScaleMode,
   type AutoscaleInfo,
   createChart,
-  createSeriesMarkers,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
-  type ISeriesMarkersPluginApi,
+  type ISeriesPrimitive,
+  type SeriesAttachedParameter,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -22,6 +22,83 @@ import type { Engine } from "@/engine/engine";
 import type { Candle } from "@/engine/types";
 import { aggregate, fmtPrice, tailFrom } from "./chartData";
 import { usd } from "./format";
+
+/** Your trades on the chart: small round B / S badges sitting on the price you got, instead of arrows and text. */
+interface Dot {
+  time: Time;
+  value: number;
+  side: "buy" | "sell";
+}
+class TradeDots implements ISeriesPrimitive<Time> {
+  private dots: Dot[] = [];
+  private chart: IChartApi | null = null;
+  private series: ISeriesApi<"Candlestick"> | null = null;
+  private request: (() => void) | null = null;
+
+  attached(p: SeriesAttachedParameter<Time>) {
+    this.chart = p.chart as IChartApi;
+    this.series = p.series as ISeriesApi<"Candlestick">;
+    this.request = p.requestUpdate;
+  }
+  detached() {
+    this.chart = this.series = this.request = null;
+  }
+  setDots(d: Dot[]) {
+    this.dots = d;
+    this.request?.();
+  }
+  updateAllViews() {}
+  paneViews() {
+    const self = this;
+    return [
+      {
+        zOrder: () => "top" as const,
+        renderer: () => ({
+          draw(target: {
+            useBitmapCoordinateSpace: (
+              cb: (s: { context: CanvasRenderingContext2D; horizontalPixelRatio: number; verticalPixelRatio: number }) => void,
+            ) => void;
+          }) {
+            const { chart, series, dots } = self;
+            if (!chart || !series || dots.length === 0) return;
+            target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+              const r = 7.5 * hr;
+              const perBar = new Map<number, number>();
+              ctx.save();
+              ctx.font = `800 ${Math.round(9 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              for (const d of dots) {
+                const x0 = chart.timeScale().timeToCoordinate(d.time);
+                const y0 = series.priceToCoordinate(d.value);
+                if (x0 === null || y0 === null) continue;
+                // Several trades in one bar fan out sideways so they never hide each other.
+                const n = perBar.get(x0) ?? 0;
+                perBar.set(x0, n + 1);
+                const x = (x0 + n * 11) * hr;
+                const y = y0 * vr;
+                const buy = d.side === "buy";
+                ctx.shadowColor = buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
+                ctx.shadowBlur = 8 * hr;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fillStyle = buy ? "#35d07f" : "#f0455a";
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 1.5 * hr;
+                ctx.strokeStyle = "#0e0f12";
+                ctx.stroke();
+                ctx.fillStyle = buy ? "#06130c" : "#ffffff";
+                ctx.fillText(buy ? "B" : "S", x, y + 0.5 * vr);
+              }
+              ctx.restore();
+            });
+          },
+        }),
+      },
+    ];
+  }
+}
 
 export type Metric = "mc" | "price";
 export type Unit = "usd" | "sol";
@@ -86,7 +163,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const dotsRef = useRef<TradeDots | null>(null);
   const lines = useRef<{ ath?: IPriceLine; early?: IPriceLine; entry?: IPriceLine; mig?: IPriceLine }>({});
   const lastT = useRef<number | null>(null);
   const dataKey = useRef("");
@@ -174,10 +251,11 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     chartRef.current = chart;
     candleRef.current = candle;
     volRef.current = vol;
-    markersRef.current = createSeriesMarkers(candle, []);
+    dotsRef.current = new TradeDots();
+    candle.attachPrimitive(dotsRef.current);
     return () => {
       chart.remove();
-      chartRef.current = candleRef.current = volRef.current = markersRef.current = null;
+      chartRef.current = candleRef.current = volRef.current = dotsRef.current = null;
       lines.current = {};
       lastT.current = null;
       dataKey.current = "";
@@ -270,23 +348,24 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
 
     const trades = engine.getTradesFor(coinId);
     if (trades.length !== markerCount.current) {
-      markersRef.current?.setMarkers(
-        trades.map((t) => ({
-          time: (Math.floor(Math.floor(t.execAt / 1000) / tf) * tf + timeOffset) as UTCTimestamp,
-          position: t.side === "buy" ? ("belowBar" as const) : ("aboveBar" as const),
-          shape: t.side === "buy" ? ("arrowUp" as const) : ("arrowDown" as const),
-          color: t.side === "buy" ? "#4c6fff" : DOWN,
-          text: `${t.side === "buy" ? "B" : "S"} ${t.sol.toFixed(2)}`,
-        })),
+      dotsRef.current?.setDots(
+        trades
+          .filter((t) => t.tokens > 0)
+          .map((t) => ({
+            time: (Math.floor(Math.floor(t.execAt / 1000) / tf) * tf + timeOffset) as UTCTimestamp,
+            // The market cap you actually traded at, in the chart's metric and unit.
+            value: (t.sol / t.tokens) * SUPPLY * factor,
+            side: t.side,
+          })),
       );
       markerCount.current = trades.length;
     }
   }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd]);
 
-  // Switching timeframe changes where markers sit.
+  // Switching timeframe, metric or unit changes where the badges sit.
   useEffect(() => {
     markerCount.current = -1;
-  }, [tf]);
+  }, [tf, factor]);
 
   const shown = hover ?? lastBar.current;
   const fmt = (v: number) => formatValue(v, metric, unit);
