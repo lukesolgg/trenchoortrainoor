@@ -35,6 +35,7 @@ import type {
   TweetSeg,
   TweetSource,
   TweetView,
+  Order,
 } from "./types";
 
 export interface EngineOptions {
@@ -50,10 +51,11 @@ export interface EngineOptions {
 
 /**
  * How a big coin's round plays out. Picked at random each round so you never know which one you are in.
- * - standard: tops at the meme's `big.peak`, fades to `big.trip`
- * - runner:   $400K-3M top, round-trips to 25-45% of it
- * - moon:     $8-50M top, lower high, dev rug, bleeds to 2.5-5% of the top
- * - toprug:   $200-300K top, then rugs all the way to ~$5K (one candle or a staircase)
+ * Times are from launch; runners migrate in 2.5-5 s (sometimes up to 12 s).
+ * - standard: tops at the meme's `big.peak` in 18-32 s, fades to `big.trip`
+ * - runner:   $0.7-2.5M top in 28-50 s, flush, lower high, long bleed to 8-15%
+ * - moon:     $3-50M top in 30-50 s, lower high, trickles to ~half; half the time the dev then rugs it to 3-5%
+ * - toprug:   $200-400K top in 13-21 s, then down to $20-30K within ~8 s (one candle or a staircase), dies at $5-9K
  */
 export type BigOutcome = "standard" | "runner" | "moon" | "toprug";
 export const BIG_OUTCOME_WEIGHTS: Record<BigOutcome, number> = { standard: 0.3, runner: 0.27, moon: 0.13, toprug: 0.3 };
@@ -118,6 +120,8 @@ interface Coin {
   pair: string;
   botBuys: number;
   holders: number;
+  /** Top-10 holders' average entry (SOL mc). Starts at the early buyers' average and ratchets up as they add higher. */
+  top10Avg: number;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -334,6 +338,7 @@ export class Engine {
       pair: `${x.addr(4)}...${x.addr(4)}`,
       botBuys: 0,
       holders: 0,
+      top10Avg: 0,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -409,6 +414,65 @@ export class Engine {
   private touch(c: Coin): void {
     c.rev++;
     this.dirty = true;
+    if (this.openOrders > 0 && !this.filling) this.fillOrders(c);
+  }
+
+  // ------------------------------------------------------------------ orders
+
+  private orders: Order[] = [];
+  private orderSeq = 1;
+  private openOrders = 0;
+  private filling = false;
+
+  /** Place a TP or SL on a coin you hold. Returns null if you hold none. */
+  addOrder(coinId: string, kind: Order["kind"], triggerMcUsd: number, fraction: number): Order | null {
+    if (!this.holding(coinId) || !(triggerMcUsd > 0)) return null;
+    const o: Order = {
+      id: this.orderSeq++,
+      coinId,
+      kind,
+      triggerMcUsd,
+      fraction: Math.min(1, Math.max(0.01, fraction)),
+      status: "open",
+      createdAt: this.simNow,
+      filledAt: null,
+      filledSol: null,
+    };
+    this.orders.unshift(o);
+    this.openOrders++;
+    this.emitNow();
+    return o;
+  }
+
+  cancelOrder(id: number): void {
+    const o = this.orders.find((x) => x.id === id);
+    if (!o || o.status !== "open") return;
+    o.status = "cancelled";
+    this.openOrders--;
+    this.emitNow();
+  }
+
+  /** Fill any open TP/SL on this coin whose trigger has been crossed. Orders on a coin you no longer hold are cancelled. */
+  private fillOrders(c: Coin): void {
+    const mcUsd = toUsd(this.mc(c));
+    for (const o of this.orders) {
+      if (o.status !== "open" || o.coinId !== c.id) continue;
+      if (!this.holding(c.id)) {
+        o.status = "cancelled";
+        this.openOrders--;
+        continue;
+      }
+      const hit = o.kind === "tp" ? mcUsd >= o.triggerMcUsd : mcUsd <= o.triggerMcUsd;
+      if (!hit || this.simNow < c.lockUntil) continue;
+      this.filling = true;
+      const trade = this.sell(c.id, o.fraction);
+      this.filling = false;
+      if (!trade) continue;
+      o.status = "filled";
+      o.filledAt = this.simNow;
+      o.filledSol = trade.sol;
+      this.openOrders--;
+    }
   }
 
   private setStage(c: Coin, stage: Stage, at: number): void {
@@ -493,10 +557,11 @@ export class Engine {
       return { kind, end: t, to, vol, noise } satisfies Leg;
     };
     const legs: Leg[] = [leg("push", r.range(200, 400), sol(r.range(3000, 10000)), 1, 0.01)];
-    if (r.chance(0.4)) {
-      legs.push(leg("push", r.range(2400, 3800), over, 1, 0.03));
+    // Most runners are over the line in 2.5-5 s (txgym sweat rounds: 3, 4 and 5 s); a few grind for up to 12 s.
+    if (r.chance(0.75)) {
+      legs.push(leg("push", r.range(2200, 4600), over, 1, 0.03));
     } else {
-      const total = r.range(5000, 15000);
+      const total = r.range(5000, 12000);
       const burst = sol(r.range(30000, 35000));
       legs.push(leg("push", r.range(900, 2400), burst, 1, 0.03));
       const rest = Math.max(1500, at + total - t);
@@ -511,34 +576,41 @@ export class Engine {
 
   /**
    * Pick a big coin's outcome (see BigOutcome). The launch itself is `scriptLaunch`; this decides everything after
-   * migration. The ATH always lands within ~3 min.
+   * migration. ATHs land 13-50 s after launch.
    */
   private scriptBigCoin(c: Coin, at: number, big: NonNullable<Meme["big"]>): void {
     const r = this.rng;
     const sol = (usd: number) => usd / SOL_USD;
     const outcome = this.pickOutcome();
+    // Peaks and how fast they land, from launch. Calibrated to txgym sweat rounds: 300K by 17 s then rugged,
+    // 6M by 34 s, 1.5M by 45 s.
     let peak: number;
     let trip: number;
+    let athIn: number;
     switch (outcome) {
       case "standard":
         peak = r.range(big.peak[0], big.peak[1]);
         trip = r.range(big.trip[0], big.trip[1]);
+        athIn = r.range(18000, 32000);
         break;
       case "runner":
-        peak = Math.exp(r.range(Math.log(400000), Math.log(3000000)));
-        trip = peak * r.range(0.25, 0.45);
+        peak = Math.exp(r.range(Math.log(700000), Math.log(2500000)));
+        trip = peak * r.range(0.08, 0.15);
+        athIn = r.range(28000, 50000);
         break;
       case "moon":
-        peak = Math.exp(r.range(Math.log(8000000), Math.log(50000000)));
-        trip = peak * r.range(0.025, 0.05);
+        peak = Math.exp(r.range(Math.log(3000000), Math.log(50000000)));
+        trip = peak * r.range(0.45, 0.55);
+        athIn = r.range(30000, 45000) + Math.log10(peak / 3000000) * 4000;
         break;
       case "toprug":
-        peak = r.range(200000, 300000);
-        trip = r.range(4000, 6500);
+        peak = r.range(200000, 400000);
+        trip = r.range(5000, 9000);
+        athIn = r.range(13000, 21000);
         break;
     }
     c.athSol = sol(peak);
-    c.big = { outcome, peak: sol(peak), trip: sol(trip), athBy: at + r.range(75000, 165000) };
+    c.big = { outcome, peak: sol(peak), trip: sol(trip), athBy: at + athIn };
   }
 
   private pickOutcome(): BigOutcome {
@@ -604,7 +676,7 @@ export class Engine {
       climb.push({ kind: "dip", ms: r.range(4, 9), to: low, vol: 1.2, noise: 0.022 });
       climb.push({ kind: "base", ms: r.range(7, 15), to: Math.min(high * 0.97, low * r.range(1.02, 1.12)), vol: 0.4, noise: 0.012 });
     }
-    const budget = Math.max(45000, b.athBy - start);
+    const budget = Math.max(5000, b.athBy - start);
     const unit = budget / climb.reduce((n, l) => n + l.ms, 0);
     const legs: Leg[] = [];
     let t = start;
@@ -620,39 +692,45 @@ export class Engine {
     const P = b.peak;
     switch (b.outcome) {
       case "standard":
-        add("dip", r.range(7000, 11000), P * r.range(0.8, 0.88), 1.6, 0.025);
-        add("base", r.range(4000, 7000), P * r.range(0.86, 0.92), 0.6, 0.02);
-        add("dip", r.range(14000, 22000), b.trip * r.range(1.02, 1.12), 1.2, 0.022);
-        add("base", r.range(8000, 14000), b.trip, 0.4, 0.014);
+        add("dip", r.range(3000, 5000), P * r.range(0.8, 0.88), 1.6, 0.025);
+        add("base", r.range(3000, 5000), P * r.range(0.86, 0.92), 0.6, 0.02);
+        add("dip", r.range(12000, 20000), b.trip * r.range(1.02, 1.1), 1.2, 0.022);
+        add("base", r.range(8000, 12000), b.trip, 0.4, 0.014);
         break;
       case "runner":
-        add("dip", r.range(6000, 10000), P * r.range(0.7, 0.8), 1.6, 0.025);
-        add("base", r.range(4000, 7000), P * r.range(0.8, 0.88), 0.6, 0.02);
-        add("dip", r.range(15000, 25000), b.trip * r.range(1.05, 1.15), 1.3, 0.024);
-        add("base", r.range(8000, 14000), b.trip, 0.4, 0.014);
+        // Sharp first flush, a lower-high bounce, then a long slow bleed.
+        add("dip", r.range(3000, 5000), P * r.range(0.65, 0.75), 1.6, 0.026);
+        add("base", r.range(3000, 6000), P * r.range(0.72, 0.8), 0.7, 0.02);
+        add("dip", r.range(30000, 45000), b.trip * r.range(1.05, 1.15), 0.9, 0.022);
+        add("base", r.range(10000, 15000), b.trip, 0.4, 0.014);
         break;
       case "moon":
-        add("dip", r.range(5000, 8000), P * r.range(0.62, 0.72), 1.6, 0.025);
-        add("base", r.range(5000, 9000), P * r.range(0.74, 0.82), 0.7, 0.02);
-        add("rug", r.range(1000, 1500), P * r.range(0.15, 0.25), 1, 0);
-        add("dip", r.range(20000, 35000), b.trip * r.range(1.05, 1.15), 1, 0.025);
-        add("base", r.range(8000, 14000), b.trip, 0.4, 0.016);
+        // Lower high, then a slow trickle to about half (6M -> 3M by the 1 min mark). Half the time the dev
+        // dumps on the people still holding.
+        add("dip", r.range(3000, 5000), P * r.range(0.7, 0.8), 1.6, 0.026);
+        add("base", r.range(4000, 7000), P * r.range(0.75, 0.85), 0.8, 0.02);
+        add("dip", r.range(18000, 26000), b.trip * r.range(1.02, 1.1), 0.9, 0.02);
+        if (r.chance(0.5)) {
+          add("base", r.range(6000, 12000), b.trip, 0.5, 0.016);
+          add("rug", r.range(1000, 1500), P * r.range(0.05, 0.1), 1, 0);
+          add("dip", r.range(15000, 25000), P * r.range(0.03, 0.05), 0.8, 0.025);
+        } else {
+          add("base", r.range(12000, 20000), b.trip, 0.4, 0.016);
+        }
         break;
       case "toprug":
-        if (r.chance(0.55)) {
-          // The txgym special: hold near the top for a moment, then one red candle.
-          add("base", r.range(3000, 7000), P * r.range(0.88, 0.95), 0.8, 0.018);
-          add("rug", r.range(1000, 1500), sol(r.range(8000, 20000)), 1, 0);
-          add("dip", r.range(12000, 20000), b.trip * r.range(1.05, 1.2), 0.6, 0.025);
+        if (r.chance(0.45)) {
+          // One red candle off the top.
+          add("base", r.range(1500, 3000), P * r.range(0.88, 0.95), 0.8, 0.018);
+          add("rug", r.range(1000, 1500), sol(r.range(20000, 30000)), 1, 0);
         } else {
-          // Staircase: every bounce is a lower high until there is nothing left.
-          add("dip", r.range(5000, 8000), P * r.range(0.55, 0.65), 1.5, 0.025);
-          add("base", r.range(4000, 7000), P * r.range(0.66, 0.74), 0.7, 0.02);
-          add("dip", r.range(6000, 10000), P * r.range(0.25, 0.32), 1.4, 0.026);
-          add("base", r.range(3000, 6000), P * r.range(0.33, 0.38), 0.6, 0.02);
-          add("dip", r.range(8000, 12000), P * r.range(0.08, 0.12), 1.3, 0.028);
-          add("dip", r.range(10000, 16000), b.trip * r.range(1.05, 1.2), 0.8, 0.025);
+          // Fast staircase: 300K to ~25K in about 8 s.
+          add("dip", r.range(2000, 3000), P * r.range(0.55, 0.65), 1.6, 0.028);
+          add("base", r.range(1000, 2000), P * r.range(0.66, 0.74), 0.8, 0.02);
+          add("dip", r.range(2000, 3000), P * r.range(0.22, 0.3), 1.5, 0.03);
+          add("rug", r.range(1000, 1500), sol(r.range(20000, 30000)), 1, 0);
         }
+        add("dip", r.range(20000, 30000), b.trip * r.range(1.02, 1.1), 0.6, 0.025);
         add("base", r.range(8000, 12000), b.trip, 0.3, 0.016);
         break;
     }
@@ -837,6 +915,12 @@ export class Engine {
     }
     const before = c.postMc;
     c.postMc = Math.max(1, c.postMc * Math.exp(drift + shock + vol * this.rng.gauss()));
+    // Holders track size: they pile in on the way up and only trickle out on the way down.
+    const wantHolders = 30 * Math.pow(Math.max(1, toUsd(c.postMc)) / 1000, 0.85);
+    c.holders = Math.max(1, Math.round(c.holders + (wantHolders - c.holders) * (wantHolders > c.holders ? 0.04 : 0.004)));
+    // Top holders keep adding as it runs, so their average entry ratchets up behind price.
+    if (c.top10Avg === 0) c.top10Avg = c.earlyVol > 0 ? c.earlyMcW / c.earlyVol : c.postMc;
+    if (c.postMc * 0.4 > c.top10Avg) c.top10Avg += (c.postMc * 0.4 - c.top10Avg) * 0.015;
     c.txCount += this.rng.int(0, 3);
     // Runners trade real size: volume scales with market cap while the coin is running.
     const scale = (moon ? Math.min(400, Math.max(4, c.postMc * 0.004)) : c.spec.role === "target" ? Math.max(1, c.postMc * 0.0015) : 1) * volMul;
@@ -1369,7 +1453,7 @@ export class Engine {
       holders: c.holders,
       feesSol: c.volumeSol * FEE,
       liqUsd: c.migrated ? toUsd(this.mc(c)) * 0.12 : toUsd(c.curve.realSol),
-      earlyAvgMcUsd: c.earlyVol > 0 ? toUsd(c.earlyMcW / c.earlyVol) : toUsd(this.mc(c)),
+      earlyAvgMcUsd: toUsd(Math.max(c.top10Avg, c.earlyVol > 0 ? c.earlyMcW / c.earlyVol : this.mc(c))),
       migratedAt: c.migratedAt,
       changePct: c.candles.length && c.candles[0].o > 0 ? (mcSol / c.candles[0].o - 1) * 100 : 0,
       migratingUntil: Number.isFinite(c.lockUntil) ? c.lockUntil : null,
@@ -1413,6 +1497,7 @@ export class Engine {
       walletSol: this.wallet,
       positions,
       closed: [...this.closedLog],
+      orders: this.orders.map((o) => ({ ...o })),
       round: this.roundView,
       scored: this.scored?.view ?? null,
     };

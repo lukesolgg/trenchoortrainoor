@@ -62,6 +62,8 @@ const clock = (t: number) => new Date(t * 1000).toLocaleTimeString("en-GB", { ho
 const factorFor = (metric: Metric, unit: Unit) => (unit === "usd" ? SOL_USD : 1) / (metric === "price" ? SUPPLY : 1);
 
 export function formatValue(v: number, metric: Metric, unit: Unit): string {
+  // The area under the candles is the volume overlay: never label negative prices there.
+  if (v < 0) return "";
   if (metric === "mc") return unit === "usd" ? usd(v) : `◎${v >= 1000 ? Math.round(v).toLocaleString("en-US") : v.toFixed(1)}`;
   return unit === "usd" ? `$${fmtPrice(v)}` : `◎${fmtPrice(v)}`;
 }
@@ -125,16 +127,17 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     const chart = createChart(el, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: "#060b08" },
-        textColor: "#7d9588",
+        background: { type: ColorType.Solid, color: "#0e0f12" },
+        textColor: "#8b9099",
         fontFamily: "ui-monospace, SF Mono, Menlo, Consolas, monospace",
         fontSize: 11,
       },
-      grid: { vertLines: { color: "#0d1a13" }, horzLines: { color: "#0d1a13" } },
+      // Vertical grid lines off: at 1 s bars they are a dense comb. Faint horizontals only.
+      grid: { vertLines: { visible: false }, horzLines: { color: "#16181c" } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#15352a", scaleMargins: { top: 0.06, bottom: 0.04 } },
+      rightPriceScale: { borderColor: "#1d1f24", scaleMargins: { top: 0.06, bottom: 0.2 } },
       timeScale: {
-        borderColor: "#15352a",
+        borderColor: "#1d1f24",
         timeVisible: true,
         secondsVisible: true,
         rightOffset: 6,
@@ -161,11 +164,9 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
         };
       },
     });
-    // Volume lives in its own pane so it never overlaps the candles.
-    const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, lastValueVisible: false }, 1);
-    const panes = chart.panes();
-    panes[0]?.setStretchFactor(4);
-    panes[1]?.setStretchFactor(1);
+    // Volume is an overlay along the bottom of the price pane, on its own hidden scale.
+    const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
+    chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
     chart.subscribeCrosshairMove((p) => {
       const d = p.seriesData.get(candle) as { open: number; high: number; low: number; close: number } | undefined;
       const v = p.seriesData.get(vol) as { value: number } | undefined;
@@ -263,7 +264,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
         lines.current[k] = candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title });
       }
     };
-    upsert("ath", ath * factor, "#8aa396", "ATH", 2);
+    upsert("ath", ath * factor, "#8b9099", "ATH", 2);
     upsert("early", (earlyAvgMcUsd / SOL_USD) * factor, "#f5c542", "Top 10 avg buy", 1);
     upsert("mig", (MIGRATION_MC_USD / SOL_USD) * factor, "#f5c542", `Migration ${usd(MIGRATION_MC_USD)}`, 1);
     upsert("entry", entryMcUsd ? (entryMcUsd / SOL_USD) * factor : null, "#4db8ff", "Entry", 2);

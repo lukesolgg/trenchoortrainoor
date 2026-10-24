@@ -686,12 +686,12 @@ describe("big coin script", () => {
     };
   };
 
-  it("bursts at launch and tops out within 3 minutes, whatever the outcome", () => {
+  it("migrates fast and tops out within a minute, whatever the outcome", () => {
     for (const id of ["pnut", "goat", "fartcoin", "wif", "popcat"]) {
       for (const seed of [1, 2, 3]) {
         const r = run(id, seed);
         expect(r.burstMc).toBeGreaterThan(28000);
-        expect(r.peakAt).toBeLessThan(180000);
+        expect(r.peakAt).toBeLessThan(60000);
       }
     }
   });
@@ -713,19 +713,26 @@ describe("big coin script", () => {
           break;
         }
         case "runner":
-          expect(r.peak).toBeGreaterThan(350000);
-          expect(r.peak).toBeLessThan(3500000);
-          expect(r.last / r.peak).toBeLessThan(0.55);
+          expect(r.peak).toBeGreaterThan(600000);
+          expect(r.peak).toBeLessThan(3000000);
+          expect(r.peakAt).toBeLessThan(60000);
+          expect(r.last / r.peak).toBeLessThan(0.25);
           break;
         case "moon":
-          expect(r.peak).toBeGreaterThan(7000000);
-          expect(r.last / r.peak).toBeLessThan(0.07);
+          expect(r.peak).toBeGreaterThan(2500000);
+          expect(r.peakAt).toBeLessThan(60000);
+          expect(r.last / r.peak).toBeLessThan(0.65);
           break;
-        case "toprug":
+        case "toprug": {
           expect(r.peak).toBeGreaterThan(180000);
-          expect(r.peak).toBeLessThan(340000);
-          expect(r.last).toBeLessThan(9000);
+          expect(r.peak).toBeLessThan(450000);
+          expect(r.peakAt).toBeLessThan(26000);
+          // Down to ~25K within about 10 s of the top.
+          const after = r.series.find(([t]) => t >= r.peakAt + 10000)![1];
+          expect(after).toBeLessThan(40000);
+          expect(r.last).toBeLessThan(12000);
           break;
+        }
       }
     }
     expect(seen.size).toBe(4);
@@ -784,5 +791,58 @@ describe("keyword highlighting", () => {
     const segs = highlightPhrases([{ text: "a rubber duck with a dev note, device" }], ["dev", "rubber duck"]);
     expect(segs.filter((x) => x.hl).map((x) => x.text)).toEqual(["rubber duck", "dev"]);
     expect(segs.map((x) => x.text).join("")).toBe("a rubber duck with a dev note, device");
+  });
+});
+
+describe("orders, holders, top 10 avg", () => {
+  const pnut = () => MEME_PACK.find((m) => m.id === "pnut")!;
+  const bought = (seed: number) => {
+    const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut()] });
+    e.startRound({ memeId: "pnut", leadMs: 0 });
+    const id = landTarget(e);
+    expect(e.quickBuy(id, 2)).not.toBeNull();
+    return { e, id };
+  };
+
+  it("fills a take profit once market cap crosses it, and only once", () => {
+    const { e, id } = bought(1);
+    const trigger = 60000;
+    expect(e.addOrder(id, "tp", trigger, 0.5)).not.toBeNull();
+    let filledAt: number | null = null;
+    for (let t = e.now(); t < 120000 && filledAt === null; t += 100) {
+      e.advanceTo(t);
+      const o = e.getSnapshot().orders[0];
+      if (o.status === "filled") filledAt = t;
+    }
+    expect(filledAt).not.toBeNull();
+    const o = e.getSnapshot().orders[0];
+    expect(o.filledSol).toBeGreaterThan(0);
+    expect(e.getTradesFor(id).filter((t) => t.side === "sell")).toHaveLength(1);
+  });
+
+  it("a stop loss sells everything on the way down; cancelled orders never fill", () => {
+    const { e, id } = bought(2);
+    const cancel = e.addOrder(id, "tp", 1e12, 1)!;
+    e.cancelOrder(cancel.id);
+    e.addOrder(id, "sl", 1e12, 1); // already below: fills on the next tick
+    e.advanceTo(e.now() + 500);
+    const orders = e.getSnapshot().orders;
+    expect(orders.find((o) => o.id === cancel.id)!.status).toBe("cancelled");
+    expect(orders.find((o) => o.kind === "sl")!.status).toBe("filled");
+    expect(e.getSnapshot().positions[0].tokens).toBeCloseTo(0, 6);
+  });
+
+  it("holders and the top 10 average buy rise as the runner climbs", () => {
+    const { e, id } = bought(3);
+    e.advanceTo(e.now() + 8000);
+    const early = e.getCoinView(id)!;
+    let peak = early;
+    for (let t = e.now(); t < 70000; t += 250) {
+      e.advanceTo(t);
+      const v = e.getCoinView(id)!;
+      if (v.mcUsd > peak.mcUsd) peak = v;
+    }
+    expect(peak.holders).toBeGreaterThan(early.holders * 2);
+    expect(peak.earlyAvgMcUsd).toBeGreaterThan(early.earlyAvgMcUsd * 1.5);
   });
 });

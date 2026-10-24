@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  /* GnGm: near-black chrome over deep green panels. */
-  --color-bg: #050806;
-  --color-nav: #080b09;
-  --color-panel: #0a1a12;
-  --color-card: #0d2217;
-  --color-card-hi: #122c1e;
-  --color-line: #15352a;
-  --color-line-hi: #21503c;
+  /* GnGm: neutral near-black greys, GMGN-style. Green is for gains only. */
+  --color-bg: #08090b;
+  --color-nav: #0b0c0f;
+  --color-panel: #0e0f12;
+  --color-card: #131418;
+  --color-card-hi: #1a1b20;
+  --color-line: #1d1f24;
+  --color-line-hi: #2a2d34;
   --color-ink: #e8efe9;
-  --color-dim: #8aa396;
-  --color-faint: #56695d;
+  --color-dim: #8b9099;
+  --color-faint: #575b64;
   --color-up: #35d07f;
   --color-down: #f0455a;
   --color-blue: #4db8ff;
@@ -43,7 +43,7 @@ body {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1d4a35 transparent;
+  scrollbar-color: #2a2d34 transparent;
 }
 
 @keyframes card-in {

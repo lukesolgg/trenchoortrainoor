@@ -2,6 +2,7 @@
 
 import { sol } from "./format";
 import { SELL_PRESETS, FireButton } from "./TradePanel";
+import { SolIcon } from "./icons";
 
 interface Props {
   presets: number[];
@@ -39,7 +40,7 @@ export function QuickWidget({ presets, buyLocked, presetSet, onPresetSet, wallet
       </div>
       <div className="mb-1 flex items-center justify-between text-[11px]">
         <span className="font-bold">Buy <span className="text-faint">SOL</span></span>
-        <span className="tabular text-dim">◎ {sol(walletSol)}</span>
+        <span className="tabular text-dim"><SolIcon /> {sol(walletSol)}</span>
       </div>
       <div className="grid grid-cols-4 gap-1">
         {presets.map((p, i) => (

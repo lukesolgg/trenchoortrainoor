@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { CoinView, Position } from "@/engine/types";
 import { pct, signed, sol, tokens, usd } from "./format";
+import { GasIcon, ShieldOffIcon, SlipIcon, SolIcon, TipIcon } from "./icons";
 
 interface FireProps {
   label: React.ReactNode;
@@ -179,16 +180,34 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
         <div className="flex items-center justify-between text-[12px]">
           <div className="flex items-center gap-3 font-semibold">
             <span className="rounded-md bg-card-hi px-2 py-1 text-ink">Market</span>
-            <span className="text-faint" title="Limit orders are not simulated yet">Limit</span>
-            <span className="text-faint" title="Advanced orders are not simulated yet">Adv.</span>
+            <span className="text-faint" title="Use the Orders tab under the chart for TP / SL">Limit</span>
           </div>
-          <span className="tabular rounded-full border border-line-hi px-2.5 py-1 font-bold" title="Paper wallet">◎ {sol(walletSol, walletSol < 100 ? 2 : 0)}</span>
+          <div className="flex overflow-hidden rounded-md border border-line-hi text-[11.5px] font-bold" role="radiogroup" aria-label="Preset set">
+            {[0, 1, 2].map((i) => (
+              <button
+                key={i}
+                type="button"
+                role="radio"
+                aria-checked={presetSet === i}
+                onClick={() => onPresetSet(i)}
+                className={`px-2.5 py-1 transition-colors ${presetSet === i ? "bg-buy text-white" : "text-dim hover:text-ink"}`}
+                title={`Preset set ${i + 1}`}
+              >
+                P{i + 1}
+              </button>
+            ))}
+          </div>
         </div>
 
         {side === "buy" ? (
           <>
             <label className="flex items-center justify-between rounded-xl border border-line-hi bg-black/30 px-3 py-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-dim">Amount</span>
+              <span className="flex flex-col text-[11px] font-bold uppercase tracking-wider text-dim">
+                Amount
+                <span className="tabular mt-0.5 text-[10.5px] font-semibold normal-case tracking-normal text-faint" title="Paper wallet">
+                  Bal <SolIcon /> {sol(walletSol, walletSol < 100 ? 2 : 0)}
+                </span>
+              </span>
               <span className="flex items-center gap-1.5">
                 <input
                   value={buyAmt}
@@ -200,7 +219,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
                   }}
                   className="tabular w-24 bg-transparent text-right text-[20px] font-bold outline-none"
                 />
-                <span className="text-up">◎</span>
+                <SolIcon />
               </span>
             </label>
 
@@ -227,7 +246,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
               <div className="grid grid-cols-4 gap-1.5">
                 {buyPresets.map((p, i) =>
                   instant ? (
-                    <FireButton key={i} tone="buy" outline pill h="h-9" hint={String(i + 1)} disabled={p > walletSol || buyLocked} label={<>◎{sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)}</>} onFire={(ts) => onBuy(p, ts)} />
+                    <FireButton key={i} tone="buy" outline pill h="h-9" hint={String(i + 1)} disabled={p > walletSol || buyLocked} label={<><SolIcon />{sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)}</>} onFire={(ts) => onBuy(p, ts)} />
                   ) : (
                     <button
                       key={i}
@@ -235,7 +254,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
                       onClick={() => setBuyAmt(String(p))}
                       className={`h-9 rounded-full border text-[13px] font-bold transition-colors ${buyN === p ? "border-up bg-up/15 text-up" : "border-up/40 text-up/80 hover:bg-up/10"}`}
                     >
-                      ◎{sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)}
+                      <SolIcon />{sol(p, p % 1 ? (p < 1 ? 2 : 1) : 0)}
                     </button>
                   ),
                 )}
@@ -286,12 +305,19 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           </>
         )}
 
-        <div className="grid grid-cols-4 gap-1.5 text-center" title="Simulated: these are fixed in the trainer">
-          {["20% slip", "0.001 prio", "0.001 tip", "MEV off"].map((x) => (
-            <span key={x} className="rounded-md border border-line px-1 py-1 text-[10.5px] text-faint">
-              {x}
-            </span>
-          ))}
+        <div className="flex items-center justify-between px-1 text-[12px] font-semibold text-dim" title="Simulated: fixed in the trainer">
+          <span className="flex items-center gap-1" title="Slippage">
+            <SlipIcon /> 20%
+          </span>
+          <span className="flex items-center gap-1" title="Priority fee">
+            <GasIcon /> 0.001
+          </span>
+          <span className="flex items-center gap-1" title="Tip">
+            <TipIcon /> 0.001
+          </span>
+          <span className="flex items-center gap-1 text-faint" title="MEV protection off">
+            <ShieldOffIcon />
+          </span>
         </div>
 
         {side === "buy" && buyLocked && (
@@ -312,12 +338,12 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
         )}
 
         <div className="grid grid-cols-4 gap-1.5">
-          <Mini k="Bought">◎{sol(position?.boughtSol ?? 0)}</Mini>
-          <Mini k="Sold">◎{sol(position?.soldSol ?? 0)}</Mini>
+          <Mini k="Bought"><SolIcon />{sol(position?.boughtSol ?? 0)}</Mini>
+          <Mini k="Sold"><SolIcon />{sol(position?.soldSol ?? 0)}</Mini>
           <Mini k="Holding">
             {held && position ? (
               <>
-                ◎{sol(position.valueSol)}
+                <SolIcon />{sol(position.valueSol)}
                 <div className="text-[9.5px] font-semibold text-faint">{tokens(position.tokens)}</div>
               </>
             ) : (
@@ -329,18 +355,6 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           </Mini>
         </div>
 
-        <div className="grid grid-cols-3 text-center text-[11px] font-bold">
-          {[0, 1, 2].map((i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => onPresetSet(i)}
-              className={`rounded-md py-2 uppercase tracking-wide transition-colors ${presetSet === i ? "bg-buy/20 text-[#9db0ff]" : "text-faint hover:text-ink"}`}
-            >
-              Preset {i + 1}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Token info */}
@@ -353,7 +367,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           <Cell k="Insiders" tone={coin.stats.insiders >= 3 ? "text-down" : "text-up"}>{coin.stats.insiders}%</Cell>
           <Cell k="Bundlers" tone={coin.bundlers >= 5 ? "text-down" : "text-up"}>{coin.bundlers}%</Cell>
           <Cell k="LP Burned">100%</Cell>
-          <Cell k="Holders" tone="text-ink">{coin.holders}</Cell>
+          <Cell k="Holders" tone="text-ink">{coin.holders >= 1000 ? `${(coin.holders / 1000).toFixed(1)}k` : coin.holders}</Cell>
           <Cell k="Pro Traders" tone="text-ink">{coin.proTraders}</Cell>
           <Cell k="Dex Paid" tone={coin.dexPaid ? "text-up" : "text-down"}>{coin.dexPaid ? "Paid" : "Unpaid"}</Cell>
         </div>

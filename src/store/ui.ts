@@ -12,6 +12,8 @@ interface UiState {
   difficulty: DifficultyId;
   /** The three quick-buy sizes (P1-P3), in SOL. */
   quickPresets: number[];
+  /** Memescope quick-buy size in SOL: one amount for every column. */
+  quickAmount: number;
   /** Selected preset index for each Pulse column: New, Almost bonded, Migrated. */
   colPreset: number[];
   quickEnabled: boolean;
@@ -29,6 +31,7 @@ interface UiState {
   setDifficulty: (d: DifficultyId) => void;
   setQuickPreset: (i: number, n: number) => void;
   setColPreset: (col: number, i: number) => void;
+  setQuickAmount: (n: number) => void;
   setFeedOpen: (b: boolean) => void;
   setInstantTrade: (b: boolean) => void;
   setQuickEnabled: (b: boolean) => void;
@@ -46,6 +49,7 @@ export const useUi = create<UiState>((set) => ({
   difficulty: "sniper",
   quickPresets: [0.5, 1, 3],
   colPreset: [2, 1, 1],
+  quickAmount: 1,
   feedOpen: true,
   instantTrade: true,
   quickEnabled: true,
@@ -61,6 +65,7 @@ export const useUi = create<UiState>((set) => ({
   setDifficulty: (difficulty) => set({ difficulty }),
   setQuickPreset: (i, n) => set((st) => ({ quickPresets: st.quickPresets.map((v, k) => (k === i ? n : v)) })),
   setColPreset: (col, i) => set((st) => ({ colPreset: st.colPreset.map((v, k) => (k === col ? i : v)) })),
+  setQuickAmount: (quickAmount) => set({ quickAmount }),
   setFeedOpen: (feedOpen) => set({ feedOpen }),
   setInstantTrade: (instantTrade) => set({ instantTrade }),
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),

@@ -80,10 +80,13 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
 - Round flow: New Pairs is kept thin (1-3 coins at start, a new one every 8-20 s). The tweet brings a flood of 2-4 / 4-7 / 6-12
   coins (Paper / Trencher / Sniper) with the runner landing early. Every runner launch is scripted (`scriptLaunch`) and migrates
   3-15 s after it lands. A scored round only auto-ends once you are flat: hold and it keeps running until you sell 100%. Space only ends it when you hold nothing.
-- Big coins (the five main memes, `big` in memes.json) launch at $3-10K, burst to $30-35K in 1-3 s, pull back and migrate. Each round then
-  picks an outcome (`BIG_OUTCOME_WEIGHTS` in engine.ts): standard (tops at `big.peak`, holds above ~$100K, fades to `big.trip`), runner
-  ($400K-3M, round-trips to 25-45%), moon ($8-50M, lower high, dev rug, bleeds to 2.5-5%) or top-and-rug ($200-300K, then one red dev
-  candle or a staircase down to ~$5K). The ATH always lands within ~3 min. ATH-tweet coins have a 30% chance of a rug tail after the top.
+- Big coins (the five main memes, `big` in memes.json) pick an outcome each round (`BIG_OUTCOME_WEIGHTS`, documented on `BigOutcome`
+  in engine.ts): standard, runner ($0.7-2.5M), moon ($3-50M) or top-and-rug ($200-400K then ~$25K within ~8 s). Runners migrate in
+  2.5-5 s (sometimes up to 12 s) and top out 13-50 s after launch, calibrated to txgym sweat rounds. $1M+ runs get giga candles.
+- Token page: chart with volume overlaid on the price pane; one tabbed panel underneath (Trades, Positions, Orders, Holders (n),
+  Top Traders, Dev Tokens). Orders are take profit / stop loss on market cap (`engine.addOrder`), filled the moment the trigger is crossed.
+  Holders grow with market cap and the Top 10 avg buy ratchets up behind price. Top holders and dev tokens are modelled per coin.
+- Memescope: GMGN-style rows, one quick-buy amount for the whole board, hovering a column pauses it.
 - The Tracker is a separate full-height column outside the app chrome. `MultiplierFlash` flashes 2x/5x/10x/20x/50x/100x on open positions.
 - Tracker keywords are highlighted pink (`highlightPhrases` in `scenario.ts`); memes can set `highlight` phrases and `noHighlight`.
 

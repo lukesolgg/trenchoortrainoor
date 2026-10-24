@@ -26,8 +26,8 @@ interface Toast {
 
 export function Game() {
   const {
-    mode, difficulty, tab, setTab, quickPresets, colPreset, quickEnabled, feedOpen, buySets, presetSet,
-    setQuickPreset, setColPreset, setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start,
+    mode, difficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
+    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start,
   } = useUi();
   // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
   const scoredMode = mode === "firsttx";
@@ -215,7 +215,7 @@ export function Game() {
             coins={allCoins}
             now={snap.now}
             query={query}
-            quickSol={quickPresets[colPreset[0]]}
+            quickSol={quickAmount}
             quickEnabled={quickEnabled}
             onQuickBuy={onQuickBuy}
             onOpen={setOpenId}
@@ -231,21 +231,18 @@ export function Game() {
           migrated={snap.migrated}
           now={snap.now}
           query={query}
-          presets={quickPresets}
-          colPreset={colPreset}
-          onPresetValue={setQuickPreset}
-          onColPreset={setColPreset}
+          quickAmount={quickAmount}
+          onQuickAmount={setQuickAmount}
           quickEnabled={quickEnabled}
           onQuickEnabled={setQuickEnabled}
           onQuickBuy={onQuickBuy}
           onOpen={setOpenId}
-          pauseOnHover={!scoredMode}
         />
         )}
         </div>
       </div>
 
-      <StatusBar hint={scoredMode ? "Scored round: the board never pauses" : "Hover a column or the feed to pause it"} />
+      <StatusBar hint="Hover a column to pause it and click the coin you see" />
       </div>
 
       <MultiplierFlash positions={snap.positions} tickerOf={tickerOf} />

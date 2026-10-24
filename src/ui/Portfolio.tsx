@@ -7,6 +7,7 @@ import { useHistory } from "@/store/history";
 import { Art } from "./Art";
 import { signed, sol, usd } from "./format";
 import { FireButton } from "./TradePanel";
+import { SolIcon } from "./icons";
 
 export interface OpenRow {
   position: Position;
@@ -46,7 +47,7 @@ function Equity({ points }: { points: number[] }) {
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-[140px] w-full" role="img" aria-label="Cumulative realised PnL">
       <path d={`${line} L${w},${y(0)} L0,${y(0)} Z`} fill={c} fillOpacity={0.12} />
-      <line x1={0} x2={w} y1={y(0)} y2={y(0)} stroke="#21503c" strokeDasharray="4 4" />
+      <line x1={0} x2={w} y1={y(0)} y2={y(0)} stroke="#2a2d34" strokeDasharray="4 4" />
       <path d={line} fill="none" stroke={c} strokeWidth={2} vectorEffect="non-scaling-stroke" />
     </svg>
   );
@@ -86,8 +87,8 @@ export function Portfolio({ walletSol, open, onOpenCoin, onSell }: Props) {
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-3">
-        <Card k="Play wallet" sub={usd(walletSol * SOL_USD)}>◎ {sol(walletSol)}</Card>
-        <Card k="In your bags" sub={`${openPositions.length} open · ${usd(bagValue * SOL_USD)}`}>◎ {sol(bagValue)}</Card>
+        <Card k="Play wallet" sub={usd(walletSol * SOL_USD)}><SolIcon /> {sol(walletSol)}</Card>
+        <Card k="In your bags" sub={`${openPositions.length} open · ${usd(bagValue * SOL_USD)}`}><SolIcon /> {sol(bagValue)}</Card>
         <Card k="Realised · all time" sub={`${trades.length} closed`} tone={stats.total >= 0 ? "text-up" : "text-down"}>
           {signed(stats.total, 1)} SOL
         </Card>
@@ -127,8 +128,8 @@ export function Portfolio({ walletSol, open, onOpenCoin, onSell }: Props) {
                         </div>
                       </div>
                     </td>
-                    <td className="tabular py-2 text-right">◎{sol(p.boughtSol)}</td>
-                    <td className="tabular py-2 text-right">◎{sol(p.valueSol)}</td>
+                    <td className="tabular py-2 text-right"><SolIcon />{sol(p.boughtSol)}</td>
+                    <td className="tabular py-2 text-right"><SolIcon />{sol(p.valueSol)}</td>
                     <td className={`tabular py-2 text-right font-semibold ${pnl >= 0 ? "text-up" : "text-down"}`}>{signed(pnl)}</td>
                     <td className="py-2 pr-4" onClick={(e) => e.stopPropagation()}>
                       <div className="ml-auto flex w-[140px] gap-1.5">

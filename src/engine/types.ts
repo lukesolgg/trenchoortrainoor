@@ -176,6 +176,19 @@ export interface Position {
   valueSol: number;
 }
 
+/** Take-profit / stop-loss order on a held coin. Triggers on market cap; sells `fraction` of what you hold then. */
+export interface Order {
+  id: number;
+  coinId: string;
+  kind: "tp" | "sl";
+  triggerMcUsd: number;
+  fraction: number;
+  status: "open" | "filled" | "cancelled";
+  createdAt: number;
+  filledAt: number | null;
+  filledSol: number | null;
+}
+
 /** A position that has been fully sold. The UI keeps these in localStorage for the Portfolio. */
 export interface ClosedTrade {
   /** Sequence number within the session. */
@@ -199,6 +212,8 @@ export interface Snapshot {
   positions: Position[];
   /** Fully closed positions this session, oldest first. */
   closed: ClosedTrade[];
+  /** TP/SL orders, newest first. */
+  orders: Order[];
   round: RoundView | null;
   /** Present only in scored rounds. */
   scored: ScoredView | null;

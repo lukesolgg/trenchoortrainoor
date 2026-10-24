@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 import type { NavTab } from "@/store/ui";
 import { sol } from "./format";
 import { Logo } from "./Logo";
+import { SolIcon } from "./icons";
 
 interface Props {
   tab: NavTab;
@@ -74,7 +75,7 @@ export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery,
           <kbd className="rounded border border-line-hi px-1.5 text-[11px] text-dim">/</kbd>
         </div>
         <div className="tabular flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-bold" title="Paper wallet">
-          <span className="text-up">◎</span>
+          <SolIcon />
           {sol(walletSol)}
         </div>
         <button

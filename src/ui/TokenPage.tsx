@@ -10,14 +10,14 @@ import { ChartPanel, type ChartHandle, type Metric, type ScaleMode, type Unit } 
 import { fmtPrice } from "./chartData";
 import { InfoTabs } from "./InfoTabs";
 import { BoltIcon } from "./icons";
+import { SolIcon } from "./icons";
 import { SourceBadge } from "./SourceBadge";
 import { QuickWidget } from "./QuickWidget";
 import { useUi } from "@/store/ui";
 import { age, sol, usd } from "./format";
 import { TradePanel } from "./TradePanel";
-import { TradeTape } from "./TradeTape";
 
-const Stat = ({ k, v, tone, sub }: { k: string; v: string; tone?: string; sub?: string }) => (
+const Stat = ({ k, v, tone, sub }: { k: string; v: React.ReactNode; tone?: string; sub?: string }) => (
   <div className="leading-tight">
     <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{k}</div>
     <div className={`tabular text-[14px] font-bold ${tone ?? "text-ink"}`}>{v}</div>
@@ -234,7 +234,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           <Stat k="Price" v={`$${fmtPrice(priceUsd)}`} />
           <Stat k="Liquidity" v={usd(coin.liqUsd)} />
           <Stat k="Supply" v="1B" />
-          <Stat k="Global fees" v={`◎${sol(coin.feesSol, 3)}`} />
+          <Stat k="Global fees" v={<><SolIcon /> {sol(coin.feesSol, 3)}</>} />
           <Stat k="B.Curve" v={`${(coin.progress * 100).toFixed(2)}%`} sub={coin.stage === "migrated" ? "migrated" : `→ ${usd(MIGRATION_MC_USD)}`} />
           <Stat k="Holders" v={String(coin.holders)} />
           <Stat k="Top 10 H." v={`${coin.stats.top10.toFixed(2)}%`} tone={coin.stats.top10 >= 25 ? "text-down" : "text-up"} />
@@ -252,7 +252,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-nav px-3">
             <Seg value={tf} options={TFS.map((t) => ({ v: t.s, label: t.label }))} onChange={setTf} />
@@ -268,7 +268,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               <Tool onClick={() => chart.current?.fullscreen()} title="Fullscreen chart">⛶</Tool>
             </div>
           </div>
-          <div className="relative min-h-0 flex-1">
+          <div className="relative min-h-0 flex-[3]">
             {instant && widgetOpen && (
               <QuickWidget
                 presets={buyPresets}
@@ -306,18 +306,29 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               onChange={setScale}
             />
             <span className="ml-auto flex items-center gap-3 text-[10.5px] text-faint">
-              <span><span className="text-[#8aa396]">┅</span> ATH</span>
+              <span><span className="text-[#8b9099]">┅</span> ATH</span>
               <span><span className="text-amber">─</span> Top 10 avg buy</span>
               <span><span className="text-blue">┅</span> Your entry</span>
             </span>
           </div>
-          <div className="grid h-[230px] shrink-0 grid-cols-2 border-t border-line bg-panel">
-            <div className="min-h-0 min-w-0 border-r border-line">
-              <TradeTape tape={tape} now={snap.now} />
-            </div>
-            <div className="min-h-0 min-w-0">
-              <InfoTabs coin={coin} tape={tape} trades={engine.getTradesFor(coinId)} now={snap.now} positions={positionRows} onSellCoin={sellCoin} onOpenCoin={onOpen} currentId={coinId} />
-            </div>
+          <div className="min-h-[260px] flex-[2] border-t border-line bg-panel">
+            <InfoTabs
+              coin={coin}
+              tape={tape}
+              now={snap.now}
+              positions={positionRows}
+              orders={snap.orders}
+              entryMcUsd={entryMcUsd}
+              held={!!position && position.tokens > 1e-6}
+              onSellCoin={sellCoin}
+              onOpenCoin={onOpen}
+              onAddOrder={(kind, trigger, fraction) => {
+                const o = engine.addOrder(coinId, kind, trigger, fraction);
+                notify(o ? `${kind === "tp" ? "Take profit" : "Stop loss"} set at ${usd(trigger)} MC` : "Buy first to set a TP or SL");
+              }}
+              onCancelOrder={(id) => engine.cancelOrder(id)}
+              currentId={coinId}
+            />
           </div>
         </div>
         <TradePanel

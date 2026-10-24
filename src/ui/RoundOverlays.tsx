@@ -4,6 +4,7 @@ import type { Flaw, RoundResult, ScoredView } from "@/engine/types";
 import { Art } from "./Art";
 import { ConfigChips } from "./chips";
 import { signed, sol, usd } from "./format";
+import { SolIcon } from "./icons";
 
 /** Center-screen countdown and the GO flash. The armed/live status lives in the strip under the nav. Never blocks clicks: a click here is a false start. */
 export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number }) {
@@ -82,7 +83,7 @@ const HEAD = {
   missed: { kicker: "Missed it", tone: "text-down", edge: "bg-down" },
 } as const;
 
-const Stat = ({ k, v, tone }: { k: string; v: string; tone?: string }) => (
+const Stat = ({ k, v, tone }: { k: string; v: React.ReactNode; tone?: string }) => (
   <div className="rounded-xl border border-line bg-card px-3 py-2.5">
     <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{k}</div>
     <div className={`tabular mt-0.5 text-[18px] font-extrabold ${tone ?? "text-ink"}`}>{v}</div>
@@ -141,8 +142,8 @@ export function ResultsOverlay({ result: r, onNext, onMenu }: { result: RoundRes
               <Stat k="Tweet to buy" v={`${((r.tweetToBuyMs ?? 0) / 1000).toFixed(2)} s`} />
               <Stat k="Buyer" v={`#${r.buyNumber}`} />
               <Stat k="Entry MC" v={usd(r.entryMcUsd ?? 0)} />
-              <Stat k="Spent" v={`◎ ${sol(r.boughtSol)}`} />
-              <Stat k="Closed for" v={`◎ ${sol(r.closedSol)}`} />
+              <Stat k="Spent" v={<><SolIcon /> {sol(r.boughtSol)}</>} />
+              <Stat k="Closed for" v={<><SolIcon /> {sol(r.closedSol)}</>} />
               <div className="col-span-2">
                 <Stat
                   k="PnL"

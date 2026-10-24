@@ -34,3 +34,48 @@ export const BoltIcon = ({ className = "h-3.5 w-3.5" }: { className?: string }) 
     <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
   </svg>
 );
+
+/** The Solana mark (official three-bar logo, brand gradient). Sized by font size by default so it sits inline with numbers. */
+export const SolIcon = ({ className = "inline-block h-[0.85em] w-[0.85em] align-[-0.06em]" }: { className?: string }) => (
+  <svg viewBox="0 0 397.7 311.7" className={className} aria-label="SOL" role="img">
+    <defs>
+      <linearGradient id="sol-a" x1="360.88" y1="351.46" x2="141.21" y2="-69.29" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#00ffa3" />
+        <stop offset="1" stopColor="#dc1fff" />
+      </linearGradient>
+    </defs>
+    <path fill="url(#sol-a)" d="M64.6 237.9c2.4-2.4 5.7-3.8 9.2-3.8h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1l62.7-62.7z" />
+    <path fill="url(#sol-a)" d="M64.6 3.8C67.1 1.4 70.4 0 73.8 0h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1L64.6 3.8z" />
+    <path fill="url(#sol-a)" d="M333.1 120.1c-2.4-2.4-5.7-3.8-9.2-3.8H6.5c-5.8 0-8.7 7-4.6 11.1l62.7 62.7c2.4 2.4 5.7 3.8 9.2 3.8h317.4c5.8 0 8.7-7 4.6-11.1l-62.7-62.7z" />
+  </svg>
+);
+
+const small = "h-3.5 w-3.5";
+/** Slippage: two diverging arrows. */
+export const SlipIcon = ({ className = small }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M4 17l6-6 4 4 6-7" />
+    <path d="M15 8h5v5" />
+  </svg>
+);
+/** Priority fee: fuel pump. */
+export const GasIcon = ({ className = small }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M4 20V5a1 1 0 011-1h8a1 1 0 011 1v15M3 20h12M6 8h6" />
+    <path d="M14 10h2a2 2 0 012 2v4a1.5 1.5 0 003 0V9l-3-3" />
+  </svg>
+);
+/** Tip: coin. */
+export const TipIcon = ({ className = small }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M14.5 9.5c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.5.8-2.5 1.9 0 2.6 5 1.4 5 4 0 1.1-1 1.9-2.5 1.9-1.1 0-2-.4-2.5-1.2M12 7v1.3M12 15.7V17" />
+  </svg>
+);
+/** MEV protection off: shield with a slash. */
+export const ShieldOffIcon = ({ className = small }: { className?: string }) => (
+  <svg {...base} className={className}>
+    <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" />
+    <path d="M4 4l16 16" />
+  </svg>
+);
