@@ -531,7 +531,10 @@ describe("scored round", () => {
     const r = e.getSnapshot().scored!.result!;
     expect(r.rightCoin.ticker).toBe(MEME_PACK.find((m) => m.name === r.memeName)!.tickers[0]);
     expect(r.rightAppearMs).toBeGreaterThan(0);
-    expect(r.tweetSegments.some((s) => s.hl && s.text === r.memeName)).toBe(true);
+    const meme = MEME_PACK.find((m) => m.name === r.memeName)!;
+    // Big memes highlight the name; small ones that never spell it highlight their hint phrases instead.
+    if (meme.noHighlight) expect(r.tweetSegments.some((s) => s.hl)).toBe((meme.highlight ?? []).length > 0);
+    else expect(r.tweetSegments.some((s) => s.hl && s.text === r.memeName)).toBe(true);
     expect(r.rightCoin.config.launchpad).toBe("pump");
     expect(r.rightCoin.config.dividends).toBe(true);
   });
