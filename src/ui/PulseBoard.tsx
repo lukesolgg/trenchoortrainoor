@@ -32,7 +32,9 @@ function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuick
 
   return (
     <section
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col border-r border-line last:border-r-0"
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col border-r border-line last:border-r-0 ${
+        hovered ? "z-10 shadow-[inset_0_0_0_2px_var(--color-amber)]" : ""
+      }`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -41,7 +43,7 @@ function PulseColumn({ title, coins, query, now, quickSol, quickEnabled, onQuick
         <span className="tabular text-[11px] text-faint">{filtered.length}</span>
         {hovered && (
           <span className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold">
-            <span className="rounded-[4px] border border-line-hi px-1.5 py-px text-dim">Paused</span>
+            <span className="rounded-[4px] border border-amber/60 bg-amber/10 px-1.5 py-px text-amber">Paused</span>
             {newCount > 0 && <span className="rounded-[4px] bg-amber px-1.5 py-px text-black">{newCount} new</span>}
           </span>
         )}

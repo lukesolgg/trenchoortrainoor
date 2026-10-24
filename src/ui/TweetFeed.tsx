@@ -10,6 +10,26 @@ import { usePausable } from "./hooks";
 const AVATAR_BG = (hue: number) =>
   `radial-gradient(circle at 30% 25%, hsl(${hue} 70% 60%), hsl(${(hue + 50) % 360} 65% 28%))`;
 
+/**
+ * Authority accounts use a real profile picture if one is dropped in public/avatars/<handle>.jpg; anything missing
+ * falls back to the gradient initial.
+ */
+function Avatar({ name, handle, hue, real }: { name: string; handle: string; hue: number; real: boolean }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div
+      className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-[13px] font-bold text-white/90"
+      style={{ background: AVATAR_BG(hue) }}
+    >
+      {name[0].toUpperCase()}
+      {real && !failed && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`/avatars/${handle.toLowerCase()}.jpg`} alt="" className="absolute inset-0 h-full w-full object-cover" onError={() => setFailed(true)} />
+      )}
+    </div>
+  );
+}
+
 const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wallStart: number }) {
   const { author } = t;
   return (
@@ -19,12 +39,7 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
       }`}
     >
       <header className="flex items-center gap-2.5">
-        <div
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[13px] font-bold text-white/90"
-          style={{ background: AVATAR_BG(author.hue) }}
-        >
-          {author.name[0].toUpperCase()}
-        </div>
+        <Avatar name={author.name} handle={author.handle} hue={author.hue} real={author.authority} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex items-center gap-1.5">
             <span className={`truncate text-[13px] font-semibold ${author.authority ? "text-violet" : "text-ink"}`}>

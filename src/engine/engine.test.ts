@@ -481,7 +481,8 @@ describe("scored round", () => {
     e.advanceTo(e.now() + 8000);
     expect(e.endRound()).toBe(false);
     expect(e.getSnapshot().scored!.phase).toBe("live");
-    e.sell(id, 1);
+    // Sells are refused for 3 s while the coin migrates; keep trying until it goes through.
+    while (!e.sell(id, 1)) e.advanceTo(e.now() + 250);
     const r = e.getSnapshot().scored!.result!;
     expect(r.outcome).toBe("success");
     expect(r.closedSol).toBeGreaterThan(0);

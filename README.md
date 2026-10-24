@@ -86,7 +86,11 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
 - Token page: chart with volume overlaid on the price pane; one tabbed panel underneath (Trades, Positions, Orders, Holders (n),
   Top Traders, Dev Tokens). Orders are take profit / stop loss on market cap (`engine.addOrder`), filled the moment the trigger is crossed.
   Holders grow with market cap and the Top 10 avg buy ratchets up behind price. Top holders and dev tokens are modelled per coin.
-- Memescope: GMGN-style rows, one quick-buy amount for the whole board, hovering a column pauses it.
+- Memescope: GMGN-style rows, one quick-buy amount for the whole board, hovering a column pauses it (gold border). A round
+  opens with a full New column, 3-4 coins in Almost bonded and the Tracker already scrolled.
+- Price action after migration has two layers: the level only moves on size (slow drift plus whale buys/sells that close the gap
+  to the script), and a volume bot bounces the price around it with micro fills, so candles get wicks both ways.
+- X avatars: drop `public/avatars/<handle>.jpg` (e.g. `elonmusk.jpg`) and authority tweets use it; otherwise the gradient initial.
 - The Tracker is a separate full-height column outside the app chrome. `MultiplierFlash` flashes 2x/5x/10x/20x/50x/100x on open positions.
 - Tracker keywords are highlighted pink (`highlightPhrases` in `scenario.ts`); memes can set `highlight` phrases and `noHighlight`.
 

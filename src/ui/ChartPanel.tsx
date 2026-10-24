@@ -51,7 +51,6 @@ interface Props {
   entryMcUsd: number | null;
   earlyAvgMcUsd: number;
   ticker: string;
-  /** Sim time (ms) the coin migrated, or null. */
 }
 
 const UP = "#35d07f";

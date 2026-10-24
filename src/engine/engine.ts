@@ -122,6 +122,8 @@ interface Coin {
   holders: number;
   /** Top-10 holders' average entry (SOL mc). Starts at the early buyers' average and ratchets up as they add higher. */
   top10Avg: number;
+  /** Volume-bot bounce around the scripted level, in log space. Fast-reverting, so the chart wiggles instead of stepping. */
+  osc: number;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -339,6 +341,7 @@ export class Engine {
       botBuys: 0,
       holders: 0,
       top10Avg: 0,
+      osc: 0,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -630,7 +633,7 @@ export class Engine {
     const now = curveLib.mcSol(c.curve);
     if (leg.from === undefined) leg.from = now;
     const frac = i === -1 ? 1 : Math.min(1, (at - legStart) / Math.max(1, leg.end - legStart));
-    const desired = leg.from * Math.pow(leg.to / leg.from, frac) * Math.exp(leg.noise * 0.5 * this.rng.gauss());
+    const desired = leg.from * Math.pow(leg.to / leg.from, frac) * Math.exp(leg.noise * 0.2 * this.rng.gauss());
     const k = c.curve.vSol * c.curve.vTok;
     const vWant = Math.sqrt((desired * k) / SUPPLY);
     if (vWant > c.curve.vSol * 1.002) {
@@ -867,41 +870,7 @@ export class Engine {
     let drift = moon ? c.moonDrift : c.spec.role === "target" && !scripted ? -0.0025 : this.rng.range(-0.0005, 0.0005);
     let vol = moon ? 0.02 : quiet ? 0.006 : 0.015;
     let volMul = 1;
-    if (scripted) {
-      // Follow the script: glide along the current leg and pull back to it, so the path stays on plan
-      // (and player trades cannot knock it off for more than a moment).
-      const leg = c.legs.find((l) => at < l.end);
-      if (leg) {
-        const idx = c.legs.indexOf(leg);
-        if (leg.kind === "rug" && leg.from === undefined) {
-          // Dev dump: the whole drop prints in one step.
-          const before = c.postMc;
-          c.postMc = leg.to;
-          leg.from = leg.to;
-          const size = before * this.rng.range(0.04, 0.08);
-          this.record(c, at, size);
-          c.volumeSol += size;
-          c.sellVolSol += size;
-          c.sells++;
-          c.txCount++;
-          this.pushTape(c, at, "bot", "sell", size);
-          this.touch(c);
-          return true;
-        }
-        if (leg.from === undefined) leg.from = c.postMc;
-        const start = idx === 0 ? c.lockUntil : c.legs[idx - 1].end;
-        const frac = Math.min(1, Math.max(0, (at - start) / Math.max(1, leg.end - start)));
-        const want = leg.from * Math.pow(leg.to / leg.from, frac);
-        drift = 0.45 * Math.log(want / c.postMc);
-        vol = leg.noise * 0.6;
-        volMul = leg.vol;
-      } else {
-        // Script over: sit near the last level.
-        drift = 0.3 * Math.log(c.legs[c.legs.length - 1].to / c.postMc);
-        vol = 0.008;
-      }
-    }
-    // Million-plus runs move violently: bigger noise and the odd giga candle, mostly with the trend.
+    // Million-plus runs move violently: the odd giga candle, mostly with the trend.
     let shock = 0;
     if (moon && c.big && c.big.peak * SOL_USD >= 1_000_000) {
       const leg = c.legs.find((l) => at < l.end);
@@ -913,8 +882,64 @@ export class Engine {
         volMul *= 5;
       }
     }
+
     const before = c.postMc;
-    c.postMc = Math.max(1, c.postMc * Math.exp(drift + shock + vol * this.rng.gauss()));
+    if (scripted) {
+      const leg = c.legs.find((l) => at < l.end);
+      if (leg?.kind === "rug" && leg.from === undefined) {
+        // Dev dump: the whole drop prints in one step.
+        c.postMc = leg.to;
+        c.osc = 0;
+        leg.from = leg.to;
+        const size = before * this.rng.range(0.04, 0.08);
+        this.record(c, at, size);
+        c.volumeSol += size;
+        c.sellVolSol += size;
+        c.sells++;
+        c.txCount++;
+        this.pushTape(c, at, "bot", "sell", size);
+        this.touch(c);
+        return true;
+      }
+      // Where the script says the price should be by now.
+      let want: number;
+      if (leg) {
+        const idx = c.legs.indexOf(leg);
+        if (leg.from === undefined) leg.from = c.postMc / Math.exp(c.osc);
+        const start = idx === 0 ? c.lockUntil : c.legs[idx - 1].end;
+        const frac = Math.min(1, Math.max(0, (at - start) / Math.max(1, leg.end - start)));
+        want = leg.from * Math.pow(leg.to / leg.from, frac);
+        volMul *= leg.vol;
+      } else {
+        want = c.legs[c.legs.length - 1].to;
+      }
+      // Two layers. The level only moves with real size: a slow drift plus whale buys/sells that close most of the
+      // gap to the script in one go (the further behind, the more likely). On top, a volume bot keeps the price
+      // bouncing around that level, so candles wiggle both ways instead of stepping. Player trades move the level.
+      const level = c.postMc / Math.exp(c.osc);
+      const gap = Math.log(want / level);
+      let move = gap * 0.15;
+      if (Math.abs(gap) > 0.008 && this.rng.chance(Math.min(0.5, (leg?.kind === "base" ? 0.08 : 0.2) + Math.abs(gap) * 3))) {
+        move = gap * this.rng.range(0.3, 0.6);
+        volMul *= 2 + Math.abs(gap) * 20;
+      }
+      const bounce = leg ? leg.noise * 0.6 : 0.006;
+      c.osc = c.osc * 0.6 + bounce * this.rng.gauss();
+      const next = Math.max(1, level * Math.exp(move + shock + c.osc));
+      // Volume-bot micro trades between steps: small fills both sides of the level, so every candle gets wicks.
+      const microSol = this.rng.lognormal(0.2, 0.5) * Math.max(0.2, toUsd(next) / 200000);
+      for (let k = 0; k < 2; k++) {
+        const px = Math.exp(Math.log(before) + (Math.log(next) - Math.log(before)) * this.rng.range(0.2, 0.9) + bounce * 1.2 * this.rng.gauss());
+        this.pushCandle(c, at, px, microSol, true);
+        c.volumeSol += microSol;
+        c.txCount++;
+        if (this.rng.chance(0.5)) c.buys++;
+        else c.sells++;
+      }
+      c.postMc = next;
+    } else {
+      c.postMc = Math.max(1, c.postMc * Math.exp(drift + shock + vol * this.rng.gauss()));
+    }
     // Holders track size: they pile in on the way up and only trickle out on the way down.
     const wantHolders = 30 * Math.pow(Math.max(1, toUsd(c.postMc)) / 1000, 0.85);
     c.holders = Math.max(1, Math.round(c.holders + (wantHolders - c.holders) * (wantHolders > c.holders ? 0.04 : 0.004)));
@@ -937,8 +962,8 @@ export class Engine {
   // ---------------------------------------------------------------- ambient
 
   private seedAmbient(): void {
-    // Final Stretch: coins partway up the curve, slowly climbing.
-    for (let i = 0; i < 8; i++) {
+    // Almost bonded: only a few at the start, so the runner stands out when it gets there.
+    for (let i = 0, n = this.rng.int(3, 4); i < n; i++) {
       const spec: CoinSpec = { ...makeFillerCoin(this.rng, "ambient"), profile: "run", ttlMs: null };
       const c = this.spawn(spec, -this.rng.range(60000, 600000));
       this.fastForward(c, this.rng.range(0.4, 0.9), -500);
@@ -959,9 +984,18 @@ export class Engine {
       c.txCount = c.buys + c.sells;
       c.holders += Math.round(c.postMc * 0.4);
     }
-    // New Pairs: a few launches already on the board. Kept thin so the round's flood stands out.
-    for (let i = 0, n = this.rng.int(1, 3); i < n; i++) {
-      this.spawn(makeFillerCoin(this.rng), -this.rng.range(1000, 30000));
+    // New Pairs: a full column of earlier launches (seconds to minutes old). New ones only trickle in until the tweet.
+    for (let i = 0, n = this.rng.int(11, 14); i < n; i++) {
+      this.spawn(makeFillerCoin(this.rng), -Math.exp(this.rng.range(Math.log(3000), Math.log(240000))));
+    }
+    // Tracker: a scroll of earlier chatter, so the feed is never empty when you arrive.
+    const times = Array.from({ length: this.rng.int(8, 11) }, () => -this.rng.range(2000, 150000)).sort((a, b) => a - b);
+    const seen = new Set<string>();
+    for (const at of times) {
+      let t = makeNoiseTweet(this.rng);
+      for (let k = 0; k < 4 && seen.has(t.segments.map((x) => x.text).join("")); k++) t = makeNoiseTweet(this.rng);
+      seen.add(t.segments.map((x) => x.text).join(""));
+      this.pushTweet(t.author, t.segments, false, undefined, at);
     }
   }
 
@@ -1027,9 +1061,9 @@ export class Engine {
       const spec: CoinSpec = { ...makeFillerCoin(this.rng, "ambient"), profile: "run", ttlMs: null };
       const c = this.spawn(spec, at - this.rng.range(60000, 300000));
       this.fastForward(c, this.rng.range(0.4, 0.75), at - 500);
-      this.at(at + this.rng.range(6000, 12000), finalStretch);
+      this.at(at + this.rng.range(30000, 60000), finalStretch);
     };
-    this.at(5000, finalStretch);
+    this.at(this.rng.range(30000, 60000), finalStretch);
 
     const chatter = (at: number) => {
       const t = makeNoiseTweet(this.rng);
@@ -1056,7 +1090,7 @@ export class Engine {
     };
     const news = byStage("new").sort((a, b) => b.createdAt - a.createdAt);
     news.forEach((c, i) => {
-      const old = this.simNow - c.createdAt > 45000;
+      const old = this.simNow - c.createdAt > 300000;
       if (i >= MAX_NEW || (old && c.spec.role !== "target")) drop(c);
     });
     byStage("final")
