@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory } from "@/store/history";
 import { DIFFICULTIES } from "@/engine/difficulty";
-import { useUi } from "@/store/ui";
+import { PORTS, useUi } from "@/store/ui";
 import { PulseBoard } from "./PulseBoard";
 import { BuyFlash, FLAW_SHORT, ResultsOverlay, RoundOverlay, RoundStatus, statusStripClass, type Flash } from "./RoundOverlays";
 import { SESSION_START, statsFor, useRuns, type RunStats } from "@/store/runs";
@@ -19,7 +19,7 @@ import { TweetFeed } from "./TweetFeed";
 import { sol } from "./format";
 import { useEngine, useSnapshot } from "./hooks";
 
-const MODE_LABEL = { firsttx: "FIRST TX", dev: "DEV", freeplay: "FREE PLAY" } as const;
+const MODE_LABEL = { firsttx: "TRADER", dev: "DEV", freeplay: "FREE PLAY" } as const;
 
 interface Toast {
   id: number;
@@ -29,11 +29,17 @@ interface Toast {
 export function Game() {
   const {
     mode, difficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
-    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style, length,
+    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style, length, port,
   } = useUi();
   // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
   const scoredMode = mode === "firsttx";
-  const engine = useEngine({ difficulty, autoRounds: !scoredMode, training: style === "training", length: scoredMode ? length : "blitz" });
+  const engine = useEngine({
+    difficulty,
+    autoRounds: !scoredMode,
+    training: style === "training",
+    length: scoredMode ? length : "blitz",
+    startingSol: PORTS[port].sol,
+  });
   const snap = useSnapshot(engine);
   // ?debug exposes the engine to the console and to browser tests.
   useEffect(() => {
@@ -66,8 +72,11 @@ export function Game() {
       const trade = engine.quickBuy(coinId, amount, engine.fromEventTime(eventTs));
       const s = snapRef.current;
       const coin = [...s.newPairs, ...s.finalStretch, ...s.migrated].find((c) => c.id === coinId);
+      const pct = engine.holdingPct(coinId);
       notify(
-        trade
+        trade && pct >= 4
+          ? `You now hold ${pct.toFixed(1)}% of ${coin?.ticker ?? "it"}: over 4%, nobody apes it until you trim below`
+          : trade
           ? `Bought ${sol(trade.sol, 2)} SOL of ${coin?.ticker ?? "coin"} · ${trade.rank} bot buys ahead of you`
           : engine.isMigrating(coinId)
             ? "Migrating: buys reopen in a moment"

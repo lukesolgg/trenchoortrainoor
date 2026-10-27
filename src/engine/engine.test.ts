@@ -698,7 +698,10 @@ describe("big coin script", () => {
     for (const id of ["pnut", "goat", "fartcoin", "wif", "popcat"]) {
       for (const seed of [1, 2, 3]) {
         const r = run(id, seed);
-        expect(r.burstMc).toBeGreaterThan(28000);
+        // A few seconds in New (under ~$5.3K) before it climbs; over the line well inside 15 s.
+        const inNew = r.series.filter(([t, m]) => t <= 6000 && m < 5300).length * 100;
+        expect(inNew).toBeGreaterThan(1500);
+        expect(r.series.find(([, m]) => m > 43000)![0]).toBeLessThan(15000);
         expect(r.peakAt).toBeLessThan(75000);
       }
     }
@@ -805,7 +808,8 @@ describe("orders, holders, top 10 avg", () => {
     const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut()] });
     e.startRound({ memeId: "pnut", leadMs: 0 });
     const id = landTarget(e);
-    expect(e.quickBuy(id, 2)).not.toBeNull();
+    // Small enough to stay under 4% of supply (a bigger bag stalls the coin).
+    expect(e.quickBuy(id, 0.5)).not.toBeNull();
     return { e, id };
   };
 
@@ -1113,5 +1117,52 @@ describe("saga", () => {
       expect(soc.some((x) => x.kind === "dev" && x.side === "sell")).toBe(true);
     }
     expect(caps).toBeGreaterThan(0);
+  });
+});
+
+describe("4% rule, boosts and DEX", () => {
+  const pnut = MEME_PACK.find((m) => m.id === "pnut")!;
+  const run = (seed: number, buy: number) => {
+    const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut] });
+    e.startRound({ memeId: "pnut", leadMs: 0 });
+    const id = landTarget(e);
+    e.quickBuy(id, buy);
+    return { e, id };
+  };
+
+  it("holding 4%+ of supply stalls the coin until you sell below it", () => {
+    const { e, id } = run(1, 3);
+    expect(e.holdingPct(id)).toBeGreaterThan(4);
+    e.advanceTo(e.now() + 30000);
+    expect(e.getCoinView(id)!.migratedAt).toBeNull();
+    // Trim under 4%: it runs again.
+    while (e.holdingPct(id) >= 4) e.sell(id, 0.5);
+    e.advanceTo(e.now() + 30000);
+    expect(e.getCoinView(id)!.migratedAt).not.toBeNull();
+  });
+
+  it("you can pay the DEX once and buy boosts after migration, out of your wallet", () => {
+    const { e, id } = run(2, 0.3);
+    expect(e.buyBoost(id, "x30").ok).toBe(false); // not migrated yet
+    for (let t = e.now(); e.getCoinView(id)!.migratedAt === null || e.now() < (e.getCoinView(id)!.migratingUntil ?? 0); t += 250) e.advanceTo(t);
+    const w0 = e.getSnapshot().walletSol;
+    expect(e.payDex(id).ok).toBe(true);
+    expect(e.payDex(id).ok).toBe(false);
+    expect(e.getCoinView(id)!.dexPaid).toBe(true);
+    expect(e.buyBoost(id, "x100").ok).toBe(true);
+    const spent = w0 - e.getSnapshot().walletSol;
+    expect(spent).toBeCloseTo((299 + 899) / 104, 4);
+    const s = e.getSocial(id);
+    expect(s.some((x) => x.kind === "boost" && x.name.includes("you"))).toBe(true);
+    expect(s.some((x) => x.kind === "dex" && x.name.includes("you"))).toBe(true);
+  });
+
+  it("holder data lists you, the dev and KOLs with their share", () => {
+    const { e, id } = run(3, 0.5);
+    e.advanceTo(e.now() + 40000);
+    const h = e.getHolders(id);
+    expect(h.youPct).toBeGreaterThan(0);
+    expect(h.devPct).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(h.kols)).toBe(true);
   });
 });

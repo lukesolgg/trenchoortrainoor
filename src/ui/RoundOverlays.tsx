@@ -12,14 +12,13 @@ export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number 
   if (scored.phase === "countdown") {
     const n = Math.max(1, Math.ceil((scored.tArm - now) / 1000));
     return (
-      <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center bg-black/20">
+      // A clean black screen; the board appears when it hits zero.
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black">
         <div className="text-center">
-          <div key={n} className="anim-count text-[88px] font-black leading-none tracking-tighter text-white drop-shadow-[0_2px_16px_rgba(0,0,0,.6)]">
+          <div key={n} className="anim-count tabular text-[120px] font-black leading-none tracking-tighter text-white">
             {n}
           </div>
-          <p className="mt-1 text-[12px] font-semibold uppercase tracking-[0.2em] text-ink/80 drop-shadow-[0_1px_8px_rgba(0,0,0,.8)]">
-            Get ready. Don&apos;t buy before the tweet.
-          </p>
+          <p className="mt-3 text-[12px] font-semibold uppercase tracking-[0.3em] text-faint">Don&apos;t buy before the tweet</p>
         </div>
       </div>
     );
@@ -263,7 +262,7 @@ function VampList({ r }: { r: RoundResult }) {
 /** "+47 ms better than your PB" / "Missed PB by 89 ms" / "First PB". */
 function PbLine({ r, prev }: { r: RoundResult; prev: RunStats }) {
   if (r.outcome !== "success" || r.reactionMs === null) return null;
-  if (r.training) return <p className="mt-1 text-[13px] font-semibold text-faint">Training round: doesn&apos;t count towards PBs.</p>;
+  if (r.training) return <p className="mt-1 text-[13px] font-semibold text-faint">Casual round: doesn&apos;t count towards PBs.</p>;
   const ms = Math.round(r.reactionMs);
   if (prev.pbReactionMs === null) return <p className="mt-1 text-[13px] font-extrabold text-amber">First PB on this difficulty: {ms} ms</p>;
   const d = Math.round(prev.pbReactionMs - r.reactionMs);
@@ -334,7 +333,7 @@ export function ResultsOverlay({
               <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${head.tone}`}>
                 {head.kicker}
                 {r.length === "saga" && <span className="ml-2 rounded bg-violet/20 px-1.5 py-px text-[10px] text-violet">SAGA</span>}
-                {r.training && <span className="ml-2 rounded bg-card-hi px-1.5 py-px text-[10px] text-dim">TRAINING</span>}
+                {r.training && <span className="ml-2 rounded bg-card-hi px-1.5 py-px text-[10px] text-dim">CASUAL</span>}
               </p>
               <div className="mt-1 flex items-baseline gap-3">
                 <h2 className={`tabular text-[54px] font-black leading-none tracking-tight ${r.outcome === "success" ? "text-ink" : head.tone}`}>{big}</h2>

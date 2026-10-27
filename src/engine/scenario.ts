@@ -183,11 +183,13 @@ export function makeDecoy(rng: Rng, meme: Meme, right: CoinConfig, flaw: Flaw, n
 
 /** Ordinary chatter. Authority accounts post here too, but never name a meme. */
 export function makeNoiseTweet(rng: Rng): { author: Author; segments: TweetSeg[] } {
+  // Chatter is only rarely highlighted, so the round's tweet (always highlighted) stands out.
+  const hl = (text: string) => (rng.chance(0.12) ? highlightPhrases([{ text }], KEYWORDS) : [{ text }]);
   if (rng.chance(0.22)) {
     const key = rng.pick(Object.keys(AUTHORITIES));
-    return { author: AUTHORITIES[key], segments: highlightPhrases([{ text: rng.pick(AUTHORITY_TWEETS[key]) }], KEYWORDS) };
+    return { author: AUTHORITIES[key], segments: hl(rng.pick(AUTHORITY_TWEETS[key])) };
   }
-  return { author: rng.pick(NOISE_AUTHORS), segments: highlightPhrases([{ text: rng.pick(NOISE_TWEETS) }], KEYWORDS) };
+  return { author: rng.pick(NOISE_AUTHORS), segments: hl(rng.pick(NOISE_TWEETS)) };
 }
 
 export function makeDistractor(rng: Rng, atMs: number): DistractorPlan {

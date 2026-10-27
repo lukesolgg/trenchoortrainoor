@@ -101,9 +101,64 @@ interface Props {
   changePct: number;
   onBuy: (sol: number, eventTs: number) => void;
   onSell: (fraction: number, eventTs: number) => void;
+  /** Your share of supply (%). Over 4% the coin will not run. */
+  holdingPct: number;
+  onBoost: (label: string) => void;
+  onPayDex: () => void;
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell }: Props) {
+const BOOSTS = [
+  { label: "x10", usd: 99 },
+  { label: "x30", usd: 249 },
+  { label: "x50", usd: 399 },
+  { label: "x100", usd: 899 },
+  { label: "x500", usd: 3999 },
+];
+const DEX_USD = 299;
+const SOL_PRICE = 104;
+
+/** Spend your own SOL promoting the coin: a DEX boost (may pump it, may not) or the DEX profile, once. */
+function Promote({ coin, walletSol, locked, onBoost, onPayDex }: { coin: CoinView; walletSol: number; locked: boolean; onBoost: (l: string) => void; onPayDex: () => void }) {
+  const live = coin.stage === "migrated" && !locked;
+  const dexCost = DEX_USD / SOL_PRICE;
+  return (
+    <div className="border-b border-line p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h3 className="text-[13px] font-bold">Promote</h3>
+        <span className="text-[10.5px] text-faint">{live ? "Paid from your balance. No guarantees." : "Available after migration"}</span>
+      </div>
+      <div className="grid grid-cols-5 gap-1">
+        {BOOSTS.map((b) => {
+          const cost = b.usd / SOL_PRICE;
+          return (
+            <button
+              key={b.label}
+              type="button"
+              disabled={!live || cost > walletSol}
+              onClick={() => onBoost(b.label)}
+              title={`Boost ${b.label}: $${b.usd.toLocaleString("en-US")} (${cost.toFixed(2)} SOL)`}
+              className="flex flex-col items-center rounded-md border border-amber/40 py-1.5 text-[11.5px] font-extrabold text-amber transition-colors hover:bg-amber/10 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <span>🚀 {b.label}</span>
+              <span className="tabular text-[9.5px] font-semibold text-dim">{cost.toFixed(cost < 10 ? 2 : 1)}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        disabled={!live || coin.dexPaid || dexCost > walletSol}
+        onClick={onPayDex}
+        className="mt-1.5 flex w-full items-center justify-between rounded-md border border-blue/40 px-3 py-1.5 text-[12px] font-bold text-blue transition-colors hover:bg-blue/10 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span>{coin.dexPaid ? "DEX profile paid" : "Pay DEX profile"}</span>
+        <span className="tabular text-[11px] font-semibold text-dim">{coin.dexPaid ? "✓" : `$${DEX_USD} · ${dexCost.toFixed(2)}`}</span>
+      </button>
+    </div>
+  );
+}
+
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, onBoost, onPayDex }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -337,6 +392,12 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           </div>
         )}
 
+        {holdingPct >= 4 && (
+          <div className="rounded-lg border border-amber/50 bg-amber/10 px-3 py-2 text-[12px] leading-snug text-amber">
+            <span className="font-extrabold">You hold {holdingPct.toFixed(1)}% of supply.</span> Nobody apes a coin with a 4%+ wallet, so it
+            won&apos;t run until you&apos;re under 4%.
+          </div>
+        )}
         <div className="grid grid-cols-4 gap-1.5">
           <Mini k="Bought"><SolIcon />{sol(position?.boughtSol ?? 0)}</Mini>
           <Mini k="Sold"><SolIcon />{sol(position?.soldSol ?? 0)}</Mini>
@@ -356,6 +417,8 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
         </div>
 
       </div>
+
+      <Promote coin={coin} walletSol={walletSol} locked={buyLocked} onBoost={onBoost} onPayDex={onPayDex} />
 
       {/* Token info */}
       <div className="p-3">

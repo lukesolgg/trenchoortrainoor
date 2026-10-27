@@ -26,11 +26,28 @@ npm run typecheck
 | 8 | Results, personal bests, settings (localStorage) | |
 | 9 | Polish: audio, animation, perf, keyboard pass | |
 
-## Controls
+## Trader journey (level 0)
+
+Home is "Choose your path": Trader (live) or Dev (coming soon). Levelling comes later. The trader picks:
+
+- **Length:** Blitz (one launch, tops inside about a minute) or Saga (5-10 min story with fades, revivals, catalysts and vamps).
+- **Difficulty:** Easy / Medium / Hard.
+- **Style:** Competitive (a wrong buy ends the round, counts towards PBs) or Casual (keep going, nothing recorded as a PB).
+- **Starting balance:** Low port 2.5 SOL, Medium port 25 SOL, Whale port 250 SOL. Quick-buy and preset sizes scale with it.
+
+Rules worth knowing:
+
+- The runner sits in New Pairs for a few seconds, then Almost bonded for a few seconds, then migrates.
+- **4% rule:** while you hold 4% or more of supply the coin stalls (its script clock pauses and it bleeds). Sell under 4% and it resumes.
+- **Promote** (token page, post-migration): buy x10-x500 boosts or pay the DEX profile ($299) from your balance. Each has a chance,
+  not a promise, of pumping the coin back towards its ATH.
+- KOL tweets and catalysts print an immediate giga candle, then heavy volume either way.
+- Holders is the default token tab and lists you, the dev and any KOLs with their share of supply.
+
 
 | Key | Where | Does |
 | --- | --- | --- |
-| `3` / `1` / `F` | Home | FIRST TX / DEV / Free play |
+| `T` / `1` / `F` | Home | Trader path / Free play (Dev path coming) |
 | Space | Setup | Start |
 | click a card, or hover + `T` | Pulse | Open the coin's page |
 | `1`-`8` | Token page | Fires buy preset 1-8 of the active set (3 editable sets) |

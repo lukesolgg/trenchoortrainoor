@@ -23,7 +23,7 @@ export interface Difficulty {
 export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   paper: {
     id: "paper",
-    label: "Paper Hands",
+    label: "Easy",
     blurb: "Slow bots and a thin flood. Learn the config rules first.",
     deploys: [2, 4],
     floodMs: 5000,
@@ -36,7 +36,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   },
   trencher: {
     id: "trencher",
-    label: "Trencher",
+    label: "Medium",
     blurb: "Busy boards and bots that punish hesitation.",
     deploys: [4, 7],
     floodMs: 4000,
@@ -49,7 +49,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
   },
   sniper: {
     id: "sniper",
-    label: "Sniper",
+    label: "Hard",
     blurb: "Real bot speed. 6-12 deploys in about 3 s, snipers at 0.14-0.42 s.",
     deploys: [6, 12],
     floodMs: 3000,

@@ -40,12 +40,14 @@ interface Props {
   onAddOrder: (kind: Order["kind"], triggerMcUsd: number, fraction: number) => void;
   onCancelOrder: (id: number) => void;
   currentId: string;
+  /** Known holders: you, the dev and KOLs (% of supply). */
+  holders: { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[] };
 }
 
 /** The one panel under the chart. Holders, top holders and dev tokens are modelled, not real wallets. */
 export function InfoTabs(p: Props) {
   const { coin, tape, now, positions, orders, currentId } = p;
-  const [tab, setTab] = useState<Tab>("trades");
+  const [tab, setTab] = useState<Tab>("holders");
   const coinOrders = orders.filter((o) => o.coinId === currentId);
   const openOrders = coinOrders.filter((o) => o.status === "open").length;
 
@@ -78,7 +80,7 @@ export function InfoTabs(p: Props) {
         {tab === "trades" && <TradeTape tape={tape} now={now} />}
         {tab === "positions" && <Positions {...p} />}
         {tab === "orders" && <Orders {...p} orders={coinOrders} />}
-        {tab === "holders" && <Holders coin={coin} />}
+        {tab === "holders" && <Holders coin={coin} known={p.holders} />}
         {tab === "traders" && <Traders tape={tape} />}
         {tab === "dev" && <DevTokens coin={coin} />}
       </div>
@@ -258,25 +260,53 @@ const StatBox = ({ k, v, bad }: { k: string; v: string; bad?: boolean }) => (
 );
 
 /** Modelled top-10 split: shares descend and add up to the coin's Top 10 %. Wallets are stable per coin. */
-function topHolders(coin: CoinView) {
-  const r = new Rng(hash(coin.id));
-  const weights = Array.from({ length: 10 }, (_, i) => Math.pow(0.78, i) * r.range(0.8, 1.2)).sort((a, b) => b - a);
-  const sum = weights.reduce((a, b) => a + b, 0);
-  const rows = weights.map((w) => ({ wallet: r.addr(4), pct: (w / sum) * coin.stats.top10, tag: "" }));
-  if (coin.stage === "migrated") rows.unshift({ wallet: "Liquidity pool", pct: r.range(12, 22), tag: "LP" });
-  return rows;
+interface HolderRow {
+  key: string;
+  label: string;
+  pct: number;
+  tag: "LP" | "YOU" | "DEV" | "KOL" | "";
+  pic?: string;
 }
 
-function Holders({ coin }: { coin: CoinView }) {
-  const rows = useMemo(() => topHolders(coin), [coin]);
+/**
+ * Top holders: the pool, you, the dev and any KOLs in it are real numbers from the sim; the rest of the top 10 is a
+ * modelled split of the coin's Top 10 %, with wallets that stay the same for this coin.
+ */
+function topHolders(coin: CoinView, known: Props["holders"]): HolderRow[] {
+  const r = new Rng(hash(coin.id));
+  const rows: HolderRow[] = [];
+  if (coin.stage === "migrated") rows.push({ key: "lp", label: "Liquidity pool", pct: r.range(12, 22), tag: "LP" });
+  const named: HolderRow[] = [];
+  if (known.youPct > 0.001) named.push({ key: "you", label: "You", pct: known.youPct, tag: "YOU" });
+  if (known.devPct > 0.001) named.push({ key: "dev", label: "Dev wallet", pct: known.devPct, tag: "DEV" });
+  for (const k of known.kols) named.push({ key: `kol-${k.handle}`, label: k.name, pct: k.pct, tag: "KOL", pic: `/kols/${k.handle.toLowerCase()}.jpg` });
+  const fill = Math.max(0, 10 - named.length);
+  const weights = Array.from({ length: fill }, (_, i) => Math.pow(0.78, i) * r.range(0.8, 1.2)).sort((a, b) => b - a);
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const rest = Math.max(1, coin.stats.top10 - named.reduce((n, h) => n + h.pct, 0));
+  const anon = weights.map((w) => ({ key: r.addr(4), label: "", pct: (w / sum) * rest, tag: "" as const }));
+  for (const a of anon) a.label = a.key;
+  return [...rows, ...[...named, ...anon].sort((a, b) => b.pct - a.pct)];
+}
+
+const TAG_STYLE: Record<HolderRow["tag"], string> = {
+  LP: "border-line-hi text-dim",
+  YOU: "border-blue/60 bg-blue/15 text-blue",
+  DEV: "border-amber/60 bg-amber/15 text-amber",
+  KOL: "border-violet/60 bg-violet/15 text-violet",
+  "": "",
+};
+
+function Holders({ coin, known }: { coin: CoinView; known: Props["holders"] }) {
+  const rows = topHolders(coin, known);
   return (
     <div>
       <div className="grid grid-cols-6 border-b border-line">
         <StatBox k="Holders" v={coin.holders.toLocaleString("en-US")} />
         <StatBox k="Top 10" v={`${coin.stats.top10}%`} bad={coin.stats.top10 >= 25} />
-        <StatBox k="Dev holds" v={`${coin.stats.dev}%`} bad={coin.stats.dev >= 5} />
-        <StatBox k="Snipers" v={`${coin.stats.snipers}%`} bad={coin.stats.snipers >= 8} />
-        <StatBox k="Insiders" v={`${coin.stats.insiders}%`} bad={coin.stats.insiders >= 3} />
+        <StatBox k="You hold" v={`${known.youPct.toFixed(2)}%`} bad={known.youPct >= 4} />
+        <StatBox k="Dev holds" v={`${known.devPct.toFixed(2)}%`} bad={known.devPct >= 5} />
+        <StatBox k="KOLs in" v={String(known.kols.length)} />
         <StatBox k="Bonded" v={coin.stage === "migrated" ? "100%" : `${Math.round(coin.progress * 100)}%`} />
       </div>
       <table className="w-full text-[12.5px]">
@@ -290,12 +320,21 @@ function Holders({ coin }: { coin: CoinView }) {
         </thead>
         <tbody>
           {rows.map((h, i) => (
-            <tr key={h.wallet} className="border-b border-line/60">
+            <tr key={h.key} className={`border-b border-line/60 ${h.tag === "YOU" ? "bg-blue/[0.07]" : ""}`}>
               <td className="tabular py-1.5 pl-4 text-faint">{i + 1}</td>
-              <td className={`py-1.5 font-mono ${h.tag ? "text-amber" : "text-dim"}`}>{h.wallet}</td>
+              <td className="py-1.5">
+                <span className="flex items-center gap-2">
+                  {h.pic && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={h.pic} alt="" className="h-5 w-5 rounded-full object-cover" />
+                  )}
+                  <span className={h.tag ? "font-semibold text-ink" : "font-mono text-dim"}>{h.label}</span>
+                  {h.tag && <span className={`rounded border px-1 text-[9.5px] font-black ${TAG_STYLE[h.tag]}`}>{h.tag}</span>}
+                </span>
+              </td>
               <td className="tabular py-1.5 text-right">
                 <span className="mr-2 inline-block h-1.5 w-16 overflow-hidden rounded-full bg-line align-middle">
-                  <span className="block h-full bg-up/70" style={{ width: `${Math.min(100, h.pct * 4)}%` }} />
+                  <span className={`block h-full ${h.tag === "YOU" ? "bg-blue" : h.pct >= 4 && h.tag !== "LP" ? "bg-down/80" : "bg-up/70"}`} style={{ width: `${Math.min(100, h.pct * 4)}%` }} />
                 </span>
                 {h.pct.toFixed(2)}%
               </td>

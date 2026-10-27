@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { DIFFICULTIES, DIFFICULTY_ORDER } from "@/engine/difficulty";
 import { statsFor, useRuns, type RunRecord } from "@/store/runs";
-import { useUi } from "@/store/ui";
+import { PORTS, useUi, type Port } from "@/store/ui";
 
 const COPY = {
   firsttx: {
@@ -12,7 +12,7 @@ const COPY = {
     steps: [
       ["Read the tweet", "Work out the meme from an authority account and its best ticker."],
       ["Check the config", "The right coin is on Pump with Dividends on. The pair follows the author: /SPACEX for Elon (/TESLA for Tesla tweets), SOL for Toly and Solana, /PUMP for Alon, Ansem, Truth Terminal, pump.fun, Trench Report and Lowcap Larry. Look-alikes get exactly one thing wrong."],
-      ["Quick-buy it first", "Hit the ⚡ button on its card. Buy before the tweet and it is a false start; buy a look-alike and the round ends (Training lets you keep going). The round ends when you sell 100%. Score: speed up to 800, entry up to 100, exit up to 100."],
+      ["Quick-buy it first", "Hit the ⚡ button on its card. Buy before the tweet and it is a false start; buy a look-alike and the round ends (Casual lets you keep going). The round ends when you sell 100%. Score: speed up to 800, entry up to 100, exit up to 100."],
     ],
   },
   dev: {
@@ -27,7 +27,7 @@ const COPY = {
 } as const;
 
 export function Setup() {
-  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle, length, setLength } = useUi();
+  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle, length, setLength, port, setPort } = useUi();
   const copy = COPY[mode === "dev" ? "dev" : "firsttx"];
   const diff = DIFFICULTIES[difficulty];
 
@@ -44,13 +44,13 @@ export function Setup() {
 
   return (
     <main className="mx-auto flex h-dvh max-w-5xl flex-col overflow-y-auto px-6 py-10">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">How to play</p>
-      <h1 className="mt-1 text-[40px] font-black leading-none tracking-tight">{copy.title}</h1>
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">{mode === "dev" ? "Dev" : "Trader"} · Level 0</p>
+      <h1 className="mt-1 text-[40px] font-black leading-none tracking-tight">{mode === "dev" ? copy.title : "Your journey"}</h1>
       <p className="mt-3 max-w-2xl text-[15px] leading-snug text-dim">{copy.lead}</p>
 
       <div className="mt-8 grid grid-cols-2 gap-5">
         <section className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">Your setup</h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">Before you start</h2>
           <div className="mt-4 space-y-4">
             <div>
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Difficulty</div>
@@ -108,8 +108,8 @@ export function Setup() {
               <div className="flex gap-2" role="radiogroup" aria-label="Style">
                 {(
                   [
-                    ["strict", "Strict"],
-                    ["training", "Training"],
+                    ["strict", "Competitive"],
+                    ["training", "Casual"],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -130,6 +130,29 @@ export function Setup() {
                 {style === "strict"
                   ? "A wrong buy ends the round. Counts towards your personal bests."
                   : "A wrong buy costs 150 points and the round keeps going, so you can practise spotting the right one. No PBs."}
+              </p>
+            </div>
+            <div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Starting balance</div>
+              <div className="flex gap-2" role="radiogroup" aria-label="Starting balance">
+                {(Object.keys(PORTS) as Port[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={port === id}
+                    onClick={() => setPort(id)}
+                    className={`rounded-lg border px-3.5 py-2 text-left text-[13px] font-bold transition-colors ${
+                      port === id ? "border-amber bg-amber/10 text-amber" : "border-line-hi text-dim hover:text-ink"
+                    }`}
+                  >
+                    {PORTS[id].label}
+                    <span className="tabular ml-1.5 text-[12px] font-semibold opacity-80">{PORTS[id].sol} SOL</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[12px] text-dim">
+                Buy sizes scale with it. Careful with size: a wallet over 4% of a coin&apos;s supply scares buyers off and it won&apos;t run.
               </p>
             </div>
           </div>
@@ -233,7 +256,7 @@ function Progress({ difficulty, length }: { difficulty: keyof typeof DIFFICULTIE
               <tr key={r.id} className="border-t border-line/60">
                 <td className={`py-1 font-bold ${OUTCOME[r.outcome].tone}`}>
                   {OUTCOME[r.outcome].label}
-                  {r.training && <span className="ml-1.5 text-[10px] font-semibold text-faint">training</span>}
+                  {r.training && <span className="ml-1.5 text-[10px] font-semibold text-faint">casual</span>}
                 </td>
                 <td className="py-1 font-semibold">{r.ticker}</td>
                 <td className="tabular py-1 text-right">{ms(r.reactionMs)}</td>

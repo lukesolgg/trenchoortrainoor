@@ -82,8 +82,8 @@ interface BigPlan {
 
 /** One stretch of a scripted run. The price glides to `to` by `end` (sim ms). */
 interface Leg {
-  /** `rug`: the dev dumps; the whole drop lands in one step (one giant red candle). */
-  kind: "push" | "dip" | "base" | "rug";
+  /** `rug`: the whole drop lands in one step (one giant red candle). `spike`: the same, upwards (a catalyst hitting). */
+  kind: "push" | "dip" | "base" | "rug" | "spike";
   end: number;
   to: number;
   /** Multiplier on trade size. */
@@ -146,6 +146,12 @@ interface Coin {
   devPct: number;
   /** Saga: which chapter of the story this coin plays. Null outside saga. */
   sagaChapter: number | null;
+  /** Script time lost to stalls (the player holding 4%+): every script reads the clock as `at - pausedMs`. */
+  pausedMs: number;
+  /** A pump laid over the script (a boost or DEX payment that worked): glide up to `peak`, then back to the script. */
+  overlay: { start: number; peakAt: number; end: number; from: number; peak: number } | null;
+  /** KOLs holding this coin and their share of supply (%). */
+  kolHold: Map<number, number>;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -180,6 +186,8 @@ interface QueuedEvent {
 }
 
 const FINAL_AT = 0.35;
+/** What a DEX profile costs, USD. */
+export const DEX_USD = 299;
 const MAX_NEW = 40;
 const MAX_FINAL = 14;
 const MAX_MIGRATED = 30;
@@ -372,6 +380,9 @@ export class Engine {
       devSellPre: false,
       devPct: 0,
       sagaChapter: null,
+      pausedMs: 0,
+      overlay: null,
+      kolHold: new Map(),
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -467,6 +478,7 @@ export class Engine {
   private devSell(c: Coin, at: number, sol: number, mc: number, all: boolean): void {
     const pct = all ? c.devPct : c.devPct * this.rng.range(0.3, 0.6);
     c.devPct = Math.max(0, c.devPct - pct);
+    c.stats.dev = +c.devPct.toFixed(2);
     this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, mc, pct, all }, false);
   }
 
@@ -504,6 +516,7 @@ export class Engine {
         break;
       }
       case "dex":
+        c.dexPaid = true;
         this.social(c, at, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: 299 }, false);
         break;
       case "cto":
@@ -544,9 +557,12 @@ export class Engine {
         case "revival":
         case "pump": {
           if (b.kind === "revival" && b.catalyst) {
+            // The catalyst hits and prints a giga candle straight away: no time to front-run it.
             const kind = b.catalyst;
             at(t0, (a) => this.catalyst(c, a, kind));
-            add("base", r.range(1000, 2000), level * r.range(0.98, 1.03), 0.6, 0.012);
+            add("spike", 250, level * r.range(1.2, 1.5), 3, 0);
+            // Then heavy volume either way: sometimes the first spike gets sold into before it goes.
+            if (r.chance(0.3)) add("dip", r.range(2500, 5000), level * r.range(0.72, 0.88), 2.2, 0.03);
           }
           // KOLs pile in early and somebody buys a boost; the run climbs in steps with shakeouts between.
           for (let i = 0, n = r.int(2, 4); i < n; i++) at(t0 + r.range(0, b.ms * 0.6), (a) => this.kolTrade(c, a, "buy", r.range(3, 25)));
@@ -636,12 +652,88 @@ export class Engine {
         if (sc) sc.view = { ...sc.view, vamps: sc.vamps.map((v) => ({ ...v })) };
         this.scriptLaunch(coin, a);
         for (let k = 0; k < plan.snipers; k++) {
-          this.at(a + this.rng.range(plan.sniperReactMs[0], plan.sniperReactMs[1]), (b) => this.applyBuy(coin, Math.min(8, this.rng.lognormal(1.4, 0.6)), b, "bot"));
+          this.at(a + this.rng.range(plan.sniperReactMs[0], plan.sniperReactMs[1]), (b) => this.applyBuy(coin, Math.min(1.5, this.rng.lognormal(0.35, 0.6)), b, "bot"));
         }
       });
     });
     void from;
     this.emitNow();
+  }
+
+  // ------------------------------------------------------------------ player extras
+
+  /** You hold 4%+ of supply: nobody apes a coin with a wallet that size. */
+  private bigHolder(c: Coin): boolean {
+    const p = this.positions.get(c.id);
+    return !!p && p.tokens / SUPPLY >= 0.04;
+  }
+
+  /** Your share of this coin's supply, in %. */
+  holdingPct(coinId: string): number {
+    const p = this.positions.get(coinId);
+    return p ? (p.tokens / SUPPLY) * 100 : 0;
+  }
+
+  /** Who holds what: you, the dev, and any KOLs in it (% of supply). */
+  getHolders(coinId: string): { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[] } {
+    const c = this.coins.get(coinId);
+    if (!c) return { youPct: 0, devPct: 0, kols: [] };
+    return {
+      youPct: this.holdingPct(coinId),
+      devPct: c.stats.dev,
+      kols: [...c.kolHold.entries()].map(([i, pct]) => ({ name: KOLS[i].name, handle: KOLS[i].handle, pct })),
+    };
+  }
+
+  /** A pump laid over the script: up to `mult` x the current level in `upMs`, then back to the script over `backMs`. */
+  private overlayPump(c: Coin, at: number, mult: number, upMs: number, backMs: number): void {
+    const from = c.postMc / Math.exp(c.osc);
+    c.overlay = { start: at, peakAt: at + upMs, end: at + upMs + backMs, from, peak: from * mult };
+  }
+
+  /**
+   * Buy a DEX boost out of your wallet. On the round's coins, while it is still alive, it has a chance to send it
+   * (bigger boosts, better odds) back towards its high; sometimes it does nothing at all.
+   */
+  buyBoost(coinId: string, label: string): { ok: boolean; reason?: string } {
+    const c = this.coins.get(coinId);
+    const tier = BOOST_TIERS.find((t) => t.label === label);
+    if (!c || !tier) return { ok: false, reason: "No such boost" };
+    if (!c.migrated || this.simNow < c.lockUntil) return { ok: false, reason: "Boosts need a DEX pair: wait for migration" };
+    const cost = tier.usd / SOL_USD;
+    if (cost > this.wallet + 1e-9) return { ok: false, reason: "Not enough SOL" };
+    this.wallet -= cost;
+    this.social(c, this.simNow, { kind: "boost", side: null, name: "Boost (you)", hue: 50, sol: cost, label: tier.label, usd: tier.usd, hours: tier.hours }, false);
+    const odds: Record<string, number> = { x10: 0.2, x30: 0.3, x50: 0.4, x100: 0.55, x500: 0.7 };
+    const alive = toUsd(c.postMc) > 12_000;
+    if (c.legs.length && alive && !this.bigHolder(c) && this.rng.chance(odds[tier.label] ?? 0.2)) {
+      // Towards the high if there is room, otherwise a fresh leg up.
+      let ath = 0;
+      for (const k of c.candles) ath = Math.max(ath, k.h);
+      const level = c.postMc;
+      const mult = Math.min(4, Math.max(1.3, (ath / level) * this.rng.range(0.85, 1.1)));
+      this.overlayPump(c, this.simNow, mult, this.rng.range(6000, 15000), this.rng.range(15000, 35000));
+    }
+    this.emitNow();
+    return { ok: true };
+  }
+
+  /** Pay for the DEX profile, if nobody has. Sometimes that alone gets it noticed. */
+  payDex(coinId: string): { ok: boolean; reason?: string } {
+    const c = this.coins.get(coinId);
+    if (!c) return { ok: false, reason: "Coin is gone" };
+    if (c.dexPaid) return { ok: false, reason: "DEX is already paid" };
+    if (!c.migrated) return { ok: false, reason: "Wait for migration" };
+    const cost = DEX_USD / SOL_USD;
+    if (cost > this.wallet + 1e-9) return { ok: false, reason: "Not enough SOL" };
+    this.wallet -= cost;
+    c.dexPaid = true;
+    this.social(c, this.simNow, { kind: "dex", side: null, name: "DEX paid (you)", hue: 200, sol: cost, usd: DEX_USD }, false);
+    if (c.legs.length && toUsd(c.postMc) > 12_000 && !this.bigHolder(c) && this.rng.chance(0.35)) {
+      this.overlayPump(c, this.simNow, this.rng.range(1.2, 1.7), this.rng.range(4000, 9000), this.rng.range(10000, 25000));
+    }
+    this.emitNow();
+    return { ok: true };
   }
 
   // ------------------------------------------------------------------ socials
@@ -664,10 +756,12 @@ export class Engine {
       if (!free.length || c.kolsIn.length >= 6) return;
       const i = this.rng.pick(free);
       c.kolsIn.push(i);
+      c.kolHold.set(i, (sol / this.mc(c)) * 100);
       this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol });
     } else {
       if (!c.kolsIn.length) return;
       const i = c.kolsIn.splice(this.rng.int(0, c.kolsIn.length - 1), 1)[0];
+      c.kolHold.delete(i);
       this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol });
     }
   }
@@ -786,7 +880,11 @@ export class Engine {
       }
       // Half the time the dev (or the community) pays for the DEX profile too.
       if (this.rng.chance(0.5)) {
-        this.at(at + MIGRATION_LOCK_MS + this.rng.range(2000, 30000), (a) => this.coins.has(c.id) && this.social(c, a, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: 299 }, false));
+        this.at(at + MIGRATION_LOCK_MS + this.rng.range(2000, 30000), (a) => {
+          if (!this.coins.has(c.id) || c.dexPaid) return;
+          c.dexPaid = true;
+          this.social(c, a, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: 299 }, false);
+        });
       }
     }
   }
@@ -846,25 +944,23 @@ export class Engine {
       t += ms;
       return { kind, end: t, to, vol, noise } satisfies Leg;
     };
-    const legs: Leg[] = [leg("push", r.range(200, 400), sol(r.range(3000, 10000)), 1, 0.01)];
-    // Most runners are over the line in 2.5-5 s (txgym sweat rounds: 3, 4 and 5 s); a few grind for up to 12 s.
-    if (r.chance(0.75)) {
-      legs.push(leg("push", r.range(2200, 4600), over, 1, 0.03));
-    } else {
-      const total = r.range(5000, 12000);
-      const burst = sol(r.range(30000, 35000));
-      legs.push(leg("push", r.range(900, 2400), burst, 1, 0.03));
-      const rest = Math.max(1500, at + total - t);
-      legs.push(leg("dip", rest * 0.3, burst * r.range(0.84, 0.93), 1, 0.02));
-      legs.push(leg("base", rest * 0.35, burst * r.range(0.9, 0.98), 0.5, 0.015));
-      legs.push(leg("push", rest * 0.35, over, 1, 0.025));
-    }
+    // A few seconds in New (under ~$5K), a few in Almost bonded, then over the line: about 5-12 s in all.
+    const legs: Leg[] = [leg("push", r.range(200, 400), sol(r.range(3200, 4600)), 1, 0.01)];
+    legs.push(leg("base", r.range(2000, 4000), sol(r.range(3400, 4800)), 0.8, 0.02));
+    const burst = sol(r.range(14000, 26000));
+    legs.push(leg("push", r.range(700, 1500), burst, 1, 0.03));
+    if (r.chance(0.5)) legs.push(leg("dip", r.range(800, 1800), burst * r.range(0.82, 0.93), 1, 0.02));
+    legs.push(leg("base", r.range(800, 2000), burst * r.range(0.9, 1.05), 0.6, 0.015));
+    legs.push(leg("push", r.range(1000, 2500), over, 1, 0.025));
+    // The round's coin starts without a paid DEX profile, so somebody (maybe you) can pay for it.
+    c.dexPaid = false;
     c.scriptStart = at;
     c.preLegs = legs;
     this.at(at, (a) => this.driveStep(c, a));
     // The dev's own buy at launch shows on the chart.
     this.at(legs[0].end, (a) => {
       c.devPct = this.rng.range(2, 6);
+      c.stats.dev = +c.devPct.toFixed(2);
       this.social(c, a, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: this.rng.range(0.5, 4), pct: c.devPct });
     });
     c.devSellPre = this.rng.chance(0.5);
@@ -919,13 +1015,24 @@ export class Engine {
   /** One 100 ms step of a scripted pre-migration path: trade through the curve to stay on the glide. */
   private driveStep(c: Coin, at: number): void {
     if (!this.coins.has(c.id) || c.migrated) return;
+    // Nobody apes a coin with a 4%+ wallet: while you hold that much the script stands still and it slowly bleeds.
+    if (this.bigHolder(c)) {
+      c.pausedMs += 100;
+      if (this.rng.chance(0.25) && c.curve.realTok > 0) {
+        const price = curveLib.mcSol(c.curve) / SUPPLY;
+        this.applySell(c, Math.min(c.curve.realTok * 0.02, this.rng.range(0.05, 0.3) / price), at, "bot");
+      }
+      this.at(at + 100, (a) => this.driveStep(c, a));
+      return;
+    }
+    const st = at - c.pausedMs;
     const legs = c.preLegs;
-    const i = legs.findIndex((l) => at < l.end);
+    const i = legs.findIndex((l) => st < l.end);
     const leg = i === -1 ? legs[legs.length - 1] : legs[i];
     const legStart = i <= 0 ? c.scriptStart : legs[i - 1].end;
     const now = curveLib.mcSol(c.curve);
     if (leg.from === undefined) leg.from = now;
-    const frac = i === -1 ? 1 : Math.min(1, (at - legStart) / Math.max(1, leg.end - legStart));
+    const frac = i === -1 ? 1 : Math.min(1, (st - legStart) / Math.max(1, leg.end - legStart));
     const desired = leg.from * Math.pow(leg.to / leg.from, frac) * Math.exp(leg.noise * 0.2 * this.rng.gauss());
     const k = c.curve.vSol * c.curve.vTok;
     const vWant = Math.sqrt((desired * k) / SUPPLY);
@@ -1206,20 +1313,29 @@ export class Engine {
     }
 
     const before = c.postMc;
+    const stalled = scripted && this.bigHolder(c);
+    if (stalled) c.pausedMs += 250;
+    const st = at - c.pausedMs;
     if (scripted) {
-      const leg = c.legs.find((l) => at < l.end);
-      if (leg?.kind === "rug" && leg.from === undefined) {
-        // Insider dump: the whole drop prints in one step.
+      const leg = c.legs.find((l) => st < l.end);
+      if ((leg?.kind === "rug" || leg?.kind === "spike") && leg.from === undefined) {
+        // The whole move prints in one step: an insider dump, or a catalyst's giga candle.
+        const up = leg.kind === "spike";
         c.postMc = leg.to;
         c.osc = 0;
         leg.from = leg.to;
-        const size = before * this.rng.range(0.04, 0.08);
+        const size = Math.max(before, leg.to) * this.rng.range(0.04, 0.08);
         this.record(c, at, size);
         c.volumeSol += size;
-        c.sellVolSol += size;
-        c.sells++;
+        if (up) {
+          c.buyVolSol += size;
+          c.buys++;
+        } else {
+          c.sellVolSol += size;
+          c.sells++;
+        }
         c.txCount++;
-        this.pushTape(c, at, "bot", "sell", size, "Insider");
+        this.pushTape(c, at, "bot", up ? "buy" : "sell", size, up ? undefined : "Insider");
         this.touch(c);
         return true;
       }
@@ -1231,14 +1347,22 @@ export class Engine {
         const start = idx === 0 ? c.lockUntil : c.legs[idx - 1].end;
         // Aim a little ahead on the script: the level trails it (it only moves on size), and this lead cancels the lag
         // so tops and bottoms are actually reached.
-        const frac = Math.min(1, Math.max(0, (at + 750 - start) / Math.max(1, leg.end - start)));
+        const frac = Math.min(1, Math.max(0, (st + 750 - start) / Math.max(1, leg.end - start)));
         want = leg.from * Math.pow(leg.to / leg.from, frac);
         volMul *= leg.vol;
       } else {
         // Script over: nothing sits still. It keeps bleeding (halving every ~90 s) with the bot chopping around it.
         const last = c.legs[c.legs.length - 1];
-        want = last.to * Math.exp((-(at - last.end) * Math.LN2) / 90000);
+        want = last.to * Math.exp((-(st - last.end) * Math.LN2) / 90000);
       }
+      // A boost or DEX payment that worked lays a pump over the script, then hands back to it.
+      const o = c.overlay;
+      if (o && at < o.end) {
+        if (at < o.peakAt) want = Math.max(want, o.from * Math.pow(o.peak / o.from, (at - o.start) / (o.peakAt - o.start)));
+        else want = Math.max(want, o.peak * Math.pow(want / o.peak, (at - o.peakAt) / (o.end - o.peakAt)));
+      } else if (o) c.overlay = null;
+      // Holding 4%+ of supply: no new buyers, it just bleeds.
+      if (stalled) want = (c.postMc / Math.exp(c.osc)) * Math.exp(-0.003);
       // Two layers. The level only moves with real size: a slow drift plus whale buys/sells that close most of the
       // gap to the script in one go (the further behind, the more likely). On top, a volume bot keeps the price
       // bouncing around that level, so candles wiggle both ways instead of stepping. Player trades move the level.
@@ -1250,7 +1374,7 @@ export class Engine {
         move = gap * this.rng.range(0.3, 0.6);
         volMul *= 2 + Math.abs(gap) * 20;
         whaleSide = move > 0 ? "buy" : "sell";
-      } else if (leg && leg.kind !== "rug" && this.rng.chance(leg.kind === "base" ? 0.05 : 0.09)) {
+      } else if (!stalled && leg && leg.kind !== "rug" && this.rng.chance(leg.kind === "base" ? 0.05 : 0.09)) {
         // Against the trend: panic sells into a pump, FOMO buys into a dip. The script pulls it back, so these print
         // as sharp counter-candles that shake out the weak hands.
         const against = leg.kind === "push" ? -1 : leg.kind === "dip" ? 1 : this.rng.chance(0.5) ? 1 : -1;
@@ -1530,7 +1654,7 @@ export class Engine {
     ).sort((a, b) => a - b);
     for (const dt of times) {
       this.at(at + dt, (t) => {
-        this.applyBuy(coin, Math.min(8, this.rng.lognormal(1.4, 0.6)), t, "bot");
+        this.applyBuy(coin, Math.min(1.5, this.rng.lognormal(0.35, 0.6)), t, "bot");
       });
     }
   }

@@ -133,8 +133,11 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
 
   const buy = (amount: number, eventTs: number) => {
     const trade = engine.quickBuy(coinId, amount, engine.fromEventTime(eventTs));
+    const pct = engine.holdingPct(coinId);
     notify(
-      trade
+      trade && pct >= 4
+        ? `You now hold ${pct.toFixed(1)}% of supply: over 4%, nobody apes it until you trim below`
+        : trade
         ? `Bought ${sol(trade.sol)} SOL of ${coin?.ticker ?? "coin"} · ${trade.rank} bot buys ahead of you`
         : engine.isMigrating(coinId)
           ? "Migrating: buys reopen in a moment"
@@ -361,6 +364,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           </div>
           <div className="min-h-[260px] flex-[2] border-t border-line bg-panel">
             <InfoTabs
+              holders={engine.getHolders(coinId)}
               coin={coin}
               tape={tape}
               now={snap.now}
@@ -380,6 +384,15 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           </div>
         </div>
         <TradePanel
+          holdingPct={engine.holdingPct(coinId)}
+          onBoost={(label) => {
+            const r = engine.buyBoost(coinId, label);
+            notify(r.ok ? `🚀 Boost ${label} is live on ${coin.ticker}` : (r.reason ?? "Boost failed"));
+          }}
+          onPayDex={() => {
+            const r = engine.payDex(coinId);
+            notify(r.ok ? `DEX profile paid for ${coin.ticker}` : (r.reason ?? "Could not pay DEX"));
+          }}
           coin={coin}
           walletSol={snap.walletSol}
           position={position}
