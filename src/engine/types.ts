@@ -307,6 +307,8 @@ export interface SocialEvent {
   /** Market cap in SOL where it happened. */
   mc: number;
   name: string;
+  /** KOL X handle (their picture is public/kols/<handle>.jpg). */
+  handle?: string;
   sol: number;
   /** Avatar colour for KOLs. */
   hue: number;

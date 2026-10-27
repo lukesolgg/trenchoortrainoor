@@ -93,9 +93,12 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
 - Progression (`store/runs.ts`, localStorage `gngm.runs.v1`): PB reaction and best score per difficulty, average reaction,
   accuracy, streaks, last 10 runs on the setup screen; results compare against your PB and show this session's stats.
 - The flood after the tweet is only the runner and its look-alikes (no random fillers); the slow background trickle carries on.
-- Social layer (`SocialEvent`, `engine.getSocial`): the dev's buy at launch and sell (on the rug or the first dump), made-up KOLs
-  (`KOLS` in content.ts, max 10 events a coin) buying pumps and selling dips, and 1-3 paid boosts after migration. Drawn by the
-  `ChartMarks` primitive: DEV tag, KOL initials, lightning boost tags; toggle each from Socials in the chart toolbar.
+- Social layer (`SocialEvent`, `engine.getSocial`): the dev's buy at launch and one sell, either just before it bonds or within
+  ~4 s of migration; 16 real trench KOLs (`KOLS` in content.ts, pictures in `public/kols/`) making simulated trades (max 10 a
+  coin) on pumps and dips; 1-3 paid boosts after migration. Drawn by the `ChartMarks` primitive (DEV tag, KOL profile pictures,
+  lightning boost tags). Hover any mark for who, bought/sold how much, and at what market cap. Toggle each from Socials.
+- Endings: nothing sits still. A standard big-coin round either rugs to $10-15K straight after its top or makes a second leg up
+  (1.4-2.2x) and then rugs; after any script ends the coin keeps bleeding (halving every ~90 s) with the bot chopping around it.
 - Runs are choppier: panic sells into pumps and FOMO buys into dips print counter-candles, the volume bot fires 4-7 micro fills a
   step (about 20 tx/s) and volume scales with market cap.
 - Look-alikes land 0.3-0.8 s (+ stagger) after the right coin on Paper Hands and Trencher, on top of it on Sniper (`decoyDelayMs`).

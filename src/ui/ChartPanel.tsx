@@ -35,9 +35,30 @@ export interface Mark {
   letter: string;
   hue?: number;
   label?: string;
+  /** For the hover card. */
+  name?: string;
+  handle?: string;
+  sol?: number;
+  mcUsd?: number;
+  at?: number;
+}
+
+/** Profile pictures drawn inside KOL markers, loaded once and shared by every chart. */
+const avatarCache = new Map<string, HTMLImageElement>();
+function avatar(handle: string, onLoad: () => void): HTMLImageElement | null {
+  let img = avatarCache.get(handle);
+  if (!img) {
+    img = new Image();
+    img.src = `/kols/${handle.toLowerCase()}.jpg`;
+    img.onload = onLoad;
+    avatarCache.set(handle, img);
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
 }
 class ChartMarks implements ISeriesPrimitive<Time> {
   private marks: Mark[] = [];
+  /** Where each mark was last drawn (CSS px), for hover. */
+  drawn: { x: number; y: number; r: number; m: Mark }[] = [];
   private chart: IChartApi | null = null;
   private series: ISeriesApi<"Candlestick"> | null = null;
   private request: (() => void) | null = null;
@@ -53,6 +74,14 @@ class ChartMarks implements ISeriesPrimitive<Time> {
   setMarks(m: Mark[]) {
     this.marks = m;
     this.request?.();
+  }
+  /** The mark under a point in the pane, if any (last drawn wins). */
+  hit(x: number, y: number): { x: number; y: number; m: Mark } | null {
+    for (let i = this.drawn.length - 1; i >= 0; i--) {
+      const d = this.drawn[i];
+      if (Math.abs(x - d.x) <= d.r && Math.abs(y - d.y) <= d.r) return d;
+    }
+    return null;
   }
   updateAllViews() {}
   paneViews() {
@@ -71,6 +100,7 @@ class ChartMarks implements ISeriesPrimitive<Time> {
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
               const perBar = new Map<number, number>();
               const perBoost = new Map<number, number>();
+              self.drawn = [];
               ctx.save();
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
@@ -115,6 +145,7 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.textAlign = "left";
                   ctx.fillText(text, bx + bw + 2 * hr, y + 0.5 * vr);
                   ctx.textAlign = "center";
+                  self.drawn.push({ x: x0, y: y0 - 26 - stack * 20, r: Math.max(12, w / hr / 2), m });
                   continue;
                 }
                 if (m.kind === "dev") {
@@ -139,6 +170,7 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.font = `900 ${Math.round(8.5 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
                   ctx.fillStyle = "#111";
                   ctx.fillText("DEV", x, y + 0.5 * vr);
+                  self.drawn.push({ x: x / hr, y: y0, r: 14, m });
                   continue;
                 }
                 // Several marks in one bar fan out sideways (by their real width) so none hides another.
@@ -157,12 +189,24 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                 ctx.fillStyle = fill;
                 ctx.fill();
                 ctx.shadowBlur = 0;
+                const pic = m.kind === "kol" && m.handle ? avatar(m.handle, () => self.request?.()) : null;
+                if (pic) {
+                  ctx.save();
+                  ctx.beginPath();
+                  ctx.arc(x, y, r, 0, Math.PI * 2);
+                  ctx.clip();
+                  ctx.drawImage(pic, x - r, y - r, r * 2, r * 2);
+                  ctx.restore();
+                }
                 ctx.lineWidth = (m.kind === "you" ? 1.5 : 2) * hr;
                 ctx.strokeStyle = m.kind === "you" ? "#0e0f12" : ring;
                 ctx.stroke();
                 ctx.font = `800 ${Math.round(m.letter.length > 1 ? 7.5 : 9) * vr}px Inter, ui-sans-serif, system-ui, sans-serif`;
-                ctx.fillStyle = m.kind === "you" && buy ? "#111" : "#fff";
-                ctx.fillText(m.letter, x, y + 0.5 * vr);
+                if (!pic) {
+                  ctx.fillStyle = m.kind === "you" && buy ? "#111" : "#fff";
+                  ctx.fillText(m.letter, x, y + 0.5 * vr);
+                }
+                self.drawn.push({ x: x / hr, y: y0, r: r / hr + 2, m });
               }
               ctx.restore();
             });
@@ -245,6 +289,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
   const markerCount = useRef(-1);
   const lastBar = useRef<Bar | null>(null);
   const [hover, setHover] = useState<Bar | null>(null);
+  const [markHover, setMarkHover] = useState<{ x: number; y: number; m: Mark } | null>(null);
 
   const factor = factorFor(metric, unit);
 
@@ -322,11 +367,14 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
       const d = p.seriesData.get(candle) as { open: number; high: number; low: number; close: number } | undefined;
       const v = p.seriesData.get(vol) as { value: number } | undefined;
       setHover(d ? { o: d.open, h: d.high, l: d.low, c: d.close, v: v?.value ?? 0 } : null);
+      const hit = p.point ? dotsRef.current?.hit(p.point.x, p.point.y) : null;
+      setMarkHover(hit ? { x: hit.x, y: hit.y, m: hit.m } : null);
     });
     chartRef.current = chart;
     candleRef.current = candle;
     volRef.current = vol;
     dotsRef.current = new ChartMarks();
+    if (new URLSearchParams(location.search).has("debug")) (window as unknown as { __marks?: ChartMarks }).__marks = dotsRef.current;
     candle.attachPrimitive(dotsRef.current);
     return () => {
       chart.remove();
@@ -435,6 +483,10 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
           kind: "you",
           side: t.side,
           letter: t.side === "buy" ? "B" : "S",
+          name: "You",
+          sol: t.sol,
+          mcUsd: (t.sol / t.tokens) * SUPPLY * SOL_USD,
+          at: t.execAt,
         }));
       const theirs: Mark[] = socials
         .filter((e) => (e.kind === "dev" ? show.dev : e.kind === "kol" ? show.kol : show.boost))
@@ -447,6 +499,11 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
           letter: e.kind === "dev" ? "DEV" : e.name.split(" ").map((w) => w[0]).join("").slice(0, 2),
           hue: e.hue,
           label: e.label,
+          name: e.name,
+          handle: e.handle,
+          sol: e.sol,
+          mcUsd: e.mc * SOL_USD,
+          at: e.at,
         }));
       dotsRef.current?.setMarks([...theirs, ...mine]);
       markerCount.current = markKey;
@@ -464,8 +521,9 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
   const tone = chg >= 0 ? "text-up" : "text-down";
 
   return (
-    <div ref={wrap} className="relative h-full w-full bg-[#060b08]">
+    <div ref={wrap} className="relative h-full w-full bg-[#0e0f12]">
       <div ref={host} className="h-full w-full" />
+      {markHover && <MarkCard {...markHover} width={wrap.current?.clientWidth ?? 800} />}
       {shown && (
         <div className="tabular pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-center gap-x-3 text-[11px]">
           <span className="font-bold text-ink">{ticker}</span>
@@ -481,6 +539,53 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
           <span className="text-faint">
             Vol <span className="text-ink">{formatValue(shown.v, "mc", unit)}</span>
           </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Hover card for a chart mark: who, bought or sold, how much, at what market cap. */
+function MarkCard({ x, y, m, width }: { x: number; y: number; m: Mark; width: number }) {
+  const left = x > width - 260 ? x - 252 : x + 16;
+  const buy = m.side === "buy";
+  const verb = m.kind === "boost" ? "Boost purchased" : buy ? "Bought" : "Sold";
+  return (
+    <div
+      className="pointer-events-none absolute z-20 w-[236px] rounded-lg border border-line-hi bg-card/95 p-2.5 text-[12px] shadow-2xl backdrop-blur"
+      style={{ left, top: Math.max(4, y - 30) }}
+    >
+      <div className="flex items-center gap-2">
+        {m.kind === "kol" && m.handle ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={`/kols/${m.handle.toLowerCase()}.jpg`} alt="" className="h-8 w-8 rounded-full object-cover" />
+        ) : (
+          <span
+            className={`grid h-8 w-8 place-items-center rounded-full text-[10px] font-black ${
+              m.kind === "dev" || m.kind === "boost" ? "bg-amber text-black" : buy ? "bg-up text-black" : "bg-down text-white"
+            }`}
+          >
+            {m.kind === "dev" ? "DEV" : m.kind === "boost" ? "⚡" : m.letter}
+          </span>
+        )}
+        <div className="min-w-0 leading-tight">
+          <div className="truncate font-bold text-ink">{m.kind === "dev" ? "Dev wallet" : m.kind === "boost" ? `Boost ${m.label ?? ""}` : m.name}</div>
+          {m.handle && <div className="truncate text-[11px] text-dim">@{m.handle}</div>}
+          {m.kind === "kol" && <div className="text-[10px] text-faint">KOL · simulated trade</div>}
+        </div>
+      </div>
+      {m.kind !== "boost" ? (
+        <div className="tabular mt-2 flex items-baseline justify-between">
+          <span className={`font-bold ${buy ? "text-up" : "text-down"}`}>
+            {verb} {(m.sol ?? 0).toFixed(m.sol && m.sol < 10 ? 2 : 1)} SOL
+          </span>
+          <span className="text-dim">
+            at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
+          </span>
+        </div>
+      ) : (
+        <div className="tabular mt-2 text-dim">
+          {verb} at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
         </div>
       )}
     </div>

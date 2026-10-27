@@ -179,20 +179,27 @@ export const FILLER_COINS: { name: string; ticker: string; glyph: string }[] = [
   { name: "Mushroom", ticker: "SHROOM", glyph: "🍄" },
 ];
 
-/** Made-up KOLs for the chart's social layer. None of these are real accounts. */
-export const KOLS: { name: string; hue: number }[] = [
-  { name: "Trench Wizard", hue: 265 },
-  { name: "Moon Merchant", hue: 45 },
-  { name: "Degen Dave", hue: 10 },
-  { name: "Alpha Annie", hue: 320 },
-  { name: "Chart Monk", hue: 190 },
-  { name: "Bag Builder", hue: 120 },
-  { name: "Exit Eli", hue: 0 },
-  { name: "Sniper Sam", hue: 210 },
-  { name: "Candle Kim", hue: 150 },
-  { name: "Liquidity Lou", hue: 35 },
-  { name: "Pump Priya", hue: 290 },
-  { name: "Wick Wes", hue: 80 },
+/**
+ * KOLs for the chart's social layer: real trench accounts (profile pictures in public/kols/<handle>.jpg), trading
+ * on simulated coins. Every trade shown is made up; the hover card says so.
+ */
+export const KOLS: { name: string; handle: string; hue: number }[] = [
+  { name: "Cented", handle: "Cented7", hue: 0 },
+  { name: "Orangie", handle: "orangie", hue: 25 },
+  { name: "Gake", handle: "Ga__ke", hue: 200 },
+  { name: "Cupsey", handle: "Cupseyy", hue: 55 },
+  { name: "Kook", handle: "KookCapitalLLC", hue: 120 },
+  { name: "Jidn", handle: "jidn_w", hue: 30 },
+  { name: "Murad", handle: "MustStopMurad", hue: 330 },
+  { name: "Frank", handle: "frankdegods", hue: 40 },
+  { name: "Pow", handle: "traderpow", hue: 260 },
+  { name: "Gainzy", handle: "gainzy222", hue: 15 },
+  { name: "Daumen", handle: "daumeneth", hue: 100 },
+  { name: "Dior", handle: "Dior100x", hue: 0 },
+  { name: "unipcs", handle: "theunipcs", hue: 45 },
+  { name: "Loopier", handle: "loopierr", hue: 230 },
+  { name: "Cooker", handle: "CookerFlips", hue: 290 },
+  { name: "Jijo", handle: "jijo_exe", hue: 180 },
 ];
 
 export const BOOSTS = ["x10", "x30", "x50", "x100", "x500"];

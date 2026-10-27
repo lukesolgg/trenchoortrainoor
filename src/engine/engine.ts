@@ -135,6 +135,8 @@ interface Coin {
   /** KOLs that bought this coin and still hold (index into KOLS). */
   kolsIn: number[];
   devSold: boolean;
+  /** The dev sells just before migration (true) or just after it (false). */
+  devSellPre: boolean;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -357,6 +359,7 @@ export class Engine {
       social: [],
       kolsIn: [],
       devSold: false,
+      devSellPre: false,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -455,11 +458,11 @@ export class Engine {
       if (!free.length || c.kolsIn.length >= 6) return;
       const i = this.rng.pick(free);
       c.kolsIn.push(i);
-      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, hue: KOLS[i].hue, sol });
+      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol });
     } else {
       if (!c.kolsIn.length) return;
       const i = c.kolsIn.splice(this.rng.int(0, c.kolsIn.length - 1), 1)[0];
-      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, hue: KOLS[i].hue, sol });
+      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol });
     }
   }
 
@@ -549,6 +552,23 @@ export class Engine {
       c.moonUntil = c.legs[c.legs.length - 1].end;
     }
     this.setStage(c, "migrated", at);
+    // Otherwise the dev sells within a few seconds of the pool opening: a sharp red candle the script then absorbs.
+    if (c.preLegs.length && !c.devSold) {
+      this.at(c.lockUntil + this.rng.range(300, 4000), (a) => {
+        if (!this.coins.has(c.id) || c.devSold) return;
+        c.devSold = true;
+        const mc = c.postMc;
+        const sol = mc * this.rng.range(0.015, 0.035);
+        c.postMc = mc * (1 - this.rng.range(0.06, 0.14));
+        this.record(c, a, sol);
+        c.volumeSol += sol;
+        c.sellVolSol += sol;
+        c.sells++;
+        c.txCount++;
+        this.pushTape(c, a, "bot", "sell", sol, "DEV");
+        this.social(c, a, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, mc }, false);
+      });
+    }
     // Somebody always pays for a boost once it is on the DEX.
     if (c.big || c.legs.length) {
       for (let i = 0, n = this.rng.int(1, 3); i < n; i++) {
@@ -633,6 +653,7 @@ export class Engine {
     this.at(at, (a) => this.driveStep(c, a));
     // The dev's own buy at launch shows on the chart.
     this.at(legs[0].end, (a) => this.social(c, a, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: this.rng.range(0.5, 4) }));
+    c.devSellPre = this.rng.chance(0.5);
   }
 
   /**
@@ -706,6 +727,15 @@ export class Engine {
       const tokens = Math.min(k / vWant - c.curve.vTok, c.curve.realTok);
       if (tokens > 0) this.applySell(c, tokens, at, "bot");
     }
+    // The dev dumps a chunk just before it bonds (half the time; the rest just after migration).
+    if (c.devSellPre && !c.devSold && curveLib.progress(c.curve) > 0.82 && !c.migrated) {
+      c.devSold = true;
+      const tokens = Math.min(c.curve.realTok * 0.5, SUPPLY * this.rng.range(0.015, 0.035));
+      const mc = this.mc(c);
+      const got = this.applySell(c, tokens, at, "bot");
+      c.tape[0].trader = "DEV";
+      this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: got, mc }, false);
+    }
     // KOLs aping the launch.
     if (c.spec.role === "target" && this.rng.chance(0.02)) this.kolTrade(c, at, "buy", this.rng.range(1, 8));
     this.at(at + 100, (a) => this.driveStep(c, a));
@@ -754,12 +784,30 @@ export class Engine {
     };
     const P = b.peak;
     switch (b.outcome) {
-      case "standard":
-        add("dip", r.range(3000, 5000), P * r.range(0.8, 0.88), 1.6, 0.025);
-        add("base", r.range(3000, 5000), P * r.range(0.86, 0.92), 0.6, 0.02);
-        add("dip", r.range(12000, 20000), b.trip * r.range(1.02, 1.1), 1.2, 0.022);
-        add("base", r.range(8000, 12000), b.trip, 0.4, 0.014);
+      case "standard": {
+        // A coin that tops this early never just sits: it either rugs out or goes for a second leg (and then rugs).
+        const dump = (from: number) => {
+          add("dip", r.range(3000, 5000), from * r.range(0.5, 0.6), 1.6, 0.028);
+          add("base", r.range(1500, 3000), from * r.range(0.6, 0.68), 0.8, 0.02);
+          add("dip", r.range(3000, 6000), sol(r.range(25000, 40000)), 1.5, 0.03);
+          add("rug", r.range(1000, 1500), sol(r.range(10000, 15000)), 1, 0);
+          add("dip", r.range(25000, 40000), sol(r.range(4000, 7000)), 0.6, 0.025);
+        };
+        if (r.chance(0.5)) {
+          add("base", r.range(2000, 4000), P * r.range(0.86, 0.94), 0.8, 0.02);
+          dump(P);
+        } else {
+          const P2 = P * r.range(1.4, 2.2);
+          add("dip", r.range(3000, 5000), P * r.range(0.72, 0.8), 1.5, 0.026);
+          add("base", r.range(4000, 7000), P * r.range(0.78, 0.86), 0.6, 0.02);
+          add("push", r.range(5000, 8000), P * r.range(1.05, 1.15), 1.8, 0.024);
+          add("dip", r.range(2000, 3500), P * r.range(0.92, 1.0), 1.2, 0.024);
+          add("push", r.range(5000, 9000), P2, 1.9, 0.026);
+          add("base", r.range(2000, 4000), P2 * r.range(0.86, 0.94), 0.8, 0.02);
+          dump(P2);
+        }
         break;
+      }
       case "runner":
         // Sharp first flush, a lower-high bounce, then a long slow bleed.
         add("dip", r.range(3000, 5000), P * r.range(0.65, 0.75), 1.6, 0.026);
@@ -947,11 +995,7 @@ export class Engine {
     if (scripted) {
       const leg = c.legs.find((l) => at < l.end);
       if (leg?.kind === "rug" && leg.from === undefined) {
-        // Dev dump: the whole drop prints in one step.
-        if (!c.devSold) {
-          c.devSold = true;
-          this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: before * this.rng.range(0.04, 0.08), mc: before }, false);
-        }
+        // Insider dump: the whole drop prints in one step.
         c.postMc = leg.to;
         c.osc = 0;
         leg.from = leg.to;
@@ -961,7 +1005,7 @@ export class Engine {
         c.sellVolSol += size;
         c.sells++;
         c.txCount++;
-        this.pushTape(c, at, "bot", "sell", size);
+        this.pushTape(c, at, "bot", "sell", size, "Insider");
         this.touch(c);
         return true;
       }
@@ -977,7 +1021,9 @@ export class Engine {
         want = leg.from * Math.pow(leg.to / leg.from, frac);
         volMul *= leg.vol;
       } else {
-        want = c.legs[c.legs.length - 1].to;
+        // Script over: nothing sits still. It keeps bleeding (halving every ~90 s) with the bot chopping around it.
+        const last = c.legs[c.legs.length - 1];
+        want = last.to * Math.exp((-(at - last.end) * Math.LN2) / 90000);
       }
       // Two layers. The level only moves with real size: a slow drift plus whale buys/sells that close most of the
       // gap to the script in one go (the further behind, the more likely). On top, a volume bot keeps the price
@@ -1022,15 +1068,9 @@ export class Engine {
         if (k < 2) this.pushTape(c, at, "bot", buy ? "buy" : "sell", sz);
       }
       c.postMc = next;
-      // Big moves are sometimes a KOL; the first real dump after migration is sometimes the dev.
-      if (whaleSide) {
-        const size = Math.max(1, toUsd(next) / 20000) * this.rng.range(0.5, 2);
-        if (whaleSide === "sell" && !c.devSold && leg?.kind === "dip" && this.rng.chance(0.25)) {
-          c.devSold = true;
-          this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: size * 2, mc: next });
-        } else if (this.rng.chance(0.18)) {
-          this.kolTrade(c, at, whaleSide, size);
-        }
+      // Big moves are sometimes a KOL.
+      if (whaleSide && this.rng.chance(0.18)) {
+        this.kolTrade(c, at, whaleSide, Math.max(1, toUsd(next) / 20000) * this.rng.range(0.5, 2));
       }
       c.postMc = next;
     } else {
@@ -1050,8 +1090,7 @@ export class Engine {
     c.volumeSol += size;
     this.pushTape(c, at, "bot", c.postMc >= before ? "buy" : "sell", size);
     this.touch(c);
-    // Targets walk for another minute after the run ends, then go quiet.
-    if (c.spec.role === "target" && c.migratedAt !== null && at > Math.max(c.migratedAt + 90000, (c.moonUntil ?? 0) + 40000) && !this.holding(c.id)) return false;
+    // The round's coin never freezes: it keeps trading (and bleeding) for as long as it is on the board.
     return true;
   }
 

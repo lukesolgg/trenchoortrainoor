@@ -174,11 +174,15 @@ describe("engine", () => {
     expect(round.targetCoinId).not.toBeNull();
     expect(round.tTargetAppear).toBeGreaterThanOrEqual(1000);
 
-    e.advanceTo(60000);
-    const snap = e.getSnapshot();
-    const target = snap.migrated.find((c) => c.id === round.targetCoinId);
+    let peak = 0;
+    for (let t = 8000; t <= 60000; t += 250) {
+      e.advanceTo(t);
+      peak = Math.max(peak, e.getCoinView(round.targetCoinId!)?.mcUsd ?? 0);
+    }
+    const target = e.getSnapshot().migrated.find((c) => c.id === round.targetCoinId);
     expect(target).toBeDefined();
-    expect(target!.mcUsd).toBeGreaterThan(25000);
+    // It ran past migration (where it is by 60 s depends on the round's outcome).
+    expect(peak).toBeGreaterThan(60000);
   });
 
   it("only one coin matches the right config exactly", () => {
@@ -707,13 +711,10 @@ describe("big coin script", () => {
       seen.add(r.outcome);
       switch (r.outcome) {
         case "standard": {
-          const first100 = r.series.find(([, m]) => m >= 100000)![0];
-          const minBefore = Math.min(...r.series.filter(([t]) => t >= first100 && t <= r.peakAt).map(([, m]) => m));
-          expect(minBefore).toBeGreaterThan(92000);
+          // Tops in the meme's range (or higher on a second leg), then always rugs out: nothing sits at 80K.
           expect(r.peak).toBeGreaterThan(r.meme.big!.peak[0] * 0.9);
-          expect(r.peak).toBeLessThan(r.meme.big!.peak[1] * 1.15);
-          expect(r.last).toBeGreaterThan(r.meme.big!.trip[0] * 0.8);
-          expect(r.last).toBeLessThan(r.meme.big!.trip[1] * 1.2);
+          expect(r.peak).toBeLessThan(r.meme.big!.peak[1] * 2.4);
+          expect(r.last).toBeLessThan(20000);
           break;
         }
         case "runner":
@@ -975,5 +976,40 @@ describe("coin images", () => {
       expect(fs.existsSync(path.join(process.cwd(), "public", s)), s).toBe(true);
     }
     expect(MEME_PACK.length).toBe(27);
+  });
+});
+
+describe("dev sell timing", () => {
+  it("the dev sells once, just before or just after migration", () => {
+    let pre = 0;
+    let post = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+      e.startRound({ leadMs: 0 });
+      let id: string | null = null;
+      for (let t = 0; t < 60000; t += 200) {
+        e.advanceTo(t);
+        id ??= e.getRound()?.targetCoinId ?? null;
+      }
+      const v = e.getCoinView(id!)!;
+      const sells = e.getSocial(id!).filter((x) => x.kind === "dev" && x.side === "sell");
+      expect(sells).toHaveLength(1);
+      const dt = sells[0].at - v.migratedAt!;
+      expect(dt).toBeGreaterThan(-8000);
+      expect(dt).toBeLessThan(7500);
+      if (dt < 0) pre++;
+      else post++;
+    }
+    expect(pre).toBeGreaterThan(0);
+    expect(post).toBeGreaterThan(0);
+  });
+});
+
+describe("KOL avatars", () => {
+  it("every KOL has a profile picture on disk", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { KOLS } = await import("./content");
+    for (const k of KOLS) expect(fs.existsSync(path.join(process.cwd(), "public", "kols", `${k.handle.toLowerCase()}.jpg`)), k.handle).toBe(true);
   });
 });
