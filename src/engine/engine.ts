@@ -52,6 +52,8 @@ export interface EngineOptions {
   /** Free-play preview: a tweet and its runner every 30-60 s. */
   autoRounds?: boolean;
   startingSol?: number;
+  /** How many of your wallets you may use (1-5). Default all five. */
+  walletCount?: number;
   /** Real clock in ms. Defaults to performance.now. */
   clock?: () => number;
   /** Training style: a wrong buy costs points but does not end the round. */
@@ -204,7 +206,8 @@ const FINAL_AT = 0.35;
 /** What a DEX profile costs, USD. */
 export const DEX_USD = 299;
 /** Your wallets, and the limits: one wallet at 5%+ of supply drags the coin; 10% across all of them is the cap. */
-export const WALLETS = 3;
+/** Trader wallets: main plus up to four side wallets. A campaign may allow fewer (opts.walletCount). */
+export const WALLETS = 5;
 export const BIG_WALLET_PCT = 5;
 export const MAX_HOLD_PCT = 10;
 
@@ -259,6 +262,7 @@ export class Engine {
   >();
   /** Which of your wallets trade (buys split evenly across them; sells come out of each). */
   private walletSel: number[] = [0];
+  private walletCount: number;
   /** Why the last buy was trimmed or refused, for a toast. Read once with takeBuyNote(). */
   private buyNote: string | null = null;
   private focusId: string | null = null;
@@ -281,6 +285,7 @@ export class Engine {
     this.difficulty = DIFFICULTIES[opts.difficulty];
     this.pack = opts.pack ?? MEME_PACK;
     this.wallet = opts.startingSol ?? 100;
+    this.walletCount = Math.max(1, Math.min(WALLETS, opts.walletCount ?? WALLETS));
     this.clock = opts.clock ?? (() => performance.now());
     this.seedAmbient();
     this.scheduleAmbientLoops();
@@ -788,7 +793,7 @@ export class Engine {
 
   /** Choose which wallets trade. At least one. */
   setWalletSel(sel: number[]): void {
-    const clean = [...new Set(sel.filter((i) => Number.isInteger(i) && i >= 0 && i < WALLETS))].sort();
+    const clean = [...new Set(sel.filter((i) => Number.isInteger(i) && i >= 0 && i < this.walletCount))].sort();
     if (!clean.length) return;
     this.walletSel = clean;
     this.emitNow();
@@ -797,7 +802,7 @@ export class Engine {
   /** Spread this coin's bag evenly over your first `n` wallets (2 or 3), and trade from all of them. */
   splitPosition(coinId: string, n: number): boolean {
     const pos = this.positions.get(coinId);
-    if (!pos || pos.tokens <= 1e-6 || n < 2 || n > WALLETS) return false;
+    if (!pos || pos.tokens <= 1e-6 || n < 2 || n > this.walletCount) return false;
     pos.wallets = Array.from({ length: WALLETS }, (_, i) => (i < n ? pos.tokens / n : 0));
     this.walletSel = Array.from({ length: n }, (_, i) => i);
     this.emitNow();
@@ -2326,6 +2331,7 @@ export class Engine {
       walletSol: this.wallet,
       positions,
       walletSel: [...this.walletSel],
+      walletCount: this.walletCount,
       closed: [...this.closedLog],
       orders: this.orders.map((o) => ({ ...o })),
       round: this.roundView,

@@ -236,6 +236,8 @@ export interface Snapshot {
   positions: Position[];
   /** Which of your wallets trade (indexes). */
   walletSel: number[];
+  /** How many wallets you may use (1-5). */
+  walletCount: number;
   /** Fully closed positions this session, oldest first. */
   closed: ClosedTrade[];
   /** TP/SL orders, newest first. */

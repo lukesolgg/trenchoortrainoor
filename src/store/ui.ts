@@ -2,9 +2,9 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { DifficultyId } from "@/engine/types";
 
-export type Screen = "modes" | "setup" | "play";
+export type Screen = "modes" | "setup" | "campaign" | "play";
 export type NavTab = "trenches" | "trending" | "portfolio" | "rewards";
-export type ModeId = "firsttx" | "dev" | "freeplay";
+export type ModeId = "firsttx" | "dev" | "freeplay" | "campaign";
 export type Port = "low" | "medium" | "whale";
 
 /** Starting balance for each port size, in SOL. */
@@ -89,6 +89,7 @@ interface UiState {
   setPresetSet: (i: number) => void;
   start: () => void;
   toModes: () => void;
+  toMenu: () => void;
 }
 
 /** UI and settings only. Game state lives in the engine. Choices (difficulty, length, style, port, presets) persist. */
@@ -118,7 +119,7 @@ export const useUi = create<UiState>()(
   presetSet: 0,
   runId: 0,
   setTab: (tab) => set({ tab }),
-  pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : "setup", runId: Date.now() }),
+  pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : mode === "campaign" ? "campaign" : "setup", runId: Date.now() }),
   setDifficulty: (difficulty) => set({ difficulty }),
   setQuickPreset: (i, n) => set((st) => ({ quickPresets: st.quickPresets.map((v, k) => (k === i ? n : v)) })),
   setColPreset: (col, i) => set((st) => ({ colPreset: st.colPreset.map((v, k) => (k === col ? i : v)) })),
@@ -134,7 +135,9 @@ export const useUi = create<UiState>()(
   setBuyPresets: (p) => set((st) => ({ buySets: st.buySets.map((x, i) => (i === st.presetSet ? p : x)) })),
   setPresetSet: (presetSet) => set({ presetSet }),
   start: () => set({ screen: "play", tab: "trenches", runId: Date.now() }),
-  toModes: () => set({ screen: "modes" }),
+  // Leaving a round goes back to where it started: the campaign hub, or the main menu.
+  toModes: () => set((st) => ({ screen: st.mode === "campaign" && st.screen === "play" ? "campaign" : "modes" })),
+  toMenu: () => set({ screen: "modes" }),
     }),
     {
       name: "gngm.settings.v1",

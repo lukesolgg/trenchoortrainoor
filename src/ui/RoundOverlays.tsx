@@ -1,5 +1,7 @@
 "use client";
 
+import { levelForXp, rankFor, START_SOL, UNLOCKS, xpForLevel, type Award } from "@/campaign/progression";
+import { useCampaign } from "@/store/campaign";
 import type { Flaw, RoundResult, ScoredView, WrongBuy } from "@/engine/types";
 import { SCORE } from "@/engine/scoring";
 import type { RunStats } from "@/store/runs";
@@ -283,8 +285,11 @@ export function ResultsOverlay({
   session,
   onNext,
   onMenu,
+  award,
 }: {
   result: RoundResult;
+  /** Campaign rounds: XP, level and balance change. */
+  award?: Award | null;
   /** Stats before this round (for the PB comparison). */
   prev: RunStats;
   /** This session's stats including this round. */
@@ -361,6 +366,7 @@ export function ResultsOverlay({
             </div>
           </div>
 
+          {award && <CampaignAward a={award} />}
           {r.outcome === "success" && <ScoreBreakdown r={r} />}
 
           <div className="mt-5 grid grid-cols-4 gap-2.5">
@@ -464,6 +470,67 @@ export function ResultsOverlay({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Campaign payout on the results screen: XP lines, the level bar, any level-up and what it unlocked, the balance. */
+function CampaignAward({ a }: { a: Award }) {
+  const xp = useCampaign((c) => c.xp);
+  const level = levelForXp(xp);
+  const from = xpForLevel(level);
+  const to = xpForLevel(level + 1);
+  const pctBar = to > from ? Math.min(100, ((xp - from) / (to - from)) * 100) : 100;
+  const up = a.levelAfter > a.levelBefore;
+  const unlocked = UNLOCKS.filter((u) => u.level > a.levelBefore && u.level <= a.levelAfter);
+  const dSol = a.solAfter - a.solBefore;
+  return (
+    <section className={`mt-4 rounded-xl border p-3.5 ${up ? "border-amber/60 bg-amber/[0.07]" : "border-line bg-card"}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className={`tabular text-[22px] font-black ${a.xp >= 0 ? "text-amber" : "text-down"}`}>
+              {a.xp >= 0 ? "+" : ""}
+              {a.xp} XP
+            </span>
+            {up && <span className="rounded bg-amber px-1.5 py-px text-[11px] font-black text-black">LEVEL UP · {a.levelAfter}</span>}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] text-dim">
+            {a.lines.map((l, i) => (
+              <span key={i}>
+                {l.label} <span className={`tabular font-bold ${l.xp >= 0 ? "text-ink" : "text-down"}`}>{l.xp >= 0 ? `+${l.xp}` : l.xp}</span>
+              </span>
+            ))}
+          </div>
+          <div className="mt-2.5 flex items-center gap-2 text-[11px] text-faint">
+            <span className="font-bold text-ink">
+              Lvl {level} · {rankFor(level)}
+            </span>
+            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+              <span className="block h-full rounded-full bg-amber" style={{ width: `${pctBar}%` }} />
+            </span>
+            <span className="tabular">
+              {xp - from}/{to - from}
+            </span>
+          </div>
+          {unlocked.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1.5">
+              {unlocked.map((u) => (
+                <li key={u.level} className="rounded-md border border-amber/50 bg-amber/10 px-2 py-0.5 text-[11.5px] font-bold text-amber">
+                  🔓 {u.label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">Trader balance</div>
+          <div className="tabular mt-0.5 text-[18px] font-black">{sol(a.solAfter)} SOL</div>
+          <div className={`tabular text-[11.5px] font-bold ${a.bust ? "text-down" : dSol >= 0 ? "text-up" : "text-down"}`}>
+            {a.bust ? `Busted · topped up to ${START_SOL}` : `${signed(dSol)} SOL`}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

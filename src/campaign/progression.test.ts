@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import type { RoundResult } from "@/engine/types";
+import { awardRound, featuresFor, levelForXp, rankFor, START_SOL, xpForLevel, type CampaignProgress } from "./progression";
+
+const fresh: CampaignProgress = { xp: 0, traderSol: START_SOL, rounds: 0, streak: 0, firsts: { tenX: false, vamp: false, saga: false } };
+const result = (over: Partial<RoundResult> = {}): RoundResult =>
+  ({ outcome: "success", score: 600, training: false, pnlPct: 50, vamps: [], length: "blitz", ...over }) as RoundResult;
+
+describe("campaign progression", () => {
+  it("levels come at the planned pace: ~3 rounds to 2, ~40 to 10, ~250 to 30 at a typical score", () => {
+    const perRound = 50; // a ~500 score
+    expect(Math.round(xpForLevel(2) / perRound)).toBe(3);
+    expect(xpForLevel(10) / perRound).toBeGreaterThan(35);
+    expect(xpForLevel(10) / perRound).toBeLessThan(60);
+    expect(xpForLevel(30) / perRound).toBeGreaterThan(200);
+    expect(xpForLevel(30) / perRound).toBeLessThan(300);
+    for (let l = 1; l < 40; l++) expect(levelForXp(xpForLevel(l))).toBe(l);
+  });
+
+  it("ranks and unlocks follow the road", () => {
+    expect(rankFor(1)).toBe("Fresh Wallet");
+    expect(rankFor(8)).toBe("Trencher");
+    expect(rankFor(31)).toBe("Insider");
+    const l1 = featuresFor(1);
+    expect(l1).toMatchObject({ saga: false, orders: false, wallets: 1, boosts: false, dex: false, dev: false });
+    expect(l1.difficulties).toEqual(["paper"]);
+    expect(featuresFor(4).saga).toBe(true);
+    expect(featuresFor(5).wallets).toBe(2);
+    expect(featuresFor(10).difficulties).toContain("sniper");
+    expect(featuresFor(18).wallets).toBe(5);
+    expect(featuresFor(15).dev).toBe(true);
+  });
+
+  it("pays score/10, half in Casual, with first-time and streak bonuses once", () => {
+    let p = fresh;
+    const a = awardRound(p, result({ pnlPct: 1200 }), 4);
+    expect(a.award.lines.map((l) => l.label)).toEqual(["Round score", "First 10× trade"]);
+    expect(a.award.xp).toBe(160);
+    expect(a.next.traderSol).toBe(4);
+    p = a.next;
+    // The 10x bonus is paid once only.
+    expect(awardRound(p, result({ pnlPct: 1200 }), 4).award.xp).toBe(60 + 0 /* streak 2 */);
+    const casual = awardRound(fresh, result({ training: true }), 2.5);
+    expect(casual.award.xp).toBe(30);
+    // Third hit in a row starts the streak bonus.
+    const s3 = awardRound({ ...fresh, streak: 2 }, result(), 3);
+    expect(s3.award.lines.some((l) => l.label.startsWith("Hit streak"))).toBe(true);
+    // A false start pays nothing and breaks the streak.
+    const fs = awardRound({ ...fresh, streak: 4 }, result({ outcome: "false_start", score: 0 }), 2.5);
+    expect(fs.award.xp).toBe(0);
+    expect(fs.next.streak).toBe(0);
+  });
+
+  it("going broke tops you up to 2.5 SOL and costs half your progress into the level, never a level", () => {
+    const p = { ...fresh, xp: xpForLevel(5) + 100, traderSol: 3 };
+    const { next, award } = awardRound(p, result({ outcome: "missed", score: 0 }), 0.2);
+    expect(award.bust).toBe(true);
+    expect(next.traderSol).toBe(START_SOL);
+    expect(levelForXp(next.xp)).toBe(5);
+    expect(next.xp).toBeLessThan(p.xp);
+  });
+});

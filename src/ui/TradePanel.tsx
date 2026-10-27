@@ -108,6 +108,11 @@ interface Props {
   /** Each wallet's share of supply (%), and which wallets trade. */
   walletPcts: number[];
   walletSel: readonly number[];
+  /** Wallets you may use, and whether Consolidate, boosts and the DEX are unlocked (campaign levels). */
+  walletCount: number;
+  canConsolidate: boolean;
+  canBoost: boolean;
+  canPayDex: boolean;
   onWalletSel: (s: number[]) => void;
   onSplit: (n: number) => void;
   onConsolidate: () => void;
@@ -116,7 +121,9 @@ interface Props {
 }
 
 /** Your three wallets on this coin: which ones trade, split the bag, pull it back together, and the 5% / 10% rules. */
-function Wallets({ pcts, sel, onSel, held, holdingPct, onSplit, onConsolidate }: {
+function Wallets({ count, canConsolidate, pcts, sel, onSel, held, holdingPct, onSplit, onConsolidate }: {
+  count: number;
+  canConsolidate: boolean;
   pcts: number[];
   sel: readonly number[];
   onSel: (s: number[]) => void;
@@ -136,18 +143,25 @@ function Wallets({ pcts, sel, onSel, held, holdingPct, onSplit, onConsolidate }:
           {holdingPct.toFixed(2)}% of supply · max {MAX_HOLD_PCT}%
         </span>
       </div>
-      <WalletPicker sel={sel} onSel={onSel} pcts={pcts} />
-      <div className="flex gap-1.5">
-        <button type="button" className={btn} disabled={!held} onClick={() => onSplit(2)} title="Spread the bag evenly over Main and Wallet 2">
-          Split ×2
-        </button>
-        <button type="button" className={btn} disabled={!held} onClick={() => onSplit(3)} title="Spread the bag evenly over all three wallets">
-          Split ×3
-        </button>
-        <button type="button" className={btn} disabled={!held || used < 2} onClick={onConsolidate} title="Move the whole bag into the first selected wallet">
-          Consolidate
-        </button>
-      </div>
+      {count > 1 ? (
+        <>
+          <WalletPicker sel={sel} onSel={onSel} pcts={pcts} count={count} />
+          <div className="flex flex-wrap gap-1.5">
+            {Array.from({ length: count - 1 }, (_, k) => k + 2).map((n) => (
+              <button key={n} type="button" className={btn} disabled={!held} onClick={() => onSplit(n)} title={`Spread the bag evenly over ${n} wallets`}>
+                Split ×{n}
+              </button>
+            ))}
+            {canConsolidate && (
+              <button type="button" className={btn} disabled={!held || used < 2} onClick={onConsolidate} title="Move the whole bag into the first selected wallet">
+                Consolidate
+              </button>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="rounded-md border border-dashed border-line px-2.5 py-1.5 text-[11px] text-faint">Main wallet only · side wallets unlock at campaign level 5</p>
+      )}
       {bigIdx >= 0 && (
         <div className="rounded-lg border border-amber/50 bg-amber/10 px-3 py-2 text-[12px] leading-snug text-amber">
           <span className="font-extrabold">
@@ -171,7 +185,7 @@ const DEX_USD = 299;
 const SOL_PRICE = 104;
 
 /** Spend your own SOL promoting the coin: a DEX boost (may pump it, may not) or the DEX profile, once. */
-function Promote({ coin, walletSol, locked, onBoost, onPayDex }: { coin: CoinView; walletSol: number; locked: boolean; onBoost: (l: string) => void; onPayDex: () => void }) {
+function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayDex }: { coin: CoinView; walletSol: number; locked: boolean; canBoost: boolean; canPayDex: boolean; onBoost: (l: string) => void; onPayDex: () => void }) {
   const live = coin.stage === "migrated" && !locked;
   const dexCost = DEX_USD / SOL_PRICE;
   return (
@@ -187,12 +201,12 @@ function Promote({ coin, walletSol, locked, onBoost, onPayDex }: { coin: CoinVie
             <button
               key={b.label}
               type="button"
-              disabled={!live || cost > walletSol}
+              disabled={!canBoost || !live || cost > walletSol}
               onClick={() => onBoost(b.label)}
-              title={`Boost ${b.label}: $${b.usd.toLocaleString("en-US")} (${cost.toFixed(2)} SOL)`}
+              title={canBoost ? `Boost ${b.label}: $${b.usd.toLocaleString("en-US")} (${cost.toFixed(2)} SOL)` : "Boosts unlock at campaign level 7"}
               className="flex flex-col items-center rounded-md border border-amber/40 py-1.5 text-[11.5px] font-extrabold text-amber transition-colors hover:bg-amber/10 disabled:cursor-not-allowed disabled:opacity-35"
             >
-              <span>🚀 {b.label}</span>
+              <span>{canBoost ? "🚀" : "🔒"} {b.label}</span>
               <span className="tabular text-[9.5px] font-semibold text-dim">{cost.toFixed(cost < 10 ? 2 : 1)}</span>
             </button>
           );
@@ -200,18 +214,18 @@ function Promote({ coin, walletSol, locked, onBoost, onPayDex }: { coin: CoinVie
       </div>
       <button
         type="button"
-        disabled={!live || coin.dexPaid || dexCost > walletSol}
+        disabled={!canPayDex || !live || coin.dexPaid || dexCost > walletSol}
         onClick={onPayDex}
         className="mt-1.5 flex w-full items-center justify-between rounded-md border border-blue/40 px-3 py-1.5 text-[12px] font-bold text-blue transition-colors hover:bg-blue/10 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <span>{coin.dexPaid ? "DEX profile paid" : "Pay DEX profile"}</span>
+        <span>{coin.dexPaid ? "DEX profile paid" : canPayDex ? "Pay DEX profile" : "🔒 Pay DEX profile · level 10"}</span>
         <span className="tabular text-[11px] font-semibold text-dim">{coin.dexPaid ? "✓" : `$${DEX_USD} · ${dexCost.toFixed(2)}`}</span>
       </button>
     </div>
   );
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -446,6 +460,8 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
         )}
 
         <Wallets
+          count={walletCount}
+          canConsolidate={canConsolidate}
           pcts={walletPcts}
           sel={walletSel}
           onSel={onWalletSel}
@@ -477,7 +493,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
 
       </div>
 
-      <Promote coin={coin} walletSol={walletSol} locked={buyLocked} onBoost={onBoost} onPayDex={onPayDex} />
+      <Promote coin={coin} walletSol={walletSol} locked={buyLocked} canBoost={canBoost} canPayDex={canPayDex} onBoost={onBoost} onPayDex={onPayDex} />
 
       {/* Token info */}
       <div className="p-3">

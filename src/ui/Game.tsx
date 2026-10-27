@@ -1,5 +1,7 @@
 "use client";
 
+import { useCampaign, campaignFeatures } from "@/store/campaign";
+import { ALL_FEATURES, type Award } from "@/campaign/progression";
 import { buyWarning } from "./Wallets";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory } from "@/store/history";
@@ -20,7 +22,7 @@ import { TweetFeed } from "./TweetFeed";
 import { sol } from "./format";
 import { useEngine, useSnapshot } from "./hooks";
 
-const MODE_LABEL = { firsttx: "TRADER", dev: "DEV", freeplay: "FREE PLAY" } as const;
+const MODE_LABEL = { firsttx: "FIRST TX", dev: "DEV", freeplay: "FREE PLAY", campaign: "CAMPAIGN" } as const;
 
 interface Toast {
   id: number;
@@ -29,17 +31,28 @@ interface Toast {
 
 export function Game() {
   const {
-    mode, difficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
-    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style, length, port,
+    mode, difficulty: uiDifficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
+    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style: uiStyle, length: uiLength, port,
   } = useUi();
-  // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
-  const scoredMode = mode === "firsttx";
+  // FIRST TX and the campaign are scored rounds. DEV and free play stay on the unscored free-running board for now.
+  const campaign = mode === "campaign";
+  const scoredMode = mode === "firsttx" || campaign;
+  // A campaign round plays with the campaign's settings, balance and unlocks (read once: the round is fixed at start).
+  const [camp] = useState(() => {
+    const c = useCampaign.getState();
+    return { difficulty: c.difficulty, length: c.length, style: c.style, sol: c.traderSol, features: campaignFeatures(c) };
+  });
+  const difficulty = campaign ? camp.difficulty : uiDifficulty;
+  const style = campaign ? camp.style : uiStyle;
+  const length = campaign ? camp.length : uiLength;
+  const features = campaign ? camp.features : ALL_FEATURES;
   const engine = useEngine({
     difficulty,
     autoRounds: !scoredMode,
     training: style === "training",
     length: scoredMode ? length : "blitz",
-    startingSol: PORTS[port].sol,
+    startingSol: campaign ? camp.sol : PORTS[port].sol,
+    walletCount: features.wallets,
   });
   const snap = useSnapshot(engine);
   // ?debug exposes the engine to the console and to browser tests.
@@ -259,6 +272,24 @@ export function Game() {
       pnlPct: r.pnlPct,
     });
   }, [scored?.result, prevStats, addRun, difficulty]);
+  // ---- Campaign: pay out the round once (XP, bonuses, the balance it ended with). Leaving mid-round keeps what your
+  // open bags were worth, so quitting never dodges a loss.
+  const [award, setAward] = useState<Award | null>(null);
+  const awarded = useRef(false);
+  useEffect(() => {
+    const r = scored?.result;
+    if (!campaign || !r || awarded.current) return;
+    awarded.current = true;
+    setAward(useCampaign.getState().finishRound(r, snap.walletSol));
+  }, [campaign, scored?.result, snap.walletSol]);
+  useEffect(() => {
+    if (!campaign) return;
+    return () => {
+      if (awarded.current) return;
+      const s = snapRef.current;
+      useCampaign.getState().abandonRound(s.walletSol + s.positions.reduce((n, p) => n + p.valueSol, 0));
+    };
+  }, [campaign]);
   const sessionStats = useMemo(() => statsFor(runs, difficulty, { since: SESSION_START, length: scored?.length ?? "blitz" }), [runs, difficulty, scored?.length]);
 
   const diff = DIFFICULTIES[difficulty];
@@ -283,6 +314,7 @@ export function Game() {
         searchRef={searchRef}
         walletSol={snap.walletSol}
         walletSel={snap.walletSel}
+        walletCount={snap.walletCount}
         onWalletSel={(s) => engine.setWalletSel(s)}
         onMenu={toModes}
       />
@@ -313,6 +345,7 @@ export function Game() {
             onBack={() => setOpenId(null)}
             onOpen={setOpenId}
             notify={notify}
+            features={features}
           />
         ) : tab === "trending" ? (
           <Trending
@@ -353,7 +386,7 @@ export function Game() {
       {scored && scored.phase !== "ended" && <RoundOverlay scored={scored} now={snap.now} />}
       {flash && <BuyFlash key={flash.id} flash={flash} />}
       {scored?.result && resultsShown && prevStats && (
-        <ResultsOverlay result={scored.result} prev={prevStats} session={sessionStats} onNext={start} onMenu={toModes} />
+        <ResultsOverlay result={scored.result} prev={prevStats} session={sessionStats} award={award} onNext={start} onMenu={toModes} />
       )}
 
       {toast && (

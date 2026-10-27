@@ -1,5 +1,6 @@
 "use client";
 
+import type { Features } from "@/campaign/progression";
 import { buyWarning, WALLET_NAMES } from "./Wallets";
 import { useEffect, useRef, useState } from "react";
 import { MIGRATION_MC_USD, SOL_USD, SUPPLY } from "@/engine/curve";
@@ -75,6 +76,8 @@ interface Props {
   /** Jump to another coin's page. */
   onOpen: (coinId: string) => void;
   notify: (text: string) => void;
+  /** What this player may use (campaign levels; everything in the standalone modes). */
+  features: Features;
 }
 
 /** Toggle the chart's social layers: dev trades, KOL trades, boosts. */
@@ -118,7 +121,7 @@ function SocialMenu() {
   );
 }
 
-export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify }: Props) {
+export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify, features }: Props) {
   const coin = engine.getCoinView(coinId);
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
@@ -363,6 +366,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           </div>
           <div className="min-h-[260px] flex-[2] border-t border-line bg-panel">
             <InfoTabs
+              ordersLocked={!features.orders}
               holders={engine.getHolders(coinId)}
               coin={coin}
               tape={tape}
@@ -386,6 +390,10 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           holdingPct={engine.holdingPct(coinId)}
           walletPcts={engine.walletPcts(coinId)}
           walletSel={snap.walletSel}
+          walletCount={snap.walletCount}
+          canConsolidate={features.consolidate}
+          canBoost={features.boosts}
+          canPayDex={features.dex}
           onWalletSel={(s) => engine.setWalletSel(s)}
           onSplit={(n) => {
             if (engine.splitPosition(coinId, n)) notify(`Split your ${coin.ticker} evenly over ${n} wallets · trading from all ${n}`);

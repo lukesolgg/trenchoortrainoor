@@ -18,6 +18,7 @@ interface Props {
   searchRef: RefObject<HTMLInputElement | null>;
   walletSol: number;
   walletSel: readonly number[];
+  walletCount: number;
   onWalletSel: (s: number[]) => void;
   onMenu: () => void;
 }
@@ -35,7 +36,7 @@ const ITEMS: Item[] = [
 ];
 
 /** Balance pill that opens the wallet switcher: which of your three wallets trade. */
-function WalletMenu({ walletSol, sel, onSel }: { walletSol: number; sel: readonly number[]; onSel: (s: number[]) => void }) {
+function WalletMenu({ walletSol, sel, count, onSel }: { walletSol: number; sel: readonly number[]; count: number; onSel: (s: number[]) => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -46,7 +47,7 @@ function WalletMenu({ walletSol, sel, onSel }: { walletSol: number; sel: readonl
     window.addEventListener("pointerdown", close);
     return () => window.removeEventListener("pointerdown", close);
   }, [open]);
-  const label = sel.length === WALLET_NAMES.length ? "All wallets" : sel.map((i) => WALLET_NAMES[i]).join(" + ");
+  const label = count > 1 && sel.length === count ? "All wallets" : sel.length > 2 ? `${sel.length} wallets` : sel.map((i) => WALLET_NAMES[i]).join(" + ");
   return (
     <div ref={box} className="relative">
       <button
@@ -69,7 +70,11 @@ function WalletMenu({ walletSol, sel, onSel }: { walletSol: number; sel: readonl
             <span className="text-[12px] font-bold">Trade from</span>
             <span className="text-[10.5px] text-faint">SOL is shared across wallets</span>
           </div>
-          <WalletPicker sel={sel} onSel={onSel} />
+          {count > 1 ? (
+            <WalletPicker sel={sel} onSel={onSel} count={count} />
+          ) : (
+            <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11.5px] text-dim">Main wallet only. Side wallets unlock at campaign level 5.</p>
+          )}
           <p className="mt-2 text-[11px] leading-snug text-dim">
             Buys split evenly over the selected wallets; sells come out of each. One wallet at 5%+ of a coin drags it, 10% across all is the max.
           </p>
@@ -100,7 +105,7 @@ function MuteButton() {
   );
 }
 
-export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery, searchRef, walletSol, walletSel, onWalletSel, onMenu }: Props) {
+export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery, searchRef, walletSol, walletSel, walletCount, onWalletSel, onMenu }: Props) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-nav px-4">
       <Logo />
@@ -143,7 +148,7 @@ export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery,
           />
           <kbd className="rounded border border-line-hi px-1.5 text-[11px] text-dim">/</kbd>
         </div>
-        <WalletMenu walletSol={walletSol} sel={walletSel} onSel={onWalletSel} />
+        <WalletMenu walletSol={walletSol} sel={walletSel} count={walletCount} onSel={onWalletSel} />
         <MuteButton />
         <button
           type="button"

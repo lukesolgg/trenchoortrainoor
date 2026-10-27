@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GnGm",
-  description: "GnGm: reaction-time training for memecoin traders. Simulator only, no real trades.",
+  title: "Trench Academy",
+  description: "Trench Academy: memecoin trench training. Simulator only, no real trades.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

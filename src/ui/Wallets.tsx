@@ -2,21 +2,21 @@
 
 import { BIG_WALLET_PCT, type Engine } from "@/engine/engine";
 
-export const WALLET_NAMES = ["Main", "Wallet 2", "Wallet 3"];
+export const WALLET_NAMES = ["Main", "Side 1", "Side 2", "Side 3", "Side 4"];
 
 /**
  * Pick which wallets trade. Several can be on at once: buys split evenly across them, sells come out of each.
  * With `pcts`, each chip shows that wallet's share of the coin's supply (amber at 5%+).
  */
-export function WalletPicker({ sel, onSel, pcts }: { sel: readonly number[]; onSel: (s: number[]) => void; pcts?: number[] }) {
+export function WalletPicker({ sel, onSel, pcts, count }: { sel: readonly number[]; onSel: (s: number[]) => void; pcts?: number[]; count: number }) {
   const toggle = (i: number) => {
     const on = sel.includes(i);
     if (on && sel.length === 1) return;
     onSel(on ? sel.filter((x) => x !== i) : [...sel, i]);
   };
   return (
-    <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Trading wallets">
-      {WALLET_NAMES.map((name, i) => {
+    <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(count, 3)}, minmax(0, 1fr))` }} role="group" aria-label="Trading wallets">
+      {WALLET_NAMES.slice(0, count).map((name, i) => {
         const on = sel.includes(i);
         const pct = pcts?.[i] ?? 0;
         const big = pct >= BIG_WALLET_PCT;

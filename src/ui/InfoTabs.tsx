@@ -29,6 +29,8 @@ const Empty = ({ children }: { children: React.ReactNode }) => <p className="px-
 const HEAD = "sticky top-0 z-10 bg-panel text-[10.5px] uppercase tracking-wider text-faint";
 
 interface Props {
+  /** Campaign: TP/SL orders still locked. */
+  ordersLocked?: boolean;
   coin: CoinView;
   tape: readonly TapeEntry[];
   now: number;
@@ -81,7 +83,7 @@ export function InfoTabs(p: Props) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "trades" && <TradeTape tape={tape} now={now} />}
         {tab === "positions" && <Positions {...p} />}
-        {tab === "orders" && <Orders {...p} orders={coinOrders} />}
+        {tab === "orders" && (p.ordersLocked ? <Empty>🔒 Take profit and stop loss unlock at campaign level 3.</Empty> : <Orders {...p} orders={coinOrders} />)}
         {tab === "holders" && <Holders coin={coin} known={p.holders} />}
         {tab === "traders" && <Traders tape={tape} />}
         {tab === "dev" && <DevTokens coin={coin} />}

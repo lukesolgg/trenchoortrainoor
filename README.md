@@ -1,4 +1,4 @@
-# Trencher Trainer
+# Trench Academy
 
 Single-player reaction-time trainer for memecoin traders. Simulator only: no real trades, no wallet.
 
@@ -26,7 +26,25 @@ npm run typecheck
 | 8 | Results, personal bests, settings (localStorage) | |
 | 9 | Polish: audio, animation, perf, keyboard pass | |
 
-## Trader journey (level 0)
+## Menu and campaign
+
+Main menu: **Campaign** (the levelling journey) plus standalone modes: **FIRST TX** (live), Dev mode, OG mode, Mix
+(coming), and Free play. Standalone modes have everything unlocked and keep personal bests only.
+
+Campaign (rules in `src/campaign/progression.ts`, state in `src/store/campaign.ts`, saved in localStorage
+`ta.campaign.v1`; the full plan is the project doc `trench-academy-plan.md`):
+
+- One trader balance that carries between rounds, starting at 2.5 SOL. Under 0.5 SOL at the end of a round tops you
+  back up to 2.5 at the cost of half your progress into the level. Leaving mid-round keeps what open bags were worth.
+- XP = score / 10 (half in Casual), plus first-time bonuses (first 10×, first vamp, first Saga) and hit streaks.
+  `xpForLevel(L) = 150 × (L − 1)^1.3`.
+- Ranks: Fresh Wallet 1, Paper Hands 3, Jeeter 5, Trencher 8, Degen 11, Sniper 15, Chad 20, Whale 25, Insider 30.
+- Level gates on existing features: Medium 2, TP/SL 3, Saga 4, side wallets at 5/8/11/18, boosts 7, DEX and Hard 10,
+  consolidate 11, Dev 15. Market threats per level are listed on the road (only vamps are in so far).
+- **Admin (temporary):** the ADMIN button on menu screens, or the backtick key anywhere: set level, balances, reps,
+  unlock everything, or reset the campaign.
+
+## Trader journey (FIRST TX setup)
 
 Home is "Choose your path": Trader (live) or Dev (coming soon). Levelling comes later. The trader picks:
 
@@ -38,7 +56,7 @@ Home is "Choose your path": Trader (live) or Dev (coming soon). Levelling comes 
 Rules worth knowing:
 
 - The runner sits in New Pairs for a few seconds, then Almost bonded for a few seconds, then migrates.
-- **Wallets and the 5% rule:** you have three wallets (Main, Wallet 2, Wallet 3), sharing one SOL balance. Pick which
+- **Wallets and the 5% rule:** you have up to five wallets (Main, Side 1-4), sharing one SOL balance. Pick which
   trade from the balance menu or the trade panel; buys split evenly over the selected ones, sells come out of each.
   While any one wallet holds 5%+ of a coin, buyers hold back: before migration the launch runs at quarter speed,
   after it the coin only gets a quarter of each rise the script asks for (the rest is lost for good; drops land in
