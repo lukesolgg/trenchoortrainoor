@@ -43,6 +43,16 @@ Rules worth knowing:
   not a promise, of pumping the coin back towards its ATH.
 - KOL tweets and catalysts print an immediate giga candle, then heavy volume either way.
 - Holders is the default token tab and lists you, the dev and any KOLs with their share of supply.
+- **Real price impact:** migrated coins trade against a constant-product pool (about 20% of supply at migration,
+  thinning as the price climbs). Your trades, the dev's dump and every KOL sell are priced through it.
+- The dev dumps the whole bag at (or just before) migration. Later nukes are insiders, never the dev alone.
+- KOLs never hold 4%+. They take profit by dumping their whole bag, and are all out before a coin falls under the
+  migration line; dead coins bleed out around $5-15K.
+- The DEX profile is paid once per coin; a later "DEX" catalyst becomes an x100 boost instead.
+- A CTO is two or three (fictional) takeover crews tweeting it.
+- Boosts and DEX payments you buy count against your PnL.
+- Saga rounds end a few seconds after the last coin reaches its final stage; anything you still hold is market-sold.
+- The first tweet lands 4-30 s after the countdown.
 
 
 | Key | Where | Does |
@@ -60,7 +70,7 @@ Rules worth knowing:
 
 ## FIRST TX scoring
 
-A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the flood.
+A round is: 3 s countdown, an armed wait of 4 to 30 s, then the tweet and the flood.
 
 - **False start:** any buy before the tweet (judged by the click's own timestamp). The buy is not executed.
 - **Wrong coin:** your first buy after the tweet is anything but the right coin. The round ends and the results name that coin's flaw.

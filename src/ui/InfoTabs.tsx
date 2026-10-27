@@ -106,8 +106,8 @@ function Positions({ positions, onOpenCoin, onSellCoin, currentId }: Props) {
       </thead>
       <tbody>
         {positions.map(({ position: pos, ticker }) => {
-          const pnl = pos.soldSol + pos.valueSol - pos.boughtSol;
-          const pct = pos.boughtSol > 0 ? (pnl / pos.boughtSol) * 100 : 0;
+          const pnl = pos.soldSol + pos.valueSol - pos.boughtSol - pos.promoSol;
+          const pct = pos.boughtSol > 0 ? (pnl / (pos.boughtSol + pos.promoSol)) * 100 : 0;
           const open = pos.tokens > 1e-6;
           return (
             <tr
@@ -275,7 +275,7 @@ interface HolderRow {
 function topHolders(coin: CoinView, known: Props["holders"]): HolderRow[] {
   const r = new Rng(hash(coin.id));
   const rows: HolderRow[] = [];
-  if (coin.stage === "migrated") rows.push({ key: "lp", label: "Liquidity pool", pct: r.range(12, 22), tag: "LP" });
+  if (coin.stage === "migrated") rows.push({ key: "lp", label: "Liquidity pool", pct: coin.mcUsd > 0 ? (coin.liqUsd / 2 / coin.mcUsd) * 100 : 0, tag: "LP" });
   const named: HolderRow[] = [];
   if (known.youPct > 0.001) named.push({ key: "you", label: "You", pct: known.youPct, tag: "YOU" });
   if (known.devPct > 0.001) named.push({ key: "dev", label: "Dev wallet", pct: known.devPct, tag: "DEV" });

@@ -72,21 +72,25 @@ export function planSaga(r: Rng, vampsAvailable: number): SagaPlan {
     let last = high;
     // At least one fade and revival per chapter, then more while the budget allows.
     let cycles = 0;
+    // The DEX profile only gets paid once per coin.
+    let dexUsed = false;
     while (cycles === 0 || used + 70_000 + 40_000 < budget) {
       const low = Math.max(25_000, last * r.range(0.25, 0.5));
       push({ kind: "fade", ms: r.range(30_000, 75_000), toUsd: low });
       last = nextHigh();
-      push({ kind: "revival", ms: r.range(20_000, 50_000), toUsd: last, catalyst: r.pick(CATALYSTS) });
+      const catalyst = r.pick(dexUsed ? CATALYSTS.filter((k) => k !== "dex") : CATALYSTS);
+      if (catalyst === "dex") dexUsed = true;
+      push({ kind: "revival", ms: r.range(20_000, 50_000), toUsd: last, catalyst });
       cycles++;
       if (cycles >= 6) break;
     }
     if (c < nVamps) {
       // The new narrative lands; this coin rugs out underneath it.
-      push({ kind: "vamp", ms: r.range(30_000, 45_000), toUsd: r.range(4_000, 9_000) });
+      push({ kind: "vamp", ms: r.range(30_000, 45_000), toUsd: r.range(5_000, 12_000) });
     } else if (r.chance(0.55)) {
-      push({ kind: "rug", ms: r.range(30_000, 50_000), toUsd: r.range(3_000, 8_000) });
+      push({ kind: "rug", ms: r.range(30_000, 50_000), toUsd: r.range(5_000, 15_000) });
     } else {
-      push({ kind: "bleed", ms: r.range(45_000, 80_000), toUsd: Math.max(8_000, last * r.range(0.08, 0.2)) });
+      push({ kind: "bleed", ms: r.range(45_000, 80_000), toUsd: Math.max(10_000, last * r.range(0.08, 0.2)) });
     }
     // Stretch or squeeze so the chapter fills its share of the round.
     const k = Math.max(0.6, Math.min(1.8, budget / used));

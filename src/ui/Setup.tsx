@@ -178,7 +178,7 @@ export function Setup() {
       <p className="mt-4 text-[12px] text-amber">
         {mode === "dev"
           ? "DEV deploy arrives in phase 7: Start opens the free-running board for now."
-          : "Each round: 3 s countdown, then an armed wait of 4 to 55 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
+          : "Each round: 3 s countdown, then an armed wait of 4 to 30 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
       </p>
 
       {mode !== "dev" && <Progress difficulty={difficulty} length={length} />}

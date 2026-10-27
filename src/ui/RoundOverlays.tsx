@@ -372,7 +372,7 @@ export function ResultsOverlay({
                 <Stat
                   k="PnL"
                   v={`${signed(r.pnlSol)} SOL`}
-                  sub={`${signed(r.pnlPct, 1)}% · spent ${sol(r.boughtSol)}`}
+                  sub={`${signed(r.pnlPct, 1)}% · spent ${sol(r.boughtSol)}${r.promoSol > 0 ? ` + ${sol(r.promoSol)} promo` : ""}`}
                   tone={r.pnlSol >= 0 ? "text-up" : "text-down"}
                 />
               </>

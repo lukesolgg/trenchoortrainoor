@@ -192,6 +192,8 @@ export interface Position {
   boughtTokens: number;
   boughtSol: number;
   soldSol: number;
+  /** Boosts and DEX payments you bought for this coin (count against its PnL). */
+  promoSol: number;
   /** Mark-to-market value of the remaining tokens. */
   valueSol: number;
 }
@@ -275,6 +277,8 @@ export interface RoundResult {
   buyNumber: number | null;
   entryMcUsd: number | null;
   boughtSol: number;
+  /** Boosts and DEX payments, included in PnL. */
+  promoSol: number;
   closedSol: number;
   pnlSol: number;
   pnlPct: number;
@@ -362,6 +366,8 @@ export interface SocialEvent {
   /** Dev trades: share of supply moved, and whether it was the dev's whole bag. */
   pct?: number;
   all?: boolean;
+  /** KOL sells: what the bag cost them (SOL). */
+  cost?: number;
   /** Tweets on the chart: picture and what was said. */
   avatar?: string;
   text?: string;

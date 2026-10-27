@@ -169,7 +169,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
   const sellOk = Number.isFinite(sellN) && sellN > 0 && sellN <= 100;
 
   const held = !!position && position.tokens > 1e-6;
-  const pnl = position ? position.soldSol + position.valueSol - position.boughtSol : 0;
+  const pnl = position ? position.soldSol + position.valueSol - position.boughtSol - position.promoSol : 0;
   const pnlTone = pnl > 0 ? "text-up" : pnl < 0 ? "text-down" : "text-ink";
   const chgTone = changePct >= 0 ? "text-up" : "text-down";
   const total = coin.buyVolUsd + coin.sellVolUsd;
@@ -399,7 +399,10 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           </div>
         )}
         <div className="grid grid-cols-4 gap-1.5">
-          <Mini k="Bought"><SolIcon />{sol(position?.boughtSol ?? 0)}</Mini>
+          <Mini k="Bought">
+            <SolIcon />{sol(position?.boughtSol ?? 0)}
+            {(position?.promoSol ?? 0) > 0 && <div className="text-[9.5px] font-semibold text-amber">+{sol(position!.promoSol)} promo</div>}
+          </Mini>
           <Mini k="Sold"><SolIcon />{sol(position?.soldSol ?? 0)}</Mini>
           <Mini k="Holding">
             {held && position ? (

@@ -3,7 +3,7 @@ import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type 
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
-import { BOOSTS, KOLS, AUTHORITIES } from "./content";
+import { BOOSTS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES } from "./content";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound, scoreSaga } from "./scoring";
 import {
   MEME_PACK,
@@ -150,8 +150,8 @@ interface Coin {
   pausedMs: number;
   /** A pump laid over the script (a boost or DEX payment that worked): glide up to `peak`, then back to the script. */
   overlay: { start: number; peakAt: number; end: number; from: number; peak: number } | null;
-  /** KOLs holding this coin and their share of supply (%). */
-  kolHold: Map<number, number>;
+  /** KOLs holding this coin: share of supply (%) and what they paid (SOL). */
+  kolHold: Map<number, { pct: number; sol: number }>;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -225,7 +225,7 @@ export class Engine {
   private wallet: number;
   private positions = new Map<
     string,
-    { tokens: number; boughtTokens: number; boughtSol: number; soldSol: number }
+    { tokens: number; boughtTokens: number; boughtSol: number; soldSol: number; promoSol: number }
   >();
   private focusId: string | null = null;
   private tapeSeq = 1;
@@ -467,6 +467,8 @@ export class Engine {
   private sagaMeme: Meme | null = null;
   /** Sim ms the saga's last scripted beat ends. Rounds do not auto-end on a sell-out before this. */
   private sagaEndAt = -Infinity;
+  /** The coin playing the saga's last chapter, once it has migrated (its script clock decides when the story ends). */
+  private sagaEndCoin: Coin | null = null;
   /** Coins the story is about (original and vamps): never pruned while the round runs. */
   private sagaCoins = new Set<string>();
 
@@ -474,12 +476,38 @@ export class Engine {
     return this.opts.length ?? "blitz";
   }
 
-  /** The dev sells: a partial or the whole bag. Shown on the chart with the share of supply. */
-  private devSell(c: Coin, at: number, sol: number, mc: number, all: boolean): void {
-    const pct = all ? c.devPct : c.devPct * this.rng.range(0.3, 0.6);
-    c.devPct = Math.max(0, c.devPct - pct);
-    c.stats.dev = +c.devPct.toFixed(2);
-    this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, mc, pct, all }, false);
+  /**
+   * The dev dumps the whole bag at (or just before) migration, as a real market sell: the candle is exactly as big as
+   * that much supply hitting the curve or the pool. Later nukes are other sellers, never the dev.
+   */
+  private devSell(c: Coin, at: number): void {
+    if (c.devSold || c.devPct <= 0) return;
+    c.devSold = true;
+    const mc = this.mc(c);
+    const pct = c.devPct;
+    const want = (SUPPLY * pct) / 100;
+    const tokens = c.migrated ? want : Math.min(c.curve.realTok * 0.5, want);
+    const sol = this.marketSell(c, at, tokens, "DEV");
+    c.devPct = 0;
+    c.stats.dev = 0;
+    this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, mc, pct, all: true }, false);
+  }
+
+  /** A market sell by someone else (dev, KOL) with real price impact. Returns the SOL it got. */
+  private marketSell(c: Coin, at: number, tokens: number, who: string): number {
+    if (tokens <= 0) return 0;
+    const sol = this.applySell(c, tokens, at, "bot", true);
+    if (c.tape[0]) c.tape[0].trader = who;
+    return sol;
+  }
+
+  /**
+   * Share of supply sitting in the DEX pool. Constant product: about 20% at migration, and it thins as the price
+   * climbs (x4 the market cap, half the tokens), so the same sell hits a big coin harder than people expect.
+   */
+  private poolShare(c: Coin): number {
+    const mig = MIGRATION_MC_USD / SOL_USD;
+    return Math.min(0.3, Math.max(0.004, 0.2 * Math.sqrt(mig / Math.max(1, c.postMc))));
   }
 
   private boost(c: Coin, at: number): void {
@@ -493,10 +521,10 @@ export class Engine {
     if (!this.coins.has(c.id)) return;
     const t = c.spec.ticker;
     const authorities = Object.values(AUTHORITIES).filter((a) => a.handle !== "trenchreport" && a.handle !== "lowcaplarry");
-    const tweet = (author: Author, text: string, label: string) => {
+    const tweet = (author: Author, text: string, label: string, when = at) => {
       const segs: TweetSeg[] = text.split(/(\$[A-Z0-9]+)/).filter(Boolean).map((x) => ({ text: x, hl: x.startsWith("$") }));
-      this.pushTweet(author, segs, false, undefined, at);
-      this.social(c, at, { kind: "tweet", side: null, name: label, handle: author.handle, hue: author.hue, sol: 0, avatar: author.avatar, text });
+      this.pushTweet(author, segs, false, undefined, when);
+      this.social(c, when, { kind: "tweet", side: null, name: label, handle: author.handle, hue: author.hue, sol: 0, avatar: author.avatar, text });
     };
     switch (kind) {
       case "rt": {
@@ -516,13 +544,30 @@ export class Engine {
         break;
       }
       case "dex":
-        c.dexPaid = true;
-        this.social(c, at, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: 299 }, false);
+        if (c.dexPaid) {
+          // The profile is paid once (maybe by you): this time somebody buys a big boost instead.
+          const tier = BOOST_TIERS.find((b) => b.label === "x100")!;
+          this.social(c, at, { kind: "boost", side: null, name: "Boost", hue: 50, sol: 0, label: tier.label, usd: tier.usd, hours: tier.hours }, false);
+        } else {
+          c.dexPaid = true;
+          this.social(c, at, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: DEX_USD }, false);
+        }
         break;
-      case "cto":
-        tweet(AUTHORITIES.trenchreport, `CTO: the community just took over $${t}. New TG, new site, dev is gone.`, "Community takeover");
+      case "cto": {
+        // Two or three takeover crews claim it within a few seconds of each other.
+        const crews = this.rng.shuffle(CTO_LEADERS).slice(0, this.rng.int(2, 3));
+        const lines = this.rng.shuffle(CTO_LINES);
+        let when = at;
+        crews.forEach((crew, k) => {
+          const text = lines[k % lines.length].replace(/\$T/g, `$${t}`);
+          const w = when;
+          if (k === 0) tweet(crew, text, `${crew.name} · CTO`, w);
+          else this.at(w, (a) => this.coins.has(c.id) && tweet(crew, text, `${crew.name} · CTO`, a));
+          when += this.rng.range(1200, 4000);
+        });
         this.social(c, at, { kind: "cto", side: null, name: "CTO", hue: 140, sol: 0 }, false);
         break;
+      }
       case "kolBuy":
         this.kolTrade(c, at, "buy", this.rng.range(30, 90));
         break;
@@ -591,15 +636,12 @@ export class Engine {
           const wave = c.sagaChapter! + 1;
           at(t0, (a) => this.vampWave(c, a, wave));
           add("base", r.range(2500, 5000), level * r.range(0.92, 1.0), 0.8, 0.02);
-          const rugAt = t;
-          at(rugAt, (a) => this.devSell(c, a, c.postMc * r.range(0.03, 0.06), c.postMc, true));
           add("rug", 1200, level * r.range(0.12, 0.22), 1, 0);
           add("dip", b.ms - (t - t0), P, 0.6, 0.025);
           break;
         }
         case "rug": {
           add("base", r.range(3000, 6000), level * r.range(0.9, 1.0), 0.8, 0.02);
-          at(t, (a) => this.devSell(c, a, c.postMc * r.range(0.03, 0.06), c.postMc, true));
           add("rug", 1200, Math.max(P * 2, level * r.range(0.1, 0.2)), 1, 0);
           add("dip", b.ms - (t - t0), P, 0.6, 0.025);
           break;
@@ -612,7 +654,11 @@ export class Engine {
         }
       }
     }
-    if (c.sagaChapter === this.saga!.chapters.length - 1) this.sagaEndAt = t;
+    // The round ends a few seconds after the last coin reaches its final stage (dead or consolidating).
+    if (c.sagaChapter === this.saga!.chapters.length - 1) {
+      this.sagaEndAt = t + 3000;
+      this.sagaEndCoin = c;
+    }
     return legs;
   }
 
@@ -681,7 +727,7 @@ export class Engine {
     return {
       youPct: this.holdingPct(coinId),
       devPct: c.stats.dev,
-      kols: [...c.kolHold.entries()].map(([i, pct]) => ({ name: KOLS[i].name, handle: KOLS[i].handle, pct })),
+      kols: [...c.kolHold.entries()].map(([i, h]) => ({ name: KOLS[i].name, handle: KOLS[i].handle, pct: h.pct })),
     };
   }
 
@@ -702,7 +748,7 @@ export class Engine {
     if (!c.migrated || this.simNow < c.lockUntil) return { ok: false, reason: "Boosts need a DEX pair: wait for migration" };
     const cost = tier.usd / SOL_USD;
     if (cost > this.wallet + 1e-9) return { ok: false, reason: "Not enough SOL" };
-    this.wallet -= cost;
+    this.chargePromo(coinId, cost);
     this.social(c, this.simNow, { kind: "boost", side: null, name: "Boost (you)", hue: 50, sol: cost, label: tier.label, usd: tier.usd, hours: tier.hours }, false);
     const odds: Record<string, number> = { x10: 0.2, x30: 0.3, x50: 0.4, x100: 0.55, x500: 0.7 };
     const alive = toUsd(c.postMc) > 12_000;
@@ -718,6 +764,14 @@ export class Engine {
     return { ok: true };
   }
 
+  /** Boosts and DEX payments come out of the wallet and count against that coin's PnL. */
+  private chargePromo(coinId: string, cost: number): void {
+    this.wallet -= cost;
+    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtTokens: 0, boughtSol: 0, soldSol: 0, promoSol: 0 };
+    pos.promoSol += cost;
+    this.positions.set(coinId, pos);
+  }
+
   /** Pay for the DEX profile, if nobody has. Sometimes that alone gets it noticed. */
   payDex(coinId: string): { ok: boolean; reason?: string } {
     const c = this.coins.get(coinId);
@@ -726,7 +780,7 @@ export class Engine {
     if (!c.migrated) return { ok: false, reason: "Wait for migration" };
     const cost = DEX_USD / SOL_USD;
     if (cost > this.wallet + 1e-9) return { ok: false, reason: "Not enough SOL" };
-    this.wallet -= cost;
+    this.chargePromo(coinId, cost);
     c.dexPaid = true;
     this.social(c, this.simNow, { kind: "dex", side: null, name: "DEX paid (you)", hue: 200, sol: cost, usd: DEX_USD }, false);
     if (c.legs.length && toUsd(c.postMc) > 12_000 && !this.bigHolder(c) && this.rng.chance(0.35)) {
@@ -748,21 +802,42 @@ export class Engine {
     this.touch(c);
   }
 
-  /** A KOL apes in (with a real buy) or takes profit. Buys/sells only make the event; price is moved by the caller. */
-  private kolTrade(c: Coin, at: number, side: "buy" | "sell", sol: number): void {
-    if (c.social.filter((e) => e.kind === "kol").length >= 10) return;
+  /**
+   * A KOL apes in or takes profit. Buys are real market buys unless `impact` is false (naming a move that already
+   * printed). No KOL ever holds 4% of supply. Sells always dump the KOL's whole bag at market, with real impact.
+   */
+  private kolTrade(c: Coin, at: number, side: "buy" | "sell", sol = 0, impact = true): void {
     if (side === "buy") {
+      if (c.social.filter((e) => e.kind === "kol" && e.side === "buy").length >= 10) return;
       const free = KOLS.map((_, i) => i).filter((i) => !c.kolsIn.includes(i));
       if (!free.length || c.kolsIn.length >= 6) return;
+      const mc = this.mc(c);
+      sol = Math.min(sol, mc * 0.035);
+      if (sol < 0.2) return;
       const i = this.rng.pick(free);
+      let tokens: number;
+      if (impact) {
+        const r = this.applyBuy(c, sol, at, "bot");
+        if (r.tokens <= 0) return;
+        tokens = r.tokens;
+        sol = r.spent;
+        if (c.tape[0]) c.tape[0].trader = KOLS[i].name;
+      } else {
+        tokens = (sol * (1 - FEE)) / (mc / SUPPLY);
+      }
+      const pct = (tokens / SUPPLY) * 100;
       c.kolsIn.push(i);
-      c.kolHold.set(i, (sol / this.mc(c)) * 100);
-      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol });
+      c.kolHold.set(i, { pct, sol });
+      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol, mc, pct }, !impact);
     } else {
       if (!c.kolsIn.length) return;
       const i = c.kolsIn.splice(this.rng.int(0, c.kolsIn.length - 1), 1)[0];
+      const h = c.kolHold.get(i);
       c.kolHold.delete(i);
-      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol });
+      if (!h) return;
+      const mc = this.mc(c);
+      const got = this.marketSell(c, at, (SUPPLY * h.pct) / 100, KOLS[i].name);
+      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, handle: KOLS[i].handle, hue: KOLS[i].hue, sol: got, mc, pct: h.pct, cost: h.sol }, false);
     }
   }
 
@@ -857,20 +932,8 @@ export class Engine {
     this.setStage(c, "migrated", at);
     // Otherwise the dev sells within a few seconds of the pool opening: a sharp red candle the script then absorbs.
     if (c.preLegs.length && !c.devSold) {
-      this.at(c.lockUntil + this.rng.range(300, 4000), (a) => {
-        if (!this.coins.has(c.id) || c.devSold) return;
-        c.devSold = true;
-        const mc = c.postMc;
-        const sol = mc * this.rng.range(0.015, 0.035);
-        c.postMc = mc * (1 - this.rng.range(0.06, 0.14));
-        this.record(c, a, sol);
-        c.volumeSol += sol;
-        c.sellVolSol += sol;
-        c.sells++;
-        c.txCount++;
-        this.pushTape(c, a, "bot", "sell", sol, "DEV");
-        // Blitz devs sometimes dump the whole bag here; in a saga they keep some for later.
-        this.devSell(c, a, sol, mc, c.sagaChapter === null && this.rng.chance(0.3));
+      this.at(c.lockUntil + this.rng.range(300, 2500), (a) => {
+        if (this.coins.has(c.id)) this.devSell(c, a);
       });
     }
     // Somebody always pays for a boost once it is on the DEX.
@@ -920,7 +983,7 @@ export class Engine {
     }
     // Some tops are the end: the dev rugs and it bleeds out to ~$5K.
     if (this.rng.chance(0.3)) {
-      const dead = Math.max(4000 / SOL_USD, ath * this.rng.range(0.015, 0.03));
+      const dead = Math.max(5000 / SOL_USD, ath * this.rng.range(0.015, 0.03));
       t += this.rng.range(3000, 7000);
       legs.push({ kind: "base", end: t, to: ath * this.rng.range(0.85, 0.95), vol: 0.6, noise: 0.02 });
       t += this.rng.range(1000, 1500);
@@ -1050,12 +1113,7 @@ export class Engine {
     }
     // The dev dumps a chunk just before it bonds (half the time; the rest just after migration).
     if (c.devSellPre && !c.devSold && curveLib.progress(c.curve) > 0.82 && !c.migrated) {
-      c.devSold = true;
-      const tokens = Math.min(c.curve.realTok * 0.5, SUPPLY * this.rng.range(0.015, 0.035));
-      const mc = this.mc(c);
-      const got = this.applySell(c, tokens, at, "bot");
-      c.tape[0].trader = "DEV";
-      this.devSell(c, at, got, mc, c.sagaChapter === null && this.rng.chance(0.3));
+      this.devSell(c, at);
     }
     // KOLs aping the launch.
     if (c.spec.role === "target" && this.rng.chance(0.02)) this.kolTrade(c, at, "buy", this.rng.range(1, 8));
@@ -1176,10 +1234,13 @@ export class Engine {
     let tokens = 0;
     let spent = 0;
     if (c.migrated) {
-      const impact = sol / 150;
-      tokens = (sol * (1 - FEE)) / (c.postMc / SUPPLY);
+      // Constant-product pool: the SOL side is worth the pool's share of the market cap.
+      const f = this.poolShare(c);
+      const S = f * c.postMc;
+      const net = sol * (1 - FEE);
+      tokens = (f * SUPPLY * net) / (S + net);
       spent = sol;
-      c.postMc *= 1 + impact;
+      c.postMc *= ((S + net) / S) ** 2;
     } else {
       const r = curveLib.buy(c.curve, sol);
       c.curve = r.curve;
@@ -1214,9 +1275,11 @@ export class Engine {
     if (!force && at < c.lockUntil) return 0;
     let sol = 0;
     if (c.migrated) {
-      const gross = tokens * (c.postMc / SUPPLY);
+      const f = this.poolShare(c);
+      const T = f * SUPPLY;
+      const gross = (f * c.postMc * tokens) / (T + tokens);
       sol = gross * (1 - FEE);
-      c.postMc /= 1 + gross / 150;
+      c.postMc *= (T / (T + tokens)) ** 2;
     } else {
       const r = curveLib.sell(c.curve, tokens);
       c.curve = r.curve;
@@ -1353,7 +1416,7 @@ export class Engine {
       } else {
         // Script over: nothing sits still. It keeps bleeding (halving every ~90 s) with the bot chopping around it.
         const last = c.legs[c.legs.length - 1];
-        want = last.to * Math.exp((-(st - last.end) * Math.LN2) / 90000);
+        want = Math.max(Math.min(last.to, 4500 / SOL_USD), last.to * Math.exp((-(st - last.end) * Math.LN2) / 90000));
       }
       // A boost or DEX payment that worked lays a pump over the script, then hands back to it.
       const o = c.overlay;
@@ -1406,9 +1469,18 @@ export class Engine {
         if (k < 2) this.pushTape(c, at, "bot", buy ? "buy" : "sell", sz);
       }
       c.postMc = next;
-      // Big moves are sometimes a KOL.
-      if (whaleSide && this.rng.chance(0.18)) {
-        this.kolTrade(c, at, whaleSide, Math.max(1, toUsd(next) / 20000) * this.rng.range(0.5, 2));
+      // A big green step is sometimes a KOL: name it, sized to the move it made in the pool.
+      if (whaleSide === "buy" && move > 0 && this.rng.chance(0.18)) {
+        const sol = this.poolShare(c) * (1 - Math.exp(-move / 2)) * next;
+        if (sol >= 3) this.kolTrade(c, at, "buy", sol, false);
+      }
+      // KOLs get out before it breaks: ahead of an insider dump, or as the script heads back under the migration
+      // line. By the time it is sub-migration they have all sold, each one a real market sell.
+      if (c.kolsIn.length) {
+        const migSol = MIGRATION_MC_USD / SOL_USD;
+        const nextLeg = leg ? c.legs[c.legs.indexOf(leg) + 1] : undefined;
+        const exiting = !leg || nextLeg?.kind === "rug" || leg.to < migSol * 1.3 || c.postMc < migSol * 1.3;
+        if (exiting ? this.rng.chance(0.3) : leg?.kind === "dip" && this.rng.chance(0.004)) this.kolTrade(c, at, "sell");
       }
       c.postMc = next;
     } else {
@@ -1688,7 +1760,7 @@ export class Engine {
     const { tokens, spent } = this.applyBuy(c, sol, this.simNow, "player");
     if (tokens <= 0) return null;
     this.wallet -= spent;
-    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtTokens: 0, boughtSol: 0, soldSol: 0 };
+    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtTokens: 0, boughtSol: 0, soldSol: 0, promoSol: 0 };
     pos.tokens += tokens;
     pos.boughtTokens += tokens;
     pos.boughtSol += spent;
@@ -1761,10 +1833,11 @@ export class Engine {
   }
 
   /** Record a fully sold position for the Portfolio. Re-buys of the same coin log only their own part. */
-  private logIfClosed(coinId: string, c: Coin, pos: { tokens: number; boughtSol: number; soldSol: number }): void {
+  private logIfClosed(coinId: string, c: Coin, pos: { tokens: number; boughtSol: number; soldSol: number; promoSol: number }): void {
     if (pos.tokens >= 1e-6) return;
     const done = this.logged.get(coinId) ?? { bought: 0, sold: 0 };
-    const invested = pos.boughtSol - done.bought;
+    const spent = pos.boughtSol + pos.promoSol;
+    const invested = spent - done.bought;
     if (invested <= 0) return;
     this.closedLog.push({
       id: this.closedLog.length + 1,
@@ -1775,7 +1848,7 @@ export class Engine {
       invested,
       returned: pos.soldSol - done.sold,
     });
-    this.logged.set(coinId, { bought: pos.boughtSol, sold: pos.soldSol });
+    this.logged.set(coinId, { bought: spent, sold: pos.soldSol });
   }
 
   private holding(coinId: string): boolean {
@@ -1828,12 +1901,15 @@ export class Engine {
     this.at(tTweet + MAX_ROUND_MS, () => {
       if (sc.phase === "live" && this.allClosed() && this.simNow >= this.sagaEndAt) this.finishLive();
     });
-    // Saga: once the story is over, end as soon as you are flat.
+    // Saga: once the last coin has played out (dead or consolidating), the story is over and so is the round,
+    // holding or not (anything left is market-sold). Before its script is known, end only when you are flat.
     if (this.length === "saga") {
       const check = (a: number) => {
         if (sc.phase !== "live") return;
-        if (a >= this.sagaEndAt && this.allClosed()) this.finishLive();
-        else this.at(a + 2000, check);
+        const last = this.sagaEndCoin;
+        if (last && a - last.pausedMs >= this.sagaEndAt) this.finishLive();
+        else if (!last && a >= this.sagaEndAt && this.allClosed()) this.finishLive();
+        else this.at(a + 1000, check);
       };
       this.at(tTweet + 60_000, check);
     }
@@ -1914,7 +1990,10 @@ export class Engine {
     const all = [...this.positions.values()];
     const boughtSol = saga ? all.reduce((n, p) => n + p.boughtSol, 0) : (pos?.boughtSol ?? 0);
     const closedSol = saga ? all.reduce((n, p) => n + p.soldSol, 0) : (pos?.soldSol ?? 0);
-    const pnlSol = closedSol - boughtSol;
+    // Boosts and DEX payments you bought are part of the trade.
+    const promoSol = saga ? all.reduce((n, p) => n + p.promoSol, 0) : (pos?.promoSol ?? 0);
+    const pnlSol = closedSol - boughtSol - promoSol;
+    const costSol = boughtSol + promoSol;
     const success = outcome === "success" && fb?.isTarget === true;
     const reactionMs = success && view.tTargetAppear !== null ? Math.max(0, fb.trade.at - view.tTargetAppear) : null;
 
@@ -1934,13 +2013,14 @@ export class Engine {
       buyNumber: fb ? fb.trade.rank + 1 : null,
       entryMcUsd: fb ? (fb.trade.sol / fb.trade.tokens) * SUPPLY * SOL_USD : null,
       boughtSol,
+      promoSol,
       closedSol,
       pnlSol,
-      pnlPct: boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0,
+      pnlPct: costSol > 0 ? (pnlSol / costSol) * 100 : 0,
       rating: reactionMs !== null ? ratingFor(reactionMs) : null,
       ...(() => {
         const plain = sc.misses.filter((m) => !m.vamp).length;
-        const pnlPct = boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0;
+        const pnlPct = costSol > 0 ? (pnlSol / costSol) * 100 : 0;
         if (saga) {
           const { total, ...rest } = scoreSaga({
             success,
@@ -2037,7 +2117,7 @@ export class Engine {
       sells: c.sells,
       holders: c.holders,
       feesSol: c.volumeSol * FEE,
-      liqUsd: c.migrated ? toUsd(this.mc(c)) * 0.12 : toUsd(c.curve.realSol),
+      liqUsd: c.migrated ? toUsd(this.mc(c)) * 2 * this.poolShare(c) : toUsd(c.curve.realSol),
       earlyAvgMcUsd: toUsd(Math.max(c.top10Avg, c.earlyVol > 0 ? c.earlyMcW / c.earlyVol : this.mc(c))),
       migratedAt: c.migratedAt,
       changePct: c.candles.length && c.candles[0].o > 0 ? (mcSol / c.candles[0].o - 1) * 100 : 0,

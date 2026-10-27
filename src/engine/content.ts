@@ -203,3 +203,23 @@ export const KOLS: { name: string; handle: string; hue: number }[] = [
 ];
 
 export const BOOSTS = ["x10", "x30", "x50", "x100", "x500"];
+
+/** Fictional community-takeover crews. A CTO is two or three of them claiming a coin the dev walked away from. */
+export const CTO_LEADERS: Author[] = [
+  { name: "CTO Captain", handle: "ctocaptain", followers: "41.2K", verified: true, hue: 140, authority: false },
+  { name: "Takeover Tom", handle: "takeovertom", followers: "18.9K", verified: false, hue: 170, authority: false },
+  { name: "Phoenix Raids", handle: "phoenixraids", followers: "27.4K", verified: true, hue: 20, authority: false },
+  { name: "Revive DAO", handle: "revivedao", followers: "12.6K", verified: false, hue: 260, authority: false },
+  { name: "The Janitor", handle: "ctojanitor", followers: "33.1K", verified: true, hue: 200, authority: false },
+  { name: "Raid Queen", handle: "raidqueen", followers: "22.8K", verified: false, hue: 320, authority: false },
+];
+
+/** What they say. `$T` is the ticker. */
+export const CTO_LINES: string[] = [
+  "we're CTOing $T. dev is gone, we're not. tg in bio",
+  "$T CTO is live. new tg, new site, raid at the top of the hour",
+  "taking over $T. the community owns it now 🫡",
+  "dev abandoned $T. this is a CTO. join the raid",
+  "$T is ours now. CTO locked in, banners going up",
+  "we run $T now. dev sold, we didn't. CTO",
+];

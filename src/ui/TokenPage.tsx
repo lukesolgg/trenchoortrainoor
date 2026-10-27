@@ -203,7 +203,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
     if (!instant) setWidgetOpen(true);
   };
   const positionRows = snap.positions
-    .filter((p) => p.tokens > 1e-6 || p.boughtSol > 0)
+    .filter((p) => p.tokens > 1e-6 || p.boughtSol > 0 || p.promoSol > 0)
     .map((p) => ({ position: p, ticker: engine.getCoinView(p.coinId)?.ticker ?? "?", name: engine.getCoinView(p.coinId)?.name ?? "" }));
   const sellCoin = (id: string, fraction: number, ts: number) => {
     const trade = engine.sell(id, fraction, engine.fromEventTime(ts));

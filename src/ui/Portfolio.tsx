@@ -116,7 +116,7 @@ export function Portfolio({ walletSol, open, onOpenCoin, onSell }: Props) {
             </thead>
             <tbody>
               {openPositions.map(({ position: p, ticker, name, art }) => {
-                const pnl = p.soldSol + p.valueSol - p.boughtSol;
+                const pnl = p.soldSol + p.valueSol - p.boughtSol - p.promoSol;
                 return (
                   <tr key={p.coinId} onClick={() => onOpenCoin(p.coinId)} className="cursor-pointer border-t border-line/60 transition-colors hover:bg-card-hi">
                     <td className="py-2 pl-4">

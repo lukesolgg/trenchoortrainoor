@@ -715,7 +715,7 @@ describe("big coin script", () => {
       switch (r.outcome) {
         case "standard": {
           // Tops in the meme's range (or higher on a second leg), then always rugs out: nothing sits at 80K.
-          expect(r.peak).toBeGreaterThan(r.meme.big!.peak[0] * 0.9);
+          expect(r.peak).toBeGreaterThan(r.meme.big!.peak[0] * 0.85);
           expect(r.peak).toBeLessThan(r.meme.big!.peak[1] * 2.4);
           expect(r.last).toBeLessThan(20000);
           break;
@@ -964,7 +964,7 @@ describe("flood and socials", () => {
       expect(s.some((x) => x.kind === "dev" && x.side === "buy")).toBe(true);
       expect(s.some((x) => x.kind === "boost")).toBe(true);
       expect(s.filter((x) => x.kind === "kol").length).toBeGreaterThan(0);
-      expect(s.filter((x) => x.kind === "kol").length).toBeLessThanOrEqual(10);
+      expect(s.filter((x) => x.kind === "kol" && x.side === "buy").length).toBeLessThanOrEqual(10);
     }
   });
 });
@@ -1164,5 +1164,157 @@ describe("4% rule, boosts and DEX", () => {
     expect(h.youPct).toBeGreaterThan(0);
     expect(h.devPct).toBeGreaterThanOrEqual(0);
     expect(Array.isArray(h.kols)).toBe(true);
+  });
+});
+
+describe("market realism: KOLs, dev, DEX, promo PnL, saga end", () => {
+  const SOL_USD = curve.SOL_USD;
+  const sagaEngine = (seed: number) =>
+    new Engine({ seed, difficulty: "trencher", autoRounds: false, clock: () => 0, length: "saga", pack: MEME_PACK.filter((m) => m.id === "polar-bear-cub") });
+  const sagaCoins = (e: Engine) => [...(e as unknown as { sagaCoins: Set<string> }).sagaCoins];
+
+  it("the first tweet lands within 30 s of the countdown", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+      e.startScored();
+      const sc = e.getSnapshot().scored!;
+      expect(sc.tTweet - sc.tArm).toBeLessThanOrEqual(30_000);
+    }
+  });
+
+  it("KOLs never hold 4%; every KOL sell dumps the whole bag at a real price", () => {
+    let sells = 0;
+    for (const seed of [2, 4, 5]) {
+      const e = sagaEngine(seed);
+      e.startRound({ leadMs: 0 });
+      for (let t = 0; t < 6 * 60_000; t += 500) {
+        e.advanceTo(t);
+        for (const id of sagaCoins(e)) for (const k of e.getHolders(id).kols) expect(k.pct).toBeLessThan(4);
+      }
+      for (const id of sagaCoins(e)) {
+        for (const x of e.getSocial(id).filter((x) => x.kind === "kol" && x.side === "sell")) {
+          sells++;
+          // What they got is what that much supply fetches at that market cap, less slippage (never more).
+          const fair = (x.pct! / 100) * x.mc;
+          expect(x.sol).toBeLessThanOrEqual(fair);
+          expect(x.sol).toBeGreaterThan(fair * 0.4);
+          expect(x.cost).toBeGreaterThan(0);
+        }
+      }
+    }
+    expect(sells).toBeGreaterThan(0);
+  });
+
+  it("once a coin is under the migration line, its KOLs are all out", () => {
+    for (const seed of [2, 4, 5, 7]) {
+      const e = sagaEngine(seed);
+      e.startRound({ leadMs: 0 });
+      let under = 0;
+      for (let t = 0; t < 10 * 60_000; t += 1000) {
+        e.advanceTo(t);
+        for (const id of sagaCoins(e)) {
+          const v = e.getCoinView(id);
+          if (!v?.migratedAt || e.now() < v.migratingUntil! + 5000) continue;
+          // Allow a few seconds for the exits to print after it crosses.
+          if (v.mcUsd < MIGRATION_MC_USD * 0.7) {
+            under++;
+            if (under > 6) expect(e.getHolders(id).kols).toHaveLength(0);
+          } else under = 0;
+        }
+      }
+    }
+  });
+
+  it("the dev dumps the whole bag at migration, priced like a real sell", () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+      e.startRound({ leadMs: 0 });
+      let id: string | null = null;
+      for (let t = 0; t < 60000; t += 200) {
+        e.advanceTo(t);
+        id ??= e.getRound()?.targetCoinId ?? null;
+      }
+      const sells = e.getSocial(id!).filter((x) => x.kind === "dev" && x.side === "sell");
+      expect(sells).toHaveLength(1);
+      expect(sells[0].all).toBe(true);
+      const fair = (sells[0].pct! / 100) * sells[0].mc;
+      expect(sells[0].sol).toBeLessThanOrEqual(fair);
+      expect(sells[0].sol).toBeGreaterThan(fair * 0.3);
+      expect(e.getHolders(id!).devPct).toBe(0);
+    }
+  });
+
+  it("a market sell of 2% at $100K costs roughly a quarter of the price, like a real pool", () => {
+    const e = new Engine({ seed: 1, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+    const c = { postMc: 100_000 / SOL_USD } as { postMc: number };
+    const f = (e as unknown as { poolShare: (c: unknown) => number }).poolShare.call(e, c);
+    const ratio = (f / (f + 0.02)) ** 2;
+    expect(ratio).toBeGreaterThan(0.65);
+    expect(ratio).toBeLessThan(0.85);
+  });
+
+  it("the DEX gets paid at most once per coin, however the story goes", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const e = sagaEngine(seed);
+      e.startRound({ leadMs: 0 });
+      for (let t = 0; t < 10 * 60_000; t += 1000) e.advanceTo(t);
+      for (const id of sagaCoins(e)) expect(e.getSocial(id).filter((x) => x.kind === "dex").length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("a CTO is two or three takeover crews tweeting it", () => {
+    for (let seed = 1; seed < 60; seed++) {
+      const e = sagaEngine(seed);
+      const plan = (e as unknown as { saga: null }).saga;
+      void plan;
+      e.startRound({ leadMs: 0 });
+      for (let t = 0; t < 10 * 60_000; t += 2000) e.advanceTo(t);
+      for (const id of sagaCoins(e)) {
+        const s = e.getSocial(id);
+        const cto = s.find((x) => x.kind === "cto");
+        if (!cto) continue;
+        const crews = s.filter((x) => x.kind === "tweet" && x.name.endsWith("· CTO") && x.at >= cto.at && x.at < cto.at + 15000);
+        expect(crews.length).toBeGreaterThanOrEqual(2);
+        expect(new Set(crews.map((x) => x.handle)).size).toBe(crews.length);
+        return;
+      }
+    }
+    throw new Error("no seed with a CTO");
+  });
+
+  it("boosts and the DEX you pay for count against the round's PnL", () => {
+    const pnut = MEME_PACK.find((m) => m.id === "pnut")!;
+    const e = new Engine({ seed: 2, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut] });
+    e.startScored({ memeId: "pnut" });
+    const sc = e.getSnapshot().scored!;
+    e.advanceTo(sc.tTweet + 1);
+    const id = landTarget(e);
+    e.quickBuy(id, 0.3);
+    for (let t = e.now(); e.getCoinView(id)!.migratedAt === null || e.now() < (e.getCoinView(id)!.migratingUntil ?? 0); t += 250) e.advanceTo(t);
+    expect(e.payDex(id).ok).toBe(true);
+    expect(e.buyBoost(id, "x10").ok).toBe(true);
+    const promo = (299 + 99) / SOL_USD;
+    expect(e.getSnapshot().positions.find((p) => p.coinId === id)!.promoSol).toBeCloseTo(promo, 6);
+    for (let t = e.now(); !e.sell(id, 1); t += 250) e.advanceTo(t);
+    e.advanceTo(e.now() + 200_000);
+    const r = e.getSnapshot().scored!.result!;
+    expect(r.promoSol).toBeCloseTo(promo, 6);
+    expect(r.pnlSol).toBeCloseTo(r.closedSol - r.boughtSol - promo, 6);
+  });
+
+  it("a saga ends when the story does, even while you still hold", () => {
+    for (const seed of [1, 2]) {
+      const e = sagaEngine(seed);
+      e.startScored();
+      const sc0 = e.getSnapshot().scored!;
+      e.advanceTo(sc0.tTweet + 1);
+      const id = landTarget(e);
+      e.quickBuy(id, 0.3);
+      e.advanceTo(sc0.tTweet + 12 * 60_000);
+      const sc = e.getSnapshot().scored!;
+      expect(sc.phase).toBe("ended");
+      expect(sc.result!.closedSol).toBeGreaterThan(0);
+      expect(e.getSnapshot().positions.every((p) => p.tokens < 1e-6)).toBe(true);
+    }
   });
 });

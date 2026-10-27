@@ -17,7 +17,7 @@ export const MISS_AFTER_MS = 20000;
 export const MAX_ROUND_MS = 90000;
 export const COUNTDOWN_MS = 3000;
 /** The big tweet can land anywhere in the first minute, so the player has to keep watching the tracker. */
-export const ARMED_WAIT_MS: [number, number] = [4000, 55000];
+export const ARMED_WAIT_MS: [number, number] = [4000, 30000];
 
 /**
  * Round score out of 1000. Only a correct buy scores.

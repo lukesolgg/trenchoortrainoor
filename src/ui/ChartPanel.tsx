@@ -45,6 +45,7 @@ export interface Mark {
   hours?: number;
   pct?: number;
   all?: boolean;
+  cost?: number;
   avatar?: string;
   text?: string;
 }
@@ -541,6 +542,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
           hours: e.hours,
           pct: e.pct,
           all: e.all,
+          cost: e.cost,
           avatar: e.avatar,
           text: e.text,
         }));
@@ -633,6 +635,21 @@ function MarkCard({ x, y, m, width }: { x: number; y: number; m: Mark; width: nu
           <span className="text-dim">
             at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
           </span>
+        </div>
+      )}
+      {m.kind === "kol" && m.pct !== undefined && (
+        <div className="tabular mt-1 text-[11px] text-dim">
+          {m.pct.toFixed(2)}% of supply
+          {m.cost !== undefined && m.cost > 0 && (
+            <>
+              {" · in "}
+              {m.cost.toFixed(m.cost < 10 ? 2 : 1)} SOL{" "}
+              <span className={`font-bold ${(m.sol ?? 0) >= m.cost ? "text-up" : "text-down"}`}>
+                {(m.sol ?? 0) >= m.cost ? "+" : ""}
+                {(((m.sol ?? 0) / m.cost - 1) * 100).toFixed(0)}%
+              </span>
+            </>
+          )}
         </div>
       )}
       {m.kind === "dev" && m.pct !== undefined && (
