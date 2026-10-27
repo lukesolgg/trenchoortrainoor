@@ -263,11 +263,10 @@ interface QueuedEvent {
 const FINAL_AT = 0.35;
 /** What a DEX profile costs, USD. */
 export const DEX_USD = 299;
-/** Your wallets, and the limits: one wallet at 5%+ of supply drags the coin; 10% across all of them is the cap. */
+/** Your wallets, and the one limit: a single wallet at 5%+ of supply drags the coin. There is no cap on the total. */
 /** Trader wallets: main plus up to four side wallets. A campaign may allow fewer (opts.walletCount). */
 export const WALLETS = 5;
 export const BIG_WALLET_PCT = 5;
-export const MAX_HOLD_PCT = 10;
 
 interface PosState {
   tokens: number;
@@ -1260,15 +1259,6 @@ export class Engine {
     return n;
   }
 
-  /** Tokens a buy of `sol` would get right now (no state change). */
-  private quoteTokens(c: Coin, sol: number): number {
-    if (c.migrated) {
-      const f = this.poolShare(c);
-      const net = sol * (1 - FEE);
-      return (f * SUPPLY * net) / (f * c.postMc + net);
-    }
-    return curveLib.buy(c.curve, sol).tokens;
-  }
 
   /** Your share of this coin's supply, in %. */
   holdingPct(coinId: string): number {
@@ -2423,32 +2413,12 @@ export class Engine {
     }
     const which = (wallets ?? this.walletSel).filter((i) => i >= 0 && i < this.walletCount);
     if (!which.length || sol <= 0) return null;
-    let total = sol * which.length;
+    const total = sol * which.length;
     if (total > this.wallet + 1e-9) {
       this.buyNote = which.length > 1 ? `Not enough SOL: ${sol} × ${which.length} wallets is ${total.toFixed(2)} SOL` : null;
       return null;
     }
     const pos = this.positions.get(coinId) ?? newPos();
-    // 10% of supply across all your wallets is the most you can hold: a bigger buy is trimmed to fit.
-    const room = (SUPPLY * MAX_HOLD_PCT) / 100 - pos.tokens;
-    if (room < SUPPLY * 1e-3) {
-      this.buyNote = `You already hold ${MAX_HOLD_PCT}% of supply: that's the max`;
-      return null;
-    }
-    const quote = this.quoteTokens(c, total);
-    if (quote > room) {
-      // Tokens per SOL fall as price rises, so find the size that fits by bisection.
-      let lo = 0;
-      let hi = total;
-      for (let k = 0; k < 30; k++) {
-        const mid = (lo + hi) / 2;
-        if (this.quoteTokens(c, mid) > room * 0.998) hi = mid;
-        else lo = mid;
-      }
-      total = lo;
-      this.buyNote = `Trimmed to ${total.toFixed(2)} SOL: ${MAX_HOLD_PCT}% of supply is the max across your wallets`;
-    }
-
     const rank = c.botBuys;
     // One fill per wallet, each moving the price for the next.
     let tokens = 0;

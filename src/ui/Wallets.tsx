@@ -46,7 +46,7 @@ export function WalletPicker({ sel, onSel, pcts, count }: { sel: readonly number
   );
 }
 
-/** The toast after a buy, when there is something to warn about: trimmed or refused at 10%, or a wallet now 5%+. */
+/** The toast after a buy, when there is something to warn about: not enough SOL for every wallet, or a wallet now at 5%+. */
 export function buyWarning(engine: Engine, coinId: string, bought: boolean): string | null {
   const note = engine.takeBuyNote();
   if (note) return note;

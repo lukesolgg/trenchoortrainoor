@@ -179,7 +179,7 @@ export function Setup() {
                 ))}
               </div>
               <p className="mt-2 text-[12px] text-dim">
-                Buy sizes scale with it. You have five wallets: one holding 5%+ of a coin scares buyers off (it only climbs a quarter as far), and 10% across all of them is the max. Split big bags.
+                Buy sizes scale with it. You have five wallets: one holding 5%+ of a coin scares buyers off (it only climbs a quarter as far). There's no cap on the total, so split big bags.
               </p>
             </div>
             </>

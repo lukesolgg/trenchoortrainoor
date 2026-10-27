@@ -1,7 +1,7 @@
 "use client";
 
 import { WalletPicker, WALLET_NAMES } from "./Wallets";
-import { BIG_WALLET_PCT, MAX_HOLD_PCT } from "@/engine/engine";
+import { BIG_WALLET_PCT } from "@/engine/engine";
 import { useState } from "react";
 import type { CoinView, Position } from "@/engine/types";
 import { pct, signed, sol, tokens, usd } from "./format";
@@ -125,7 +125,7 @@ interface Props {
   top?: React.ReactNode;
 }
 
-/** Your three wallets on this coin: which ones trade, split the bag, pull it back together, and the 5% / 10% rules. */
+/** Your wallets on this coin: which ones trade, split the bag, pull it back together, and the 5% per-wallet rule. */
 function Wallets({ count, canConsolidate, pcts, sel, onSel, held, holdingPct, onSplit, onConsolidate }: {
   count: number;
   canConsolidate: boolean;
@@ -144,8 +144,8 @@ function Wallets({ count, canConsolidate, pcts, sel, onSel, held, holdingPct, on
     <div className="space-y-2">
       <div className="flex items-baseline justify-between text-[11px]">
         <span className="font-bold text-dim">Wallets</span>
-        <span className={`tabular ${holdingPct >= MAX_HOLD_PCT - 0.05 ? "font-bold text-down" : "text-faint"}`}>
-          {holdingPct.toFixed(2)}% of supply · max {MAX_HOLD_PCT}%
+        <span className="tabular text-faint">
+          {holdingPct.toFixed(2)}% of supply · {BIG_WALLET_PCT}% per wallet
         </span>
       </div>
       {count > 1 ? (

@@ -76,7 +76,7 @@ function WalletMenu({ walletSol, sel, count, onSel }: { walletSol: number; sel: 
             <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11.5px] text-dim">Main wallet only. Side wallets unlock at campaign level 5.</p>
           )}
           <p className="mt-2 text-[11px] leading-snug text-dim">
-            A buy spends the amount in each selected wallet (3 wallets × 1 SOL = 3 SOL); sells come out of each. One wallet at 5%+ of a coin drags it, 10% across all is the max.
+            A buy spends the amount in each selected wallet (3 wallets × 1 SOL = 3 SOL); sells come out of each. Any one wallet at 5%+ of a coin drags it; spread big bags.
           </p>
         </div>
       )}

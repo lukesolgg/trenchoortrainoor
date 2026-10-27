@@ -1143,14 +1143,13 @@ describe("4% rule, boosts and DEX", () => {
     expect(e.getCoinView(id)!.migratedAt).not.toBeNull();
   });
 
-  it("10% of supply across all wallets is the cap: a bigger buy is trimmed, then refused", () => {
+  it("there is no cap on the total: only the per-wallet 5% rule", () => {
     const { e, id } = run(4, 0);
-    e.quickBuy(id, 50);
-    expect(e.holdingPct(id)).toBeLessThanOrEqual(10.01);
-    expect(e.holdingPct(id)).toBeGreaterThan(9);
-    expect(e.takeBuyNote()).toMatch(/Trimmed/);
-    expect(e.quickBuy(id, 1)).toBeNull();
-    expect(e.takeBuyNote()).toMatch(/max/);
+    e.setWalletSel([0, 1, 2, 3, 4]);
+    e.quickBuy(id, 4);
+    expect(e.holdingPct(id)).toBeGreaterThan(15);
+    expect(e.takeBuyNote()).toBeNull();
+    expect(e.quickBuy(id, 0.5)).not.toBeNull();
   });
 
   it("split, consolidate and wallet switching move the bag and pick who trades", () => {
