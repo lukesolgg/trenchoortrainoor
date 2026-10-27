@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as curve from "./curve";
 import { Engine, type BigOutcome } from "./engine";
+import type { DevChoice } from "./dev";
 import { DIFFICULTIES } from "./difficulty";
 import { Rng } from "./rng";
 import { MIGRATION_LOCK_MS, MIGRATION_MC_USD } from "./curve";
@@ -1493,5 +1494,108 @@ describe("KOL Rep: tailers and calls", () => {
     const r = slow.e.getSnapshot().scored!.result!;
     expect(r.kol.dumpedOn).toBe(0);
     expect(r.kol.tailers).toBeGreaterThan(0);
+  });
+});
+
+describe("dev mode", () => {
+  type Opts = { rightName: number; rightImage: number; names: { name: string; ticker: string }[] };
+  const make = (seed = 1, difficulty: "paper" | "trencher" | "sniper" = "trencher", sol = 50) => {
+    const e = new Engine({ seed, difficulty, autoRounds: false, clock: () => 0, dev: { sol } });
+    let id: string | undefined;
+    for (let t = 0; !id && t < 20000; t += 100) {
+      e.advanceTo(t);
+      id = e.getSnapshot().feed.find((f) => f.scenarioId)?.scenarioId;
+    }
+    const sc = (e as unknown as { scenarios: Map<string, { tweetAt: number; options: Opts; plan: { rightConfig: { pair: "SOL" | "SPACEX" | "TESLA" | "PUMP" } } }> }).scenarios.get(id!)!;
+    return { e, id: id!, sc };
+  };
+  const choice = (sc: ReturnType<typeof make>["sc"], over: Partial<DevChoice> = {}): DevChoice => ({
+    nameIdx: sc.options.rightName,
+    imageIdx: sc.options.rightImage,
+    launchpad: "pump",
+    dividends: true,
+    pair: sc.plan.rightConfig.pair,
+    mode: "manual",
+    devBuySol: 1,
+    organicSol: 0,
+    rewards: "creator",
+    ...over,
+  });
+
+  it("tweets come with a Dev button and 3, 4 or 5 options by difficulty, without the answers", () => {
+    for (const [d, n] of [["paper", 3], ["trencher", 4], ["sniper", 5]] as const) {
+      const { e, id } = make(2, d);
+      const v = e.getDevScenario(id)!;
+      expect(v.names).toHaveLength(n);
+      expect(v.images).toHaveLength(n);
+      expect(new Set(v.names.map((x) => `${x.name}|${x.ticker}`)).size).toBe(n);
+      expect(JSON.stringify(v)).not.toMatch(/right/);
+    }
+  });
+
+  it("deploying costs the fee and your buys from the dev wallet, once per tweet", () => {
+    const { e, id, sc } = make(3);
+    expect(e.devDeploy(id, choice(sc, { devBuySol: 100 })).ok).toBe(false);
+    const r = e.devDeploy(id, choice(sc));
+    expect(r.ok).toBe(true);
+    expect(e.getSnapshot().devSol).toBeCloseTo(50 - 0.02 - 1, 6);
+    expect(e.devDeploy(id, choice(sc)).ok).toBe(false);
+    const l = e.getSnapshot().launches[0];
+    expect(l.deployerPct).toBeGreaterThan(1);
+    expect(l.check).toEqual({ name: true, ticker: true, image: true, launchpad: true, dividends: true, pair: true });
+    expect(l.first).toBe(true);
+  });
+
+  it("a wrong ticker gets roasted on the Tracker and never bonds", () => {
+    const { e, id, sc } = make(4);
+    e.advanceTo(sc.tweetAt + 2000);
+    const wrong = (sc.options.rightName + 1) % sc.options.names.length;
+    e.devDeploy(id, choice(sc, { nameIdx: wrong, mode: "organic", organicSol: 1 }));
+    const tweets0 = e.getSnapshot().feed.length;
+    e.advanceTo(e.now() + 20000);
+    const ticker = e.getSnapshot().launches[0].ticker;
+    expect(e.getSnapshot().feed.slice(0, e.getSnapshot().feed.length - tweets0 + 3).some((t) => t.segments.some((s) => s.text.includes(ticker)))).toBe(true);
+    e.advanceTo(e.now() + 180_000);
+    expect(e.getSnapshot().launches[0].bonded).toBe(false);
+    expect(e.getSnapshot().launches[0].check.ticker && e.getSnapshot().launches[0].check.name).toBe(false);
+  });
+
+  it("first with the right coin: the rival's right coin only gets scraps", () => {
+    const { e, id, sc } = make(5);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc));
+    e.advanceTo(e.now() + 40_000);
+    const coins = (e as unknown as { coins: Map<string, { spec: { role: string; ticker: string; name: string }; dev: unknown }> }).coins;
+    const right = sc.options.names[sc.options.rightName];
+    const rivals = [...coins.values()].filter((c) => !c.dev && c.spec.ticker === right.ticker && c.spec.name === right.name);
+    expect(rivals.every((c) => c.spec.role !== "target")).toBe(true);
+  });
+
+  it("dev sells pay the dev wallet, Nuke empties every launch wallet, rewards can be claimed", () => {
+    const { e, id, sc } = make(6);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc, { mode: "organic", organicSol: 1 }));
+    e.advanceTo(e.now() + 15_000);
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const w0 = e.getSnapshot().devSol!;
+    expect(e.devSellFrom(coinId, "deployer", 0.5).ok).toBe(true);
+    expect(e.getSnapshot().devSol!).toBeGreaterThan(w0);
+    expect(e.getSocial(coinId).some((x) => x.kind === "dev" && x.side === "sell")).toBe(true);
+    expect(e.nuke(coinId).ok).toBe(true);
+    const l = e.getSnapshot().launches[0];
+    expect(l.deployerPct).toBe(0);
+    expect(l.holdersPct).toBe(0);
+    expect(l.rewardsSol).toBeGreaterThan(0);
+    const before = e.getSnapshot().devSol!;
+    expect(e.claimRewards(coinId).ok).toBe(true);
+    expect(e.getSnapshot().devSol!).toBeCloseTo(before + l.rewardsSol, 9);
+  });
+
+  it("quotes the opening market cap and supply share of a launch", () => {
+    const { e } = make(7);
+    const q = e.quoteLaunch(1, 1);
+    expect(q.mcUsd).toBeGreaterThan(3000);
+    expect(q.supplyPct).toBeGreaterThan(4);
+    expect(q.supplyPct).toBeLessThan(10);
   });
 });

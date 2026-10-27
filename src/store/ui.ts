@@ -58,6 +58,8 @@ interface UiState {
   muted: boolean;
   /** Starting balance size. */
   port: Port;
+  /** Dev mode: SOL in the dev wallet at the start of a session. */
+  devBalance: 10 | 50 | 200;
   /** Chart social layers. */
   social: { dev: boolean; kol: boolean; boost: boolean; news: boolean };
   /** Round length: Blitz (done in about a minute) or Saga (a 5-10 minute story). */
@@ -80,6 +82,7 @@ interface UiState {
   setStyle: (s: "strict" | "training") => void;
   setMuted: (b: boolean) => void;
   setPort: (p: Port) => void;
+  setDevBalance: (n: 10 | 50 | 200) => void;
   toggleSocial: (k: "dev" | "kol" | "boost" | "news") => void;
   setLength: (l: "blitz" | "saga") => void;
   setFeedOpen: (b: boolean) => void;
@@ -109,6 +112,7 @@ export const useUi = create<UiState>()(
   style: "strict",
   muted: false,
   port: "medium",
+  devBalance: 50,
   social: { dev: true, kol: true, boost: true, news: true },
   length: "blitz",
   buySets: [
@@ -128,6 +132,7 @@ export const useUi = create<UiState>()(
   setMuted: (muted) => set({ muted }),
   setPort: (port) => set({ port, quickAmount: PORTS[port].quick, buySets: PORTS[port].sets.map((x) => [...x]), presetSet: 0 }),
   setLength: (length) => set({ length }),
+  setDevBalance: (devBalance) => set({ devBalance }),
   toggleSocial: (k) => set((st) => ({ social: { ...st.social, [k]: !st.social[k] } })),
   setFeedOpen: (feedOpen) => set({ feedOpen }),
   setInstantTrade: (instantTrade) => set({ instantTrade }),
@@ -147,6 +152,7 @@ export const useUi = create<UiState>()(
         length: s.length,
         style: s.style,
         port: s.port,
+        devBalance: s.devBalance,
         quickAmount: s.quickAmount,
         buySets: s.buySets,
         muted: s.muted,

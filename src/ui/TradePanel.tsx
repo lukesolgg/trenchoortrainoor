@@ -121,6 +121,8 @@ interface Props {
   onConsolidate: () => void;
   onBoost: (label: string) => void;
   onPayDex: () => void;
+  /** Shown at the top of the panel (Dev mode: your launch's controls). */
+  top?: React.ReactNode;
 }
 
 /** Your three wallets on this coin: which ones trade, split the bag, pull it back together, and the 5% / 10% rules. */
@@ -291,7 +293,7 @@ function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayD
   );
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex, top }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -312,6 +314,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
 
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-y-auto border-l border-line bg-panel">
+      {top}
       {/* Flow stats */}
       <div className="border-b border-line p-3">
         <div className="grid grid-cols-4 gap-1.5">

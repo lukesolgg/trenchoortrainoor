@@ -30,7 +30,7 @@ function Avatar({ name, src, hue }: { name: string; src: string | null; hue: num
   );
 }
 
-const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wallStart: number }) {
+const TweetCard = memo(function TweetCard({ t, wallStart, dev }: { t: TweetView; wallStart: number; dev?: { launched: boolean; onDev: () => void } }) {
   const { author } = t;
   return (
     <article
@@ -71,6 +71,17 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
       {t.art && (
         <Art art={t.art} className="mt-2.5 aspect-[16/10] w-full rounded-lg border border-tk-line" glyphSize={64} />
       )}
+      {dev && (
+        <button
+          type="button"
+          onClick={dev.onDev}
+          className={`mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-[13px] font-black transition-[filter] ${
+            dev.launched ? "border border-violet/50 text-violet" : "bg-violet text-white shadow-[0_0_18px_rgba(139,92,246,.35)] hover:brightness-110"
+          }`}
+        >
+          {dev.launched ? "Launched · open it" : "⚡ Dev this"}
+        </button>
+      )}
     </article>
   );
 });
@@ -81,9 +92,11 @@ interface Props {
   pauseOnHover: boolean;
   open: boolean;
   onToggle: () => void;
+  /** Dev mode: launchable tweets get a Dev button. */
+  dev?: { launched: ReadonlyMap<string, string>; onDev: (scenarioId: string) => void };
 }
 
-export function TweetFeed({ tweets, wallStart, pauseOnHover, open, onToggle }: Props) {
+export function TweetFeed({ tweets, wallStart, pauseOnHover, open, onToggle, dev }: Props) {
   const [hovered, setHovered] = useState(false);
   const paused = hovered && pauseOnHover;
   const { items, newCount } = usePausable(tweets, paused);
@@ -113,7 +126,12 @@ export function TweetFeed({ tweets, wallStart, pauseOnHover, open, onToggle }: P
       {open && (
         <div className="flex-1 space-y-2.5 overflow-y-auto p-2.5">
           {items.map((t) => (
-            <TweetCard key={t.id} t={t} wallStart={wallStart} />
+            <TweetCard
+              key={t.id}
+              t={t}
+              wallStart={wallStart}
+              dev={dev && t.scenarioId ? { launched: dev.launched.has(t.scenarioId), onDev: () => dev.onDev(t.scenarioId!) } : undefined}
+            />
           ))}
         </div>
       )}

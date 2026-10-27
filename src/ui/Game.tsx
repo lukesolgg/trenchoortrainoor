@@ -1,5 +1,8 @@
 "use client";
 
+import { LaunchesBar } from "./dev/LaunchesBar";
+import { LaunchPanel } from "./dev/LaunchPanel";
+import { LaunchCard } from "./dev/LaunchCard";
 import { useCampaign, campaignFeatures } from "@/store/campaign";
 import { ALL_FEATURES, followersFor, kolTier, type Award } from "@/campaign/progression";
 import { buyWarning } from "./Wallets";
@@ -32,8 +35,9 @@ interface Toast {
 export function Game() {
   const {
     mode, difficulty: uiDifficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
-    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style: uiStyle, length: uiLength, port,
+    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style: uiStyle, length: uiLength, port, devBalance,
   } = useUi();
+  const devMode = mode === "dev";
   // FIRST TX and the campaign are scored rounds. DEV and free play stay on the unscored free-running board for now.
   const campaign = mode === "campaign";
   const scoredMode = mode === "firsttx" || campaign;
@@ -51,7 +55,9 @@ export function Game() {
   const features = campaign ? camp.features : ALL_FEATURES;
   const engine = useEngine({
     difficulty,
-    autoRounds: !scoredMode,
+    // Free play runs a tweet every 30-60 s; Dev mode runs its own launchable tweets instead.
+    autoRounds: !scoredMode && !devMode,
+    dev: devMode ? { sol: devBalance } : null,
     training: style === "training",
     length: scoredMode ? length : "blitz",
     startingSol: campaign ? camp.sol : PORTS[port].sol,
@@ -121,6 +127,14 @@ export function Game() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Dev mode dialogs own the keyboard; Esc closes them.
+      if (document.querySelector("[data-modal]")) {
+        if (e.key === "Escape") {
+          setLaunchFor(null);
+          setCardFor(null);
+        }
+        return;
+      }
       const typing = e.target instanceof HTMLInputElement;
       const phase = snapRef.current.scored?.phase;
 
@@ -298,11 +312,41 @@ export function Game() {
 
   const diff = DIFFICULTIES[difficulty];
 
+  // ---- Dev mode: the launch panel for a tweet, launch report cards (they open by themselves when a launch ends).
+  const [launchFor, setLaunchFor] = useState<string | null>(null);
+  const [cardFor, setCardFor] = useState<string | null>(null);
+  const launchedByScenario = useMemo(() => new Map(snap.launches.map((l) => [l.scenarioId, l.coinId])), [snap.launches]);
+  const onDevTweet = useCallback(
+    (scenarioId: string) => {
+      const coinId = launchedByScenario.get(scenarioId);
+      if (coinId) setOpenId(coinId);
+      else setLaunchFor(scenarioId);
+    },
+    [launchedByScenario],
+  );
+  const seenEnded = useRef(new Set<string>());
+  useEffect(() => {
+    for (const l of snap.launches) {
+      if (l.ended && !seenEnded.current.has(l.coinId)) {
+        seenEnded.current.add(l.coinId);
+        setCardFor(l.coinId);
+      }
+    }
+  }, [snap.launches]);
+  const cardLaunch = cardFor ? snap.launches.find((l) => l.coinId === cardFor) ?? null : null;
+
   return (
     <div className="flex h-dvh">
       {/* The Tracker is its own window: full height, outside the app chrome. */}
       <div className={`h-full shrink-0 ${feedOpen ? "w-[350px]" : "w-10"}`}>
-        <TweetFeed tweets={snap.feed} wallStart={wallStart} pauseOnHover={!scoredMode} open={feedOpen} onToggle={() => setFeedOpen(!feedOpen)} />
+        <TweetFeed
+          tweets={snap.feed}
+          wallStart={wallStart}
+          pauseOnHover={!scoredMode && !devMode}
+          open={feedOpen}
+          onToggle={() => setFeedOpen(!feedOpen)}
+          dev={devMode ? { launched: launchedByScenario, onDev: onDevTweet } : undefined}
+        />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
       <TopNav
@@ -322,17 +366,17 @@ export function Game() {
         onWalletSel={(s) => engine.setWalletSel(s)}
         onMenu={toModes}
       />
-      <div className={`flex h-9 shrink-0 items-center justify-center gap-3 border-b border-line px-4 text-[12.5px] transition-colors ${statusStripClass(scored, snap.now)}`}>
-        {scored ? (
-          <RoundStatus scored={scored} now={snap.now} />
-        ) : (
-          <span className="text-amber">
-            {mode === "dev"
-              ? "DEV deploy arrives in phase 7. This is the free-running board for now."
-              : "Free play: a tweet and its runner every 30-60 s. Nothing is scored."}
-          </span>
-        )}
-      </div>
+      {devMode ? (
+        <LaunchesBar devSol={snap.devSol ?? 0} launches={snap.launches} openId={openId} onOpen={setOpenId} />
+      ) : (
+        <div className={`flex h-9 shrink-0 items-center justify-center gap-3 border-b border-line px-4 text-[12.5px] transition-colors ${statusStripClass(scored, snap.now)}`}>
+          {scored ? (
+            <RoundStatus scored={scored} now={snap.now} />
+          ) : (
+            <span className="text-amber">Free play: a tweet and its runner every 30-60 s. Nothing is scored.</span>
+          )}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 bg-bg p-2">
         <div className="h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-line bg-bg">
@@ -350,6 +394,7 @@ export function Game() {
             onOpen={setOpenId}
             notify={notify}
             features={features}
+            onLaunchReport={setCardFor}
           />
         ) : tab === "trending" ? (
           <Trending
@@ -391,6 +436,31 @@ export function Game() {
       {flash && <BuyFlash key={flash.id} flash={flash} />}
       {scored?.result && resultsShown && prevStats && (
         <ResultsOverlay result={scored.result} prev={prevStats} session={sessionStats} award={award} onNext={start} onMenu={toModes} />
+      )}
+
+      {launchFor && (
+        <LaunchPanel
+          engine={engine}
+          scenarioId={launchFor}
+          now={snap.now}
+          devSol={snap.devSol ?? 0}
+          onClose={() => setLaunchFor(null)}
+          onDeployed={(coinId) => {
+            setLaunchFor(null);
+            setOpenId(coinId);
+          }}
+          notify={notify}
+        />
+      )}
+      {cardLaunch && (
+        <LaunchCard
+          l={cardLaunch}
+          onClose={() => setCardFor(null)}
+          onOpen={() => {
+            setOpenId(cardLaunch.coinId);
+            setCardFor(null);
+          }}
+        />
       )}
 
       {toast && (

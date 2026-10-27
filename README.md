@@ -50,6 +50,28 @@ Campaign (rules in `src/campaign/progression.ts`, state in `src/store/campaign.t
 - **Admin (temporary):** the ADMIN button on menu screens, or the backtick key anywhere: set level, balances, reps,
   unlock everything, or reset the campaign.
 
+## Dev mode (phase 1)
+
+Standalone Dev mode (menu `2`): pick difficulty and a dev wallet of 10 / 50 / 200 SOL. A launchable tweet lands on
+the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mode-spec.md`; rules in
+`src/engine/dev.ts`).
+
+- **Launch panel:** name + ticker and picture picked from 3 / 4 / 5 near-miss options (Easy / Medium / Hard; keys
+  1-5 pick the name), launchpad, dividends, pair; Manual or Organic mode (Block-0 is next); dev buy, organic buys;
+  creator fees to you or cashback to holders; summary of opening MC, supply held and cost. Deploy fee 0.02 SOL.
+- **Rivals** deploy the right coin and its look-alikes 4-22 s after the tweet (faster on harder levels). First right
+  coin gets the narrative; a rival's right coin that lands after yours only gets scraps.
+- **Demand model:** your coins are not scripted. Organic buys and sells come from the tweet's heat, how right the
+  launch is (a wrong name or ticker never bonds), your share of the narrative, room under a per-launch ceiling,
+  momentum, your selling, and a per-launch narrative-luck roll. Tuned with `dev.harness.test.ts`
+  (`HARNESS=1 npx vitest run src/engine/dev.harness.test.ts --silent=false`): right and fast bonds ~80% (median peak
+  ~$100K, 1 in 20 past $1.5M), right but late ~15%, a wrong picture or config ~20%, a wrong ticker never.
+- **Dev Ops** on your coin's page: deployer and other-wallet holdings with sells of 0.1% / 1% / 3% / MAX of supply
+  (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
+  creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
+- **Launches bar** (dev wallet, every launch, session realised PnL) and a **launch card** when a launch ends:
+  outcome, peak MC, realised PnL, still holding, fees, and the tweet's name / ticker / picture / config against yours.
+
 ## Trader journey (FIRST TX setup)
 
 Home is "Choose your path": Trader (live) or Dev (coming soon). Levelling comes later. The trader picks:

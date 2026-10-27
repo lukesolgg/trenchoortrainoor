@@ -16,18 +16,19 @@ const COPY = {
     ],
   },
   dev: {
-    title: "DEV",
-    lead: "Deploy the meme from the tweet before the rival deployers do. Fill the form fast: the right ticker, the right config.",
+    title: "Dev mode",
+    lead: "Launch the meme from the tweet before the rival devs do, then run it: bond it, push it, and get your SOL out before it dies.",
     steps: [
-      ["Read the tweet", "Find the meme name and work out its best ticker."],
-      ["Fill the deploy form", "Name, ticker, image and config. Pre-fill gives you a fast guess that may be wrong."],
-      ["Deploy first", "Rival deployers land their coins on a clock. Beat them, then sell into the run."],
+      ["Hit Dev on a tweet", "Every meme tweet on the Tracker can be launched. Skip the ones you don't rate; launch as many as you like."],
+      ["Get it right", "Pick the right name and ticker and the right picture, then the config: Pump, Dividends on, the author's pair. A wrong ticker never bonds; a wrong picture or config cuts the buyers."],
+      ["Beat the rivals", "Rival devs launch their own versions a few seconds behind. The first right coin gets the narrative; late ones get scraps."],
+      ["Run the launch", "Sell from your deployer or your other wallets by % of supply, Nuke it all, claim creator fees. Selling early kills trust. A launch card shows how it went."],
     ],
   },
 } as const;
 
 export function Setup() {
-  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle, length, setLength, port, setPort } = useUi();
+  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle, length, setLength, port, setPort, devBalance, setDevBalance } = useUi();
   const copy = COPY[mode === "dev" ? "dev" : "firsttx"];
   const diff = DIFFICULTIES[difficulty];
 
@@ -74,6 +75,32 @@ export function Setup() {
               </div>
               <p className="mt-2 text-[12px] text-dim">{diff.blurb}</p>
             </div>
+            {mode === "dev" && (
+              <div>
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Dev wallet</div>
+                <div className="flex gap-2" role="radiogroup" aria-label="Dev wallet">
+                  {([10, 50, 200] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      role="radio"
+                      aria-checked={devBalance === n}
+                      onClick={() => setDevBalance(n)}
+                      className={`rounded-lg border px-3.5 py-2 text-[13px] font-bold transition-colors ${
+                        devBalance === n ? "border-violet bg-violet/15 text-violet" : "border-line-hi text-dim hover:text-ink"
+                      }`}
+                    >
+                      {n} SOL
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[12px] text-dim">
+                  Pays the 0.02 SOL deploy fee, your dev buy and any organic buys. Options to pick from: 3 on Easy, 4 on Medium, 5 on Hard. Rivals land faster the harder it is.
+                </p>
+              </div>
+            )}
+            {mode !== "dev" && (
+            <>
             <div>
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Length</div>
               <div className="flex gap-2" role="radiogroup" aria-label="Round length">
@@ -152,9 +179,11 @@ export function Setup() {
                 ))}
               </div>
               <p className="mt-2 text-[12px] text-dim">
-                Buy sizes scale with it. You have three wallets: one holding 5%+ of a coin scares buyers off (it only climbs a quarter as far), and 10% across all three is the max. Split big bags.
+                Buy sizes scale with it. You have five wallets: one holding 5%+ of a coin scares buyers off (it only climbs a quarter as far), and 10% across all of them is the max. Split big bags.
               </p>
             </div>
+            </>
+            )}
           </div>
         </section>
 
@@ -177,7 +206,7 @@ export function Setup() {
 
       <p className="mt-4 text-[12px] text-amber">
         {mode === "dev"
-          ? "DEV deploy arrives in phase 7: Start opens the free-running board for now."
+          ? "A Dev session runs until you leave: a new tweet every 35-55 s. Your trader wallet is there too, for trading other coins."
           : "Each round: 3 s countdown, then an armed wait of 4 to 30 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
       </p>
 
@@ -196,7 +225,7 @@ export function Setup() {
           onClick={start}
           className="flex items-center gap-2 rounded-lg bg-up px-5 py-2.5 text-[14px] font-extrabold text-black shadow-[0_0_24px_rgba(46,230,166,.35)] transition-[filter] hover:brightness-110"
         >
-          Start round <kbd className="rounded bg-black/20 px-1.5 text-[11px]">Space</kbd>
+          {mode === "dev" ? "Start session" : "Start round"} <kbd className="rounded bg-black/20 px-1.5 text-[11px]">Space</kbd>
         </button>
       </div>
     </main>

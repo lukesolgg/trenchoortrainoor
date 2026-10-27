@@ -3,7 +3,8 @@ import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type 
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
-import { BOOSTS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES } from "./content";
+import { checkLaunch, correctness, CREATOR_FEE_CURVE, CREATOR_FEE_POOL, DEPLOY_FEE_SOL, devCeilingUsd, devDemand, makeLaunchOptions, narrativeLuck, OPTION_COUNT, RIVAL_LAG_S, type DevChoice, type LaunchCheck, type LaunchOptions } from "./dev";
+import { BOOSTS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES, NOISE_AUTHORS } from "./content";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound, scoreSaga } from "./scoring";
 import {
   MEME_PACK,
@@ -43,6 +44,8 @@ import type {
   SocialEvent,
   RoundLength,
   VampView,
+  DevScenarioView,
+  LaunchView,
 } from "./types";
 
 export interface EngineOptions {
@@ -54,6 +57,8 @@ export interface EngineOptions {
   startingSol?: number;
   /** How many of your wallets you may use (1-5). Default all five. */
   walletCount?: number;
+  /** Dev mode: your dev wallet balance (SOL) and Dev Rep traction (0.5-1.2, default 1). */
+  dev?: { sol: number; rep?: number } | null;
   /** Your following (campaign KOL Rep). Tier 0 or absent: nobody tails you. */
   kol?: { tier: number; followers: number; name: string; handle: string } | null;
   /** Real clock in ms. Defaults to performance.now. */
@@ -96,6 +101,51 @@ interface Leg {
   noise: number;
   /** Where the leg started (SOL market cap). Set when the leg is entered; used by pre-migration scripts. */
   from?: number;
+}
+
+/** A coin you launched in Dev mode: your wallets in it, what it cost and returned, and its demand settings. */
+interface DevLaunch {
+  scenarioId: string;
+  check: LaunchCheck;
+  corr: number;
+  share: number;
+  /** First with the right coin. */
+  first: boolean;
+  heat0: number;
+  ceilingUsd: number;
+  launchedAt: number;
+  deployMs: number;
+  /** Tokens in your deployer wallet and in your other launch wallets. */
+  deployer: number;
+  holders: number;
+  /** Most you have held across them (for how much you have sold). */
+  initialTokens: number;
+  /** Tokens held by the organic market (what it can sell back). */
+  marketTokens: number;
+  spentSol: number;
+  gotSol: number;
+  rewards: "creator" | "cashback";
+  rewardsSol: number;
+  claimedSol: number;
+  peakMcUsd: number;
+  ended: boolean;
+  endReason: "died" | "closed" | null;
+  /** Market cap (USD) once a second, last 10 s, for momentum. */
+  hist: number[];
+  lastSample: number;
+}
+
+/** A Dev mode tweet and what rides on it. */
+interface DevScenario {
+  id: string;
+  meme: Meme;
+  plan: RoundPlan;
+  tweetAt: number;
+  options: LaunchOptions;
+  firstCorrect: { by: "you" | "rival"; at: number } | null;
+  /** Your coin off this tweet, if you launched one. */
+  launched: string | null;
+  source: TweetSource;
 }
 
 interface Coin {
@@ -173,6 +223,8 @@ interface Coin {
   tailers: { tokens: number; sol: number; at: number; dumped: boolean }[];
   /** Your call on this coin, if you posted one. */
   thesis: string | null;
+  /** Dev mode: a coin you launched (its organic market is simulated, not scripted). */
+  dev: DevLaunch | null;
   /** KOLs holding this coin: share of supply (%) and what they paid (SOL). */
   kolHold: Map<number, { pct: number; sol: number }>;
   volumeSol: number;
@@ -296,6 +348,10 @@ export class Engine {
     this.seedAmbient();
     this.scheduleAmbientLoops();
     if (opts.autoRounds) this.at(this.rng.range(8000, 50000), () => this.startRound());
+    if (opts.dev) {
+      this.devSol = opts.dev.sol;
+      this.at(this.rng.range(3000, 6000), () => this.startDevScenario());
+    }
     this.snap = this.buildSnapshot();
   }
 
@@ -378,7 +434,7 @@ export class Engine {
 
   // ------------------------------------------------------------------ coins
 
-  private spawn(spec: CoinSpec, at: number, source?: TweetSource | null): Coin {
+  private spawn(spec: CoinSpec, at: number, source?: TweetSource | null, mine = false): Coin {
     const id = `c${this.nextId++}`;
     const curve = curveLib.newCurve();
     // Cosmetic extras come from their own generator so they never shift the simulation's random stream.
@@ -435,6 +491,7 @@ export class Engine {
       kolHold: new Map(),
       tailers: [],
       thesis: null,
+      dev: null,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -458,9 +515,12 @@ export class Engine {
     const hr = new Rng([...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7));
     coin.anon = this.makeAnon(hr.chance(0.15) ? hr.int(1, 2) : 0, hr);
     this.coins.set(id, coin);
-    // Dev buy on launch, like the real thing.
-    this.applyBuy(coin, this.rng.range(0.2, 2.5), at, "bot");
-    this.scheduleFlow(coin, at);
+    // Your own launches make their own dev buy and run on the dev demand model (see devDeploy).
+    if (!mine) {
+      // Dev buy on launch, like the real thing.
+      this.applyBuy(coin, this.rng.range(0.2, 2.5), at, "bot");
+      this.scheduleFlow(coin, at);
+    }
     this.dirty = true;
     return coin;
   }
@@ -550,10 +610,10 @@ export class Engine {
   }
 
   /** A market sell by someone else (dev, KOL) with real price impact. Returns the SOL it got. */
-  private marketSell(c: Coin, at: number, tokens: number, who: string): number {
+  private marketSell(c: Coin, at: number, tokens: number, who?: string): number {
     if (tokens <= 0) return 0;
     const sol = this.applySell(c, tokens, at, "bot", true);
-    if (c.tape[0]) c.tape[0].trader = who;
+    if (who && c.tape[0]) c.tape[0].trader = who;
     return sol;
   }
 
@@ -760,6 +820,369 @@ export class Engine {
     });
     void from;
     this.emitNow();
+  }
+
+  // ------------------------------------------------------------------ dev mode
+
+  private devSol = 0;
+  private scenarios = new Map<string, DevScenario>();
+  private scenarioSeq = 1;
+  private launchIds: string[] = [];
+
+  /**
+   * A Dev mode tweet: it lands on the Tracker with a Dev button, and rival devs deploy their versions of it (the
+   * right coin and look-alikes) a few seconds behind. Whoever lands the right coin first gets the narrative.
+   */
+  private startDevScenario(): void {
+    const meme = this.rng.pick(this.pack);
+    const plan = makeRound(this.rng, meme, this.difficulty);
+    const id = `s${this.scenarioSeq++}`;
+    const at = this.simNow;
+    const options = makeLaunchOptions(new Rng(this.scenarioSeq * 7919 + 13), meme, this.pack, OPTION_COUNT[this.opts.difficulty]);
+    const [lo, hi] = RIVAL_LAG_S[this.opts.difficulty];
+    const sc: DevScenario = {
+      id,
+      meme,
+      plan,
+      tweetAt: at,
+      options,
+      firstCorrect: null,
+      launched: null,
+      source: { author: plan.author, segments: plan.segments },
+    };
+    this.scenarios.set(id, sc);
+    this.pushTweet(plan.author, plan.segments, true, meme.art, at, { scenarioId: id });
+    const rivalAt = at + this.rng.range(lo, hi) * 1000;
+    plan.spawns.forEach((s, i) => {
+      this.at(rivalAt + s.at, (a) => {
+        if (i !== plan.targetIndex) {
+          this.spawn(s.spec, a, sc.source);
+          return;
+        }
+        // You beat them to it: their copy only gets scraps.
+        if (sc.firstCorrect?.by === "you") {
+          this.spawn({ ...s.spec, role: "noise", profile: "bleed", ttlMs: 30_000 }, a, sc.source);
+          return;
+        }
+        const coin = this.spawn(s.spec, a, sc.source);
+        sc.firstCorrect = { by: "rival", at: a };
+        if (plan.athMcUsd) coin.athSol = plan.athMcUsd / SOL_USD;
+        this.scriptLaunch(coin, a);
+        if (meme.big) this.scriptBigCoin(coin, a, meme.big);
+      });
+    });
+    this.at(at + this.rng.range(35_000, 55_000), () => this.startDevScenario());
+    this.emitNow();
+  }
+
+  /** What the launch panel needs for a tweet (no answers). */
+  getDevScenario(id: string): DevScenarioView | null {
+    const sc = this.scenarios.get(id);
+    if (!sc) return null;
+    return {
+      id,
+      tweetAt: sc.tweetAt,
+      authorName: sc.plan.author.name,
+      names: sc.options.names.map((n) => ({ ...n })),
+      images: sc.options.images,
+      launchedCoinId: sc.launched,
+      rivalFirst: sc.firstCorrect?.by === "rival",
+    };
+  }
+
+  /** Market cap and supply share a launch would open at, before anyone else trades it. */
+  quoteLaunch(devBuySol: number, organicSol: number): { mcUsd: number; supplyPct: number } {
+    let c = curveLib.newCurve();
+    let tokens = 0;
+    for (const s of [devBuySol, organicSol]) {
+      if (s <= 0) continue;
+      const r = curveLib.buy(c, s);
+      c = r.curve;
+      tokens += r.tokens;
+    }
+    return { mcUsd: toUsd(curveLib.mcSol(c)), supplyPct: (tokens / SUPPLY) * 100 };
+  }
+
+  /**
+   * Launch your coin off a Dev mode tweet. Costs the deploy fee, your dev buy and any organic buys, all from the
+   * dev wallet. How it goes from there is down to the demand model: how right you got it, how early you were,
+   * and what you do with your bag.
+   */
+  devDeploy(scenarioId: string, choice: DevChoice): { ok: boolean; reason?: string; coinId?: string } {
+    const sc = this.scenarios.get(scenarioId);
+    if (!this.opts.dev || !sc) return { ok: false, reason: "That tweet is gone" };
+    if (sc.launched) return { ok: false, reason: "You already launched this one" };
+    const devBuy = Math.max(0, choice.devBuySol);
+    const organic = choice.mode === "organic" ? Math.max(0, choice.organicSol) : 0;
+    const cost = DEPLOY_FEE_SOL + devBuy + organic;
+    if (cost > this.devSol + 1e-9) return { ok: false, reason: `Not enough SOL in the dev wallet (${cost.toFixed(2)} needed)` };
+    const at = this.simNow;
+    const check = checkLaunch(choice, sc.options, sc.plan.rightConfig);
+    const corr = correctness(check);
+    const rightCoin = check.name && check.ticker;
+    const first = rightCoin && !sc.firstCorrect;
+    if (first) sc.firstCorrect = { by: "you", at };
+    const share = rightCoin ? (first ? 1 : 0.45) : 1;
+    const nm = sc.options.names[choice.nameIdx] ?? sc.options.names[0];
+    const spec: CoinSpec = {
+      ticker: nm.ticker,
+      name: nm.name,
+      art: sc.options.images[choice.imageIdx] ?? sc.options.images[0],
+      config: { launchpad: choice.launchpad, dividends: choice.dividends, pair: choice.pair },
+      role: "mine",
+      profile: "flat",
+      ttlMs: null,
+    };
+    this.devSol -= DEPLOY_FEE_SOL;
+    const c = this.spawn(spec, at, sc.source, true);
+    c.dev = {
+      scenarioId,
+      check,
+      corr,
+      share,
+      first,
+      heat0: (sc.meme.big ? 1.15 : 1) * narrativeLuck(this.rng),
+      ceilingUsd: devCeilingUsd(this.rng, sc.meme, corr, share),
+      launchedAt: at,
+      deployMs: at - sc.tweetAt,
+      deployer: 0,
+      holders: 0,
+      initialTokens: 0,
+      marketTokens: 0,
+      spentSol: DEPLOY_FEE_SOL,
+      gotSol: 0,
+      rewards: choice.rewards,
+      rewardsSol: 0,
+      claimedSol: 0,
+      peakMcUsd: 0,
+      ended: false,
+      endReason: null,
+      hist: [],
+      lastSample: at,
+    };
+    sc.launched = c.id;
+    this.launchIds.push(c.id);
+    if (devBuy > 0) {
+      const r = this.devWalletBuy(c, devBuy, at, "deployer");
+      c.devPct = (r / SUPPLY) * 100;
+      c.stats.dev = +c.devPct.toFixed(2);
+      this.social(c, at, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: devBuy, pct: c.devPct });
+    }
+    // Organic mode: a handful of fresh wallets of yours buy in over the first few seconds.
+    if (organic > 0) {
+      const n = this.rng.int(3, 6);
+      for (let i = 0; i < n; i++) {
+        this.at(at + this.rng.range(300, 3000), (a) => {
+          if (this.coins.has(c.id)) this.devWalletBuy(c, organic / n, a, "holders");
+        });
+      }
+    }
+    this.scheduleRoasts(c, sc);
+    this.at(at + 200, (a) => this.devFlow(c, a));
+    this.emitNow();
+    return { ok: true, coinId: c.id };
+  }
+
+  /** Buy your own coin from the dev wallet into one of your launch wallets. Returns tokens bought. */
+  private devWalletBuy(c: Coin, sol: number, at: number, into: "deployer" | "holders"): number {
+    const d = c.dev!;
+    const spend = Math.min(sol, this.devSol);
+    if (spend <= 0) return 0;
+    const r = this.applyBuy(c, spend, at, "bot");
+    if (r.tokens <= 0) return 0;
+    if (into === "deployer" && c.tape[0]) c.tape[0].trader = "DEV";
+    this.devSol -= r.spent;
+    d.spentSol += r.spent;
+    d[into] += r.tokens;
+    d.initialTokens = Math.max(d.initialTokens, d.deployer + d.holders);
+    return r.tokens;
+  }
+
+  /** The Tracker tells you when a launch is off: wrong name or ticker, wrong picture, wrong config. */
+  private scheduleRoasts(c: Coin, sc: DevScenario): void {
+    const d = c.dev!;
+    const t = c.spec.ticker;
+    const right = sc.options.names[sc.options.rightName];
+    const lines: string[] = [];
+    if (!d.check.ticker) lines.push(`$${t}? wrong ticker lol. it's $${right.ticker}`, `who aped $${t}. tweet says ${right.name}, not that`);
+    else if (!d.check.name) lines.push(`dev couldn't even spell ${right.name}. $${t} is cooked`);
+    if (!d.check.image) lines.push(`$${t} launched with the wrong pic. nobody's touching that`);
+    if (!d.check.launchpad) lines.push(`$${t} on bonk? that crowd lives on pump`);
+    if (!d.check.dividends) lines.push(`$${t} launched with dividends off. pass`);
+    if (!d.check.pair) lines.push(`$${t} paired /${c.spec.config.pair}? ${sc.plan.author.name} coins pair /${sc.plan.rightConfig.pair}`);
+    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+    this.rng
+      .shuffle(lines)
+      .slice(0, 2)
+      .forEach((text, i) => {
+        this.at(d.launchedAt + this.rng.range(4000, 9000) + i * this.rng.range(3000, 7000), (a) => {
+          const author = this.rng.pick(NOISE_AUTHORS);
+          const segs: TweetSeg[] = text.split(/(\$[A-Za-z0-9]+)/).filter(Boolean).map((x) => ({ text: x, hl: x.startsWith("$") }));
+          this.pushTweet({ ...author, followers: author.followers ?? fmt(this.rng.int(800, 40000)) }, segs, false, undefined, a);
+        });
+      });
+  }
+
+  /** One step of the organic market around a coin you launched (see devDemand). */
+  private devFlow(c: Coin, at: number): void {
+    const d = c.dev;
+    if (!d || !this.coins.has(c.id)) return;
+    if (c.migrated && at < c.lockUntil) {
+      this.at(at + 250, (a) => this.devFlow(c, a));
+      return;
+    }
+    const mcUsd = toUsd(this.mc(c));
+    d.peakMcUsd = Math.max(d.peakMcUsd, mcUsd);
+    if (at - d.lastSample >= 1000) {
+      d.hist.push(mcUsd);
+      if (d.hist.length > 10) d.hist.shift();
+      d.lastSample = at;
+    }
+    const momentum = d.hist.length >= 3 ? Math.log(mcUsd / d.hist[0]) : 0;
+    const sc = this.scenarios.get(d.scenarioId)!;
+    const dem = devDemand({
+      sinceTweetS: (at - sc.tweetAt) / 1000,
+      heat0: d.heat0,
+      corr: d.corr,
+      share: d.share,
+      rep: this.opts.dev?.rep ?? 1,
+      devSoldFrac: d.initialTokens > 0 ? 1 - (d.deployer + d.holders) / d.initialTokens : 0,
+      cashback: d.rewards === "cashback",
+      mcUsd,
+      ceilingUsd: d.ceilingUsd,
+      momentum,
+      migrated: c.migrated,
+    });
+    const fee = c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE;
+    if (this.rng.chance(dem.buyP)) {
+      const r = this.applyBuy(c, this.rng.lognormal(dem.buySol, 0.7), at, "bot");
+      d.marketTokens += r.tokens;
+      if (d.rewards === "creator") d.rewardsSol += r.spent * fee;
+    }
+    if (this.rng.chance(dem.sellP) && d.marketTokens > 0) {
+      const price = this.mc(c) / SUPPLY;
+      const tokens = Math.min(d.marketTokens * 0.3, this.rng.lognormal(dem.sellSol, 0.7) / price);
+      const got = this.applySell(c, tokens, at, "bot");
+      d.marketTokens -= tokens;
+      if (d.rewards === "creator") d.rewardsSol += got * fee;
+    }
+    // A launch is over once it has bled out and nobody is talking about it.
+    if (!d.ended && at - d.launchedAt > 45_000 && mcUsd < 4500 && dem.heat < 0.25) this.endLaunch(c, "died");
+    const quiet = dem.heat < 0.05 && mcUsd < 6000;
+    this.at(at + (quiet ? 1500 : this.rng.range(180, 320)), (a) => this.devFlow(c, a));
+  }
+
+  private endLaunch(c: Coin, reason: "died" | "closed"): void {
+    const d = c.dev!;
+    if (d.ended) return;
+    d.ended = true;
+    d.endReason = reason;
+    this.emitNow();
+  }
+
+  /** Sell from your deployer wallet or your other launch wallets: a % of total supply, or everything ("max"). */
+  devSellFrom(coinId: string, from: "deployer" | "holders", pctOfSupply: number | "max"): { ok: boolean; reason?: string; sol?: number } {
+    const c = this.coins.get(coinId);
+    const d = c?.dev;
+    if (!c || !d) return { ok: false, reason: "Not your launch" };
+    if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: wait a moment" };
+    const held = d[from];
+    const tokens = pctOfSupply === "max" ? held : Math.min(held, (SUPPLY * pctOfSupply) / 100);
+    if (tokens <= 1) return { ok: false, reason: "Nothing left in that wallet" };
+    // Deployer sells are public (DEV on the tape and chart); your other wallets look like anyone else.
+    const sol = this.marketSell(c, this.simNow, tokens, from === "deployer" ? "DEV" : undefined);
+    d[from] -= tokens;
+    this.devSol += sol;
+    d.gotSol += sol;
+    if (from === "deployer") {
+      const pct = (tokens / SUPPLY) * 100;
+      c.devPct = (d.deployer / SUPPLY) * 100;
+      c.stats.dev = +c.devPct.toFixed(2);
+      this.social(c, this.simNow, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, pct, all: d.deployer <= 1 }, false);
+    }
+    this.emitNow();
+    return { ok: true, sol };
+  }
+
+  /** Buy more of your own coin from the dev wallet (it goes to the deployer wallet). Forcing a bond works; it won't make it run. */
+  devBuy(coinId: string, sol: number): { ok: boolean; reason?: string } {
+    const c = this.coins.get(coinId);
+    if (!c?.dev) return { ok: false, reason: "Not your launch" };
+    if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: wait a moment" };
+    if (sol > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
+    const tokens = this.devWalletBuy(c, sol, this.simNow, "deployer");
+    if (tokens <= 0) return { ok: false, reason: "Buy failed" };
+    c.devPct = (c.dev.deployer / SUPPLY) * 100;
+    c.stats.dev = +c.devPct.toFixed(2);
+    this.social(c, this.simNow, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol, pct: (tokens / SUPPLY) * 100 });
+    this.emitNow();
+    return { ok: true };
+  }
+
+  /** Sell everything you hold in the launch, every wallet, at once. */
+  nuke(coinId: string): { ok: boolean; reason?: string; sol?: number } {
+    const a = this.devSellFrom(coinId, "holders", "max");
+    const b = this.devSellFrom(coinId, "deployer", "max");
+    if (!a.ok && !b.ok) return { ok: false, reason: b.reason ?? a.reason };
+    return { ok: true, sol: (a.sol ?? 0) + (b.sol ?? 0) };
+  }
+
+  /** Move your accrued creator rewards into the dev wallet. */
+  claimRewards(coinId: string): { ok: boolean; sol?: number } {
+    const d = this.coins.get(coinId)?.dev;
+    if (!d || d.rewardsSol <= 0) return { ok: false };
+    const sol = d.rewardsSol;
+    this.devSol += sol;
+    d.claimedSol += sol;
+    d.rewardsSol = 0;
+    this.emitNow();
+    return { ok: true, sol };
+  }
+
+  /** Stop managing a launch (it stays on the board; what you still hold is counted at its value). */
+  closeLaunch(coinId: string): void {
+    const c = this.coins.get(coinId);
+    if (c?.dev) this.endLaunch(c, "closed");
+  }
+
+  getLaunches(): LaunchView[] {
+    const out: LaunchView[] = [];
+    for (const id of this.launchIds) {
+      const c = this.coins.get(id);
+      const d = c?.dev;
+      if (!c || !d) continue;
+      const sc = this.scenarios.get(d.scenarioId)!;
+      const price = this.mc(c) / SUPPLY;
+      const right = sc.options.names[sc.options.rightName];
+      out.push({
+        coinId: id,
+        scenarioId: d.scenarioId,
+        ticker: c.spec.ticker,
+        name: c.spec.name,
+        art: c.spec.art,
+        mcUsd: toUsd(this.mc(c)),
+        peakMcUsd: d.peakMcUsd,
+        bonded: c.migrated,
+        ended: d.ended,
+        endReason: d.endReason,
+        deployerPct: (d.deployer / SUPPLY) * 100,
+        holdersPct: (d.holders / SUPPLY) * 100,
+        holdingsSol: (d.deployer + d.holders) * price,
+        spentSol: d.spentSol,
+        gotSol: d.gotSol,
+        rewardsMode: d.rewards,
+        rewardsSol: d.rewardsSol,
+        claimedSol: d.claimedSol,
+        pnlSol: d.gotSol + d.claimedSol - d.spentSol,
+        launchedAt: d.launchedAt,
+        deployMs: d.deployMs,
+        first: d.first,
+        check: d.check,
+        right: { name: right.name, ticker: right.ticker, art: sc.options.images[sc.options.rightImage], config: sc.plan.rightConfig },
+        config: c.spec.config,
+      });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ player extras
@@ -979,7 +1402,7 @@ export class Engine {
     const fmt = k.followers >= 1000 ? `${(k.followers / 1000).toFixed(k.followers >= 10000 ? 0 : 1)}K` : String(Math.round(k.followers));
     const author: Author = { name: k.name, handle: k.handle, followers: fmt, verified: k.tier >= 4, hue: 45, authority: false };
     const segs: TweetSeg[] = body.split(/(\$[A-Za-z0-9]+)/).filter(Boolean).map((x) => ({ text: x, hl: x.startsWith("$") }));
-    this.pushTweet(author, segs, false, undefined, this.simNow, true);
+    this.pushTweet(author, segs, false, undefined, this.simNow, { mine: true });
     this.social(c, this.simNow, { kind: "tweet", side: null, name: `${k.name} called it`, handle: k.handle, hue: 45, sol: 0, text: body });
     const pos = this.positions.get(coinId)!;
     this.tailBuy(c, pos.boughtSol, this.simNow, 1.5);
@@ -1866,6 +2289,8 @@ export class Engine {
       if (this.focusId === c.id) return;
       if (this.roundView?.targetCoinId === c.id) return;
       if (this.sagaCoins.has(c.id)) return;
+      // Your own launches stay on the board for as long as the session runs.
+      if (c.dev) return;
       this.coins.delete(c.id);
       this.dirty = true;
     };
@@ -1884,8 +2309,8 @@ export class Engine {
 
   // ------------------------------------------------------------------ tweets
 
-  private pushTweet(author: Author, segments: TweetSeg[], memeTweet: boolean, art: ArtSpec | undefined, at: number, mine = false): void {
-    this.feed.unshift({ id: `t${this.tweetId++}`, at, author, segments, art, memeTweet, ...(mine ? { mine } : {}) });
+  private pushTweet(author: Author, segments: TweetSeg[], memeTweet: boolean, art: ArtSpec | undefined, at: number, extra: { mine?: boolean; scenarioId?: string } = {}): void {
+    this.feed.unshift({ id: `t${this.tweetId++}`, at, author, segments, art, memeTweet, ...extra });
     if (this.feed.length > FEED_CAP) this.feed.length = FEED_CAP;
     this.dirty = true;
   }
@@ -2433,6 +2858,8 @@ export class Engine {
       walletSol: this.wallet,
       positions,
       walletSel: [...this.walletSel],
+      devSol: this.opts.dev ? this.devSol : null,
+      launches: this.getLaunches(),
       walletCount: this.walletCount,
       closed: [...this.closedLog],
       orders: this.orders.map((o) => ({ ...o })),

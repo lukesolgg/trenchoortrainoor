@@ -1,7 +1,8 @@
 export type Pair = "SOL" | "SPACEX" | "TESLA" | "PUMP";
 export type Launchpad = "pump" | "bonk";
 export type DifficultyId = "paper" | "trencher" | "sniper";
-export type CoinRole = "target" | "decoy" | "noise" | "ambient";
+/** "mine": a coin you launched in Dev mode. */
+export type CoinRole = "target" | "decoy" | "noise" | "ambient" | "mine";
 export type Flaw = "ticker" | "launchpad" | "dividends" | "pair";
 export type Stage = "new" | "final" | "migrated";
 export type Profile = "run" | "runLite" | "flat" | "bleed";
@@ -115,6 +116,8 @@ export interface TweetView {
   memeTweet: boolean;
   /** Your own call (KOL Rep thesis). */
   mine?: boolean;
+  /** Dev mode: a tweet you can launch a coin off. */
+  scenarioId?: string;
 }
 
 export interface Meme {
@@ -251,6 +254,56 @@ export interface Snapshot {
   round: RoundView | null;
   /** Present only in scored rounds. */
   scored: ScoredView | null;
+  /** Dev mode: the dev wallet (null outside Dev mode) and your launches, oldest first. */
+  devSol: number | null;
+  launches: LaunchView[];
+}
+
+/** A coin you launched in Dev mode, for the launches bar, the Dev Ops panel and the launch card. */
+export interface LaunchView {
+  coinId: string;
+  scenarioId: string;
+  ticker: string;
+  name: string;
+  art: ArtSpec;
+  mcUsd: number;
+  peakMcUsd: number;
+  bonded: boolean;
+  ended: boolean;
+  endReason: "died" | "closed" | null;
+  /** Share of supply in your deployer wallet and in your other launch wallets (%), and what it is all worth (SOL). */
+  deployerPct: number;
+  holdersPct: number;
+  holdingsSol: number;
+  /** Everything you put in (deploy fee, dev buy, organic buys, buys after), what your sells returned, rewards. */
+  spentSol: number;
+  gotSol: number;
+  rewardsMode: "creator" | "cashback";
+  rewardsSol: number;
+  claimedSol: number;
+  /** Realised: sells + claimed rewards − everything spent. */
+  pnlSol: number;
+  launchedAt: number;
+  /** ms from the tweet to your deploy. */
+  deployMs: number;
+  /** You were first with the right coin (rivals got scraps), or a rival beat you to it. */
+  first: boolean;
+  check: { name: boolean; ticker: boolean; image: boolean; launchpad: boolean; dividends: boolean; pair: boolean };
+  /** What the tweet called for. */
+  right: { name: string; ticker: string; art: ArtSpec; config: CoinConfig };
+  config: CoinConfig;
+}
+
+/** What the launch panel shows for a Dev mode tweet. The right answers stay in the engine. */
+export interface DevScenarioView {
+  id: string;
+  tweetAt: number;
+  authorName: string;
+  names: { name: string; ticker: string }[];
+  images: ArtSpec[];
+  launchedCoinId: string | null;
+  /** A rival's right coin is already on the board. */
+  rivalFirst: boolean;
 }
 
 export type RoundPhase = "countdown" | "armed" | "live" | "ended";

@@ -23,6 +23,7 @@ export function ModePicker() {
       const k = e.key.toLowerCase();
       if (k === "c") pickMode("campaign");
       if (k === "1") pickMode("firsttx");
+      if (k === "2") pickMode("dev");
       if (k === "f") pickMode("freeplay");
     };
     window.addEventListener("keydown", onKey);
@@ -80,7 +81,7 @@ export function ModePicker() {
         {/* Standalone modes */}
         <div className="grid grid-cols-2 gap-3">
           <Mode title="FIRST TX" hotkey="1" accent="#35d07f" live onPick={() => pickMode("firsttx")} blurb="Read the tweet, buy the right coin first. Blitz or Saga, any port." />
-          <Mode title="Dev mode" accent="#8b5cf6" blurb="Launch the meme, bundle it, bot it, bond it, run it." />
+          <Mode title="Dev mode" hotkey="2" accent="#8b5cf6" live onPick={() => pickMode("dev")} blurb="Launch the meme off the tweet before rival devs, bond it, run it, get out." />
           <Mode title="OG mode" accent="#4db8ff" blurb="Spot the original launch among the copies." />
           <Mode title="Mix" accent="#f472b6" blurb="Random rounds from every mode." />
         </div>

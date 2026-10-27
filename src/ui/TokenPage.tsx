@@ -1,5 +1,6 @@
 "use client";
 
+import { DevOps } from "./dev/DevOps";
 import { KOL_BUBBLE_TIER, type Features } from "@/campaign/progression";
 import { buyWarning, WALLET_NAMES } from "./Wallets";
 import { useEffect, useRef, useState } from "react";
@@ -78,6 +79,8 @@ interface Props {
   notify: (text: string) => void;
   /** What this player may use (campaign levels; everything in the standalone modes). */
   features: Features;
+  /** Dev mode: open a launch's report card. */
+  onLaunchReport?: (coinId: string) => void;
 }
 
 /** Toggle the chart's social layers: dev trades, KOL trades, boosts. */
@@ -121,9 +124,10 @@ function SocialMenu() {
   );
 }
 
-export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify, features }: Props) {
+export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify, features, onLaunchReport }: Props) {
   const coin = engine.getCoinView(coinId);
   const kol = engine.getKol();
+  const launch = snap.launches.find((l) => l.coinId === coinId);
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
   const instant = useUi((u) => u.instantTrade);
@@ -162,7 +166,8 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
   // Buy hotkeys 1-8 fire the active preset set (ignored while typing in a field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.repeat) return;
+      // A dialog over the page (launch panel, launch card) owns the keyboard.
+      if (e.target instanceof HTMLInputElement || e.repeat || document.querySelector("[data-modal]")) return;
       const i = ["1", "2", "3", "4", "5", "6", "7", "8"].indexOf(e.key);
       if (i < 0 || i >= buyPresets.length) return;
       e.preventDefault();
@@ -389,6 +394,32 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           </div>
         </div>
         <TradePanel
+          top={
+            launch && (
+              <DevOps
+                l={launch}
+                now={snap.now}
+                devSol={snap.devSol ?? 0}
+                onSell={(from, p) => {
+                  const r = engine.devSellFrom(coinId, from, p);
+                  notify(r.ok ? `Sold ${p === "max" ? "everything" : `${p}% of supply`} from ${from === "deployer" ? "the deployer" : "your other wallets"} for ${sol(r.sol ?? 0)} SOL` : (r.reason ?? "Sell failed"));
+                }}
+                onDevBuy={(v) => {
+                  const r = engine.devBuy(coinId, v);
+                  notify(r.ok ? `Dev bought ${v} SOL` : (r.reason ?? "Buy failed"));
+                }}
+                onNuke={() => {
+                  const r = engine.nuke(coinId);
+                  notify(r.ok ? `☢ Nuked: ${sol(r.sol ?? 0)} SOL out` : (r.reason ?? "Nothing to sell"));
+                }}
+                onClaim={() => {
+                  const r = engine.claimRewards(coinId);
+                  if (r.ok) notify(`Claimed ${sol(r.sol ?? 0, 3)} SOL of creator fees`);
+                }}
+                onReport={() => onLaunchReport?.(coinId)}
+              />
+            )
+          }
           holdingPct={engine.holdingPct(coinId)}
           walletPcts={engine.walletPcts(coinId)}
           walletSel={snap.walletSel}
