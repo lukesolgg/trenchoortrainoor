@@ -299,7 +299,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
   const [buyAmt, setBuyAmt] = useState("1");
   const [sellPct, setSellPct] = useState("100");
   const buyN = parseFloat(buyAmt);
-  const buyOk = Number.isFinite(buyN) && buyN > 0 && buyN <= walletSol;
+  const buyOk = Number.isFinite(buyN) && buyN > 0 && buyN * Math.max(1, walletSel.length) <= walletSol;
   const sellN = parseFloat(sellPct);
   const sellOk = Number.isFinite(sellN) && sellN > 0 && sellN <= 100;
 
@@ -398,6 +398,11 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
                 <span className="tabular mt-0.5 text-[10.5px] font-semibold normal-case tracking-normal text-faint" title="Paper wallet">
                   Bal <SolIcon /> {sol(walletSol, walletSol < 100 ? 2 : 0)}
                 </span>
+                {walletSel.length > 1 && (
+                  <span className="tabular mt-0.5 text-[10.5px] font-bold normal-case tracking-normal text-amber">
+                    per wallet · ×{walletSel.length} = {Number.isFinite(buyN) ? sol(buyN * walletSel.length) : "—"} SOL
+                  </span>
+                )}
               </span>
               <span className="flex items-center gap-1.5">
                 <input

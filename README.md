@@ -69,6 +69,9 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
 - **Dev Ops** on your coin's page: deployer and other-wallet holdings with sells of 0.1% / 1% / 3% / MAX of supply
   (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
   creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
+- **Wallet column** (Dev mode, right of the trade panel): one row per wallet, your launch wallets (deployer, other
+  launch wallets) and your trading wallets, each with its own buttons; flip the column between BUY (SOL per wallet)
+  and SELL (10/25/50/100% of that wallet's bag).
 - **Launches bar** (dev wallet, every launch, session realised PnL) and a **launch card** when a launch ends:
   outcome, peak MC, realised PnL, still holding, fees, and the tweet's name / ticker / picture / config against yours.
 
@@ -85,7 +88,7 @@ Rules worth knowing:
 
 - The runner sits in New Pairs for a few seconds, then Almost bonded for a few seconds, then migrates.
 - **Wallets and the 5% rule:** you have up to five wallets (Main, Side 1-4), sharing one SOL balance. Pick which
-  trade from the balance menu or the trade panel; buys split evenly over the selected ones, sells come out of each.
+  trade from the balance menu or the trade panel; a buy spends the amount in each selected wallet (GMGN-style: 3 wallets × 1 SOL = 3 SOL, three fills), sells come out of each.
   While any one wallet holds 5%+ of a coin, buyers hold back: before migration the launch runs at quarter speed,
   after it the coin only gets a quarter of each rise the script asks for (the rest is lost for good; drops land in
   full; boosts and DEX are blunted to a quarter). **Split ×2 / ×3** spreads a bag evenly, **Consolidate** pulls it

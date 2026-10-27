@@ -5,7 +5,7 @@ import { BIG_WALLET_PCT, type Engine } from "@/engine/engine";
 export const WALLET_NAMES = ["Main", "Side 1", "Side 2", "Side 3", "Side 4"];
 
 /**
- * Pick which wallets trade. Several can be on at once: buys split evenly across them, sells come out of each.
+ * Pick which wallets trade. Several can be on at once: a buy spends the amount in each of them (3 wallets × 1 SOL = 3 SOL), sells come out of each.
  * With `pcts`, each chip shows that wallet's share of the coin's supply (amber at 5%+).
  */
 export function WalletPicker({ sel, onSel, pcts, count }: { sel: readonly number[]; onSel: (s: number[]) => void; pcts?: number[]; count: number }) {

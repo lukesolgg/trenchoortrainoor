@@ -1105,16 +1105,19 @@ export class Engine {
   }
 
   /** Buy more of your own coin from the dev wallet (it goes to the deployer wallet). Forcing a bond works; it won't make it run. */
-  devBuy(coinId: string, sol: number): { ok: boolean; reason?: string } {
+  devBuy(coinId: string, sol: number, into: "deployer" | "holders" = "deployer"): { ok: boolean; reason?: string } {
     const c = this.coins.get(coinId);
     if (!c?.dev) return { ok: false, reason: "Not your launch" };
     if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: wait a moment" };
     if (sol > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
-    const tokens = this.devWalletBuy(c, sol, this.simNow, "deployer");
+    const tokens = this.devWalletBuy(c, sol, this.simNow, into);
     if (tokens <= 0) return { ok: false, reason: "Buy failed" };
-    c.devPct = (c.dev.deployer / SUPPLY) * 100;
-    c.stats.dev = +c.devPct.toFixed(2);
-    this.social(c, this.simNow, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol, pct: (tokens / SUPPLY) * 100 });
+    // Only the deployer's buys are public; your other wallets look like anyone.
+    if (into === "deployer") {
+      c.devPct = (c.dev.deployer / SUPPLY) * 100;
+      c.stats.dev = +c.devPct.toFixed(2);
+      this.social(c, this.simNow, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol, pct: (tokens / SUPPLY) * 100 });
+    }
     this.emitNow();
     return { ok: true };
   }
@@ -2402,7 +2405,11 @@ export class Engine {
    * (via fromEventTime) so click latency is not charged to the player.
    * In a scored round this is also where false starts and wrong coins are judged.
    */
-  quickBuy(coinId: string, sol: number, at: number = this.simNow): PlayerTrade | null {
+  /**
+   * `sol` is per wallet, like GMGN's multi-wallet buy: with three wallets selected, 1 SOL buys 1 SOL in each
+   * (three separate fills, 3 SOL in all). `wallets` overrides the selection (the per-wallet trade column).
+   */
+  quickBuy(coinId: string, sol: number, at: number = this.simNow, wallets?: number[]): PlayerTrade | null {
     // Catch the simulation up to the moment of the click, so the phase and the
     // price are the ones the player actually saw.
     if (at > this.simNow) this.advanceTo(at);
@@ -2414,7 +2421,13 @@ export class Engine {
       this.endScored("false_start", { buyAt: at });
       return null;
     }
-    if (sol <= 0 || sol > this.wallet + 1e-9) return null;
+    const which = (wallets ?? this.walletSel).filter((i) => i >= 0 && i < this.walletCount);
+    if (!which.length || sol <= 0) return null;
+    let total = sol * which.length;
+    if (total > this.wallet + 1e-9) {
+      this.buyNote = which.length > 1 ? `Not enough SOL: ${sol} × ${which.length} wallets is ${total.toFixed(2)} SOL` : null;
+      return null;
+    }
     const pos = this.positions.get(coinId) ?? newPos();
     // 10% of supply across all your wallets is the most you can hold: a bigger buy is trimmed to fit.
     const room = (SUPPLY * MAX_HOLD_PCT) / 100 - pos.tokens;
@@ -2422,26 +2435,34 @@ export class Engine {
       this.buyNote = `You already hold ${MAX_HOLD_PCT}% of supply: that's the max`;
       return null;
     }
-    const quote = this.quoteTokens(c, sol);
+    const quote = this.quoteTokens(c, total);
     if (quote > room) {
       // Tokens per SOL fall as price rises, so find the size that fits by bisection.
       let lo = 0;
-      let hi = sol;
+      let hi = total;
       for (let k = 0; k < 30; k++) {
         const mid = (lo + hi) / 2;
         if (this.quoteTokens(c, mid) > room * 0.998) hi = mid;
         else lo = mid;
       }
-      sol = lo;
-      this.buyNote = `Trimmed to ${sol.toFixed(2)} SOL: ${MAX_HOLD_PCT}% of supply is the max across your wallets`;
+      total = lo;
+      this.buyNote = `Trimmed to ${total.toFixed(2)} SOL: ${MAX_HOLD_PCT}% of supply is the max across your wallets`;
     }
 
     const rank = c.botBuys;
-    const { tokens, spent } = this.applyBuy(c, sol, this.simNow, "player");
+    // One fill per wallet, each moving the price for the next.
+    let tokens = 0;
+    let spent = 0;
+    for (const i of which) {
+      const r = this.applyBuy(c, total / which.length, this.simNow, "player");
+      if (r.tokens <= 0) continue;
+      pos.wallets[i] += r.tokens;
+      tokens += r.tokens;
+      spent += r.spent;
+    }
     if (tokens <= 0) return null;
     this.wallet -= spent;
     pos.tokens += tokens;
-    for (const i of this.walletSel) pos.wallets[i] += tokens / this.walletSel.length;
     pos.boughtTokens += tokens;
     pos.boughtSol += spent;
     this.positions.set(coinId, pos);
@@ -2493,14 +2514,15 @@ export class Engine {
    * Sell `fraction` of what the trading wallets hold (or of every wallet with `from: "all"`, as TP/SL orders do).
    * If the trading wallets hold none of it, it sells from all of them rather than doing nothing.
    */
-  sell(coinId: string, fraction: number, at: number = this.simNow, from: "selected" | "all" = "selected"): PlayerTrade | null {
+  sell(coinId: string, fraction: number, at: number = this.simNow, from: "selected" | "all" = "selected", wallets?: number[]): PlayerTrade | null {
     if (at > this.simNow) this.advanceTo(at);
     const c = this.coins.get(coinId);
     const pos = this.positions.get(coinId);
     if (!c || !pos || pos.tokens <= 0) return null;
     const f = Math.min(1, Math.max(0, fraction));
-    let which = from === "all" ? pos.wallets.map((_, i) => i) : this.walletSel;
-    if (which.every((i) => pos.wallets[i] <= 1e-6)) which = pos.wallets.map((_, i) => i);
+    let which = wallets ?? (from === "all" ? pos.wallets.map((_, i) => i) : this.walletSel);
+    // Only when no wallet was named: if the trading wallets hold none of it, sell from all of them.
+    if (!wallets && which.every((i) => pos.wallets[i] <= 1e-6)) which = pos.wallets.map((_, i) => i);
     const parts = pos.wallets.map((t, i) => (which.includes(i) ? t * f : 0));
     const tokens = parts.reduce((n, x) => n + x, 0);
     if (tokens <= 0) return null;

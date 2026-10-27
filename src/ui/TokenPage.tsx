@@ -1,5 +1,6 @@
 "use client";
 
+import { WalletColumn } from "./dev/WalletColumn";
 import { DevOps } from "./dev/DevOps";
 import { KOL_BUBBLE_TIER, type Features } from "@/campaign/progression";
 import { buyWarning, WALLET_NAMES } from "./Wallets";
@@ -128,6 +129,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
   const coin = engine.getCoinView(coinId);
   const kol = engine.getKol();
   const launch = snap.launches.find((l) => l.coinId === coinId);
+  const devMode = snap.devSol !== null;
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
   const instant = useUi((u) => u.instantTrade);
@@ -305,9 +307,9 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_380px]">
+      <div className={`grid min-h-0 flex-1 ${devMode ? "grid-cols-[minmax(0,1fr)_340px_250px]" : "grid-cols-[minmax(0,1fr)_380px]"}`}>
         <div className="flex min-h-0 min-w-0 flex-col">
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-nav px-3">
+          <div className="flex h-9 shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-line bg-nav px-3 [scrollbar-width:none]">
             <Seg value={tf} options={TFS.map((t) => ({ v: t.s, label: t.label }))} onChange={setTf} />
             <span className="h-4 w-px bg-line-hi" />
             <Seg value={metric} options={[{ v: "price", label: "Price" }, { v: "mc", label: "MC" }]} onChange={setMetric} />
@@ -461,6 +463,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           onBuy={buy}
           onSell={sell}
         />
+        {devMode && <WalletColumn engine={engine} coin={coin} launch={launch} devSol={snap.devSol ?? 0} walletSol={snap.walletSol} walletCount={snap.walletCount} notify={notify} />}
       </div>
     </div>
   );

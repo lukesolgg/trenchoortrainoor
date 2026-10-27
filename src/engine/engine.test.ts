@@ -1599,3 +1599,43 @@ describe("dev mode", () => {
     expect(q.supplyPct).toBeLessThan(10);
   });
 });
+
+describe("multi-wallet buys are per wallet", () => {
+  const make = () => {
+    const e = new Engine({ seed: 3, difficulty: "sniper", autoRounds: false, clock: () => 0, startingSol: 25 });
+    e.startRound({ leadMs: 0 });
+    return { e, id: landTarget(e) };
+  };
+
+  it("0.2 SOL with five wallets selected buys 0.2 SOL in each: five fills, 1 SOL", () => {
+    const { e, id } = make();
+    e.setWalletSel([0, 1, 2, 3, 4]);
+    const w0 = e.getSnapshot().walletSol;
+    const t = e.quickBuy(id, 0.2)!;
+    expect(w0 - e.getSnapshot().walletSol).toBeCloseTo(1, 9);
+    expect(t.sol).toBeCloseTo(1, 9);
+    const pcts = e.walletPcts(id);
+    expect(pcts.every((p) => p > 0)).toBe(true);
+    // Each later fill paid a slightly higher price, so it got slightly fewer tokens.
+    for (let i = 1; i < 5; i++) expect(pcts[i]).toBeLessThan(pcts[i - 1]);
+    expect(e.getTape(id).filter((x) => x.by === "you").length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("not enough SOL for every wallet is refused with a note", () => {
+    const { e, id } = make();
+    e.setWalletSel([0, 1, 2, 3, 4]);
+    expect(e.quickBuy(id, 6)).toBeNull();
+    expect(e.takeBuyNote()).toMatch(/5 wallets/);
+  });
+
+  it("named wallets override the selection, for buys and sells", () => {
+    const { e, id } = make();
+    e.quickBuy(id, 0.3, e.now(), [2]);
+    expect(e.walletPcts(id)[2]).toBeGreaterThan(0);
+    expect(e.walletPcts(id)[0]).toBe(0);
+    e.quickBuy(id, 0.3, e.now(), [0]);
+    for (let t = e.now(); e.now() < (e.getCoinView(id)!.migratingUntil ?? 0) || !e.sell(id, 1, e.now(), "selected", [2]); t += 250) e.advanceTo(t);
+    expect(e.walletPcts(id)[2]).toBe(0);
+    expect(e.walletPcts(id)[0]).toBeGreaterThan(0);
+  });
+});
