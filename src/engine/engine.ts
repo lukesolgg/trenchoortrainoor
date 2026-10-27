@@ -146,7 +146,10 @@ interface Coin {
   devPct: number;
   /** Saga: which chapter of the story this coin plays. Null outside saga. */
   sagaChapter: number | null;
-  /** Script time lost to stalls (the player holding 4%+): every script reads the clock as `at - pausedMs`. */
+  /**
+   * Before migration, script time lost while one of your wallets holds 5%+ (the script runs at quarter speed):
+   * pre-migration scripts read the clock as `at - pausedMs`.
+   */
   pausedMs: number;
   /** A pump laid over the script (a boost or DEX payment that worked): glide up to `peak`, then back to the script. */
   overlay: { start: number; peakAt: number; end: number; from: number; peak: number } | null;
@@ -156,6 +159,10 @@ interface Coin {
    */
   course: number;
   courseTarget: number;
+  /** Climb lost (log, never positive) while one of your wallets held 5%+: it only got a quarter of each rise. */
+  drag: number;
+  /** The script's level on the last step (before course and drag), to measure each step's rise. */
+  lastWant: number;
   /** Anonymous top wallets (% of supply), biggest first. Normal coins: none over ~3%. Coins set to rug: 1-2 whales. */
   anon: number[];
   /** KOLs holding this coin: share of supply (%) and what they paid (SOL). */
@@ -196,6 +203,21 @@ interface QueuedEvent {
 const FINAL_AT = 0.35;
 /** What a DEX profile costs, USD. */
 export const DEX_USD = 299;
+/** Your wallets, and the limits: one wallet at 5%+ of supply drags the coin; 10% across all of them is the cap. */
+export const WALLETS = 3;
+export const BIG_WALLET_PCT = 5;
+export const MAX_HOLD_PCT = 10;
+
+interface PosState {
+  tokens: number;
+  /** Tokens in each of your wallets (sums to `tokens`). */
+  wallets: number[];
+  boughtTokens: number;
+  boughtSol: number;
+  soldSol: number;
+  promoSol: number;
+}
+const newPos = (): PosState => ({ tokens: 0, wallets: Array(WALLETS).fill(0), boughtTokens: 0, boughtSol: 0, soldSol: 0, promoSol: 0 });
 const MAX_NEW = 40;
 const MAX_FINAL = 14;
 const MAX_MIGRATED = 30;
@@ -233,8 +255,12 @@ export class Engine {
   private wallet: number;
   private positions = new Map<
     string,
-    { tokens: number; boughtTokens: number; boughtSol: number; soldSol: number; promoSol: number }
+    PosState
   >();
+  /** Which of your wallets trade (buys split evenly across them; sells come out of each). */
+  private walletSel: number[] = [0];
+  /** Why the last buy was trimmed or refused, for a toast. Read once with takeBuyNote(). */
+  private buyNote: string | null = null;
   private focusId: string | null = null;
   private tapeSeq = 1;
   private trades: PlayerTrade[] = [];
@@ -392,6 +418,8 @@ export class Engine {
       overlay: null,
       course: 0,
       courseTarget: 0,
+      drag: 0,
+      lastWant: 0,
       anon: [],
       kolHold: new Map(),
       volumeSol: 0,
@@ -735,17 +763,72 @@ export class Engine {
 
   /** Top 10 holders' share of supply (pool excluded): you, the dev, KOLs and the anonymous wallets. */
   private top10(c: Coin): number {
-    const all = [...c.anon, c.devPct || c.stats.dev, ...[...c.kolHold.values()].map((h) => h.pct), this.holdingPct(c.id)]
+    const all = [...c.anon, c.devPct || c.stats.dev, ...[...c.kolHold.values()].map((h) => h.pct), ...this.walletPcts(c.id)]
       .filter((x) => x > 0)
       .sort((a, b) => b - a)
       .slice(0, 10);
     return Math.round(all.reduce((n, x) => n + x, 0) * 10) / 10;
   }
 
-  /** You hold 4%+ of supply: nobody apes a coin with a wallet that size. */
+  /** One of your wallets holds 5%+ of supply: buyers see it and hold back. */
   private bigHolder(c: Coin): boolean {
     const p = this.positions.get(c.id);
-    return !!p && p.tokens / SUPPLY >= 0.04;
+    return !!p && Math.max(...p.wallets) / SUPPLY >= BIG_WALLET_PCT / 100;
+  }
+
+  /** Each wallet's share of this coin's supply, in %. */
+  walletPcts(coinId: string): number[] {
+    const p = this.positions.get(coinId);
+    return p ? p.wallets.map((t) => (t / SUPPLY) * 100) : Array(WALLETS).fill(0);
+  }
+
+  getWalletSel(): readonly number[] {
+    return this.walletSel;
+  }
+
+  /** Choose which wallets trade. At least one. */
+  setWalletSel(sel: number[]): void {
+    const clean = [...new Set(sel.filter((i) => Number.isInteger(i) && i >= 0 && i < WALLETS))].sort();
+    if (!clean.length) return;
+    this.walletSel = clean;
+    this.emitNow();
+  }
+
+  /** Spread this coin's bag evenly over your first `n` wallets (2 or 3), and trade from all of them. */
+  splitPosition(coinId: string, n: number): boolean {
+    const pos = this.positions.get(coinId);
+    if (!pos || pos.tokens <= 1e-6 || n < 2 || n > WALLETS) return false;
+    pos.wallets = Array.from({ length: WALLETS }, (_, i) => (i < n ? pos.tokens / n : 0));
+    this.walletSel = Array.from({ length: n }, (_, i) => i);
+    this.emitNow();
+    return true;
+  }
+
+  /** Move this coin's bag into one wallet (the first one you trade from), and trade from just that one. */
+  consolidate(coinId: string): boolean {
+    const pos = this.positions.get(coinId);
+    if (!pos || pos.tokens <= 1e-6) return false;
+    const into = this.walletSel[0] ?? 0;
+    pos.wallets = pos.wallets.map((_, i) => (i === into ? pos.tokens : 0));
+    this.walletSel = [into];
+    this.emitNow();
+    return true;
+  }
+
+  takeBuyNote(): string | null {
+    const n = this.buyNote;
+    this.buyNote = null;
+    return n;
+  }
+
+  /** Tokens a buy of `sol` would get right now (no state change). */
+  private quoteTokens(c: Coin, sol: number): number {
+    if (c.migrated) {
+      const f = this.poolShare(c);
+      const net = sol * (1 - FEE);
+      return (f * SUPPLY * net) / (f * c.postMc + net);
+    }
+    return curveLib.buy(c.curve, sol).tokens;
   }
 
   /** Your share of this coin's supply, in %. */
@@ -755,12 +838,13 @@ export class Engine {
   }
 
   /** Who holds what: you, the dev, and any KOLs in it (% of supply). */
-  getHolders(coinId: string): { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[]; anon: number[] } {
+  getHolders(coinId: string): { youPct: number; you: number[]; devPct: number; kols: { name: string; handle: string; pct: number }[]; anon: number[] } {
     const c = this.coins.get(coinId);
-    if (!c) return { youPct: 0, devPct: 0, kols: [], anon: [] };
+    if (!c) return { youPct: 0, you: [], devPct: 0, kols: [], anon: [] };
     return {
       anon: c.anon,
       youPct: this.holdingPct(coinId),
+      you: this.walletPcts(coinId),
       devPct: c.stats.dev,
       kols: [...c.kolHold.entries()].map(([i, h]) => ({ name: KOLS[i].name, handle: KOLS[i].handle, pct: h.pct })),
     };
@@ -787,12 +871,13 @@ export class Engine {
     this.social(c, this.simNow, { kind: "boost", side: null, name: "Boost (you)", hue: 50, sol: cost, label: tier.label, usd: tier.usd, hours: tier.hours }, false);
     const odds: Record<string, number> = { x10: 0.2, x30: 0.3, x50: 0.4, x100: 0.55, x500: 0.7 };
     const alive = toUsd(c.postMc) > 12_000;
-    if (c.legs.length && alive && !this.bigHolder(c) && this.rng.chance(odds[tier.label] ?? 0.2)) {
+    if (c.legs.length && alive && this.rng.chance(odds[tier.label] ?? 0.2)) {
       // Towards the high if there is room, otherwise a fresh leg up.
       let ath = 0;
       for (const k of c.candles) ath = Math.max(ath, k.h);
       const level = c.postMc;
-      const mult = Math.min(4, Math.max(1.3, (ath / level) * this.rng.range(0.85, 1.1)));
+      let mult = Math.min(4, Math.max(1.3, (ath / level) * this.rng.range(0.85, 1.1)));
+      if (this.bigHolder(c)) mult = 1 + (mult - 1) * 0.25;
       this.overlayPump(c, this.simNow, mult, this.rng.range(6000, 15000), this.rng.range(15000, 35000));
       this.bendCourse(c, Math.log(this.rng.range(1.05, 1.25)));
     }
@@ -808,7 +893,7 @@ export class Engine {
   /** Boosts and DEX payments come out of the wallet and count against that coin's PnL. */
   private chargePromo(coinId: string, cost: number): void {
     this.wallet -= cost;
-    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtTokens: 0, boughtSol: 0, soldSol: 0, promoSol: 0 };
+    const pos = this.positions.get(coinId) ?? newPos();
     pos.promoSol += cost;
     this.positions.set(coinId, pos);
   }
@@ -825,10 +910,12 @@ export class Engine {
     c.dexPaid = true;
     this.social(c, this.simNow, { kind: "dex", side: null, name: "DEX paid (you)", hue: 200, sol: cost, usd: DEX_USD }, false);
     // Paying the DEX almost always turns it: a fresh leg up, and the story carries on from a higher level.
-    if (c.legs.length && !this.bigHolder(c) && this.rng.chance(0.85)) {
-      const lift = this.rng.range(1.2, 1.5);
+    if (c.legs.length && this.rng.chance(0.85)) {
+      // A 5%+ wallet blunts it to a quarter.
+      const q = this.bigHolder(c) ? 0.25 : 1;
+      const lift = Math.exp(Math.log(this.rng.range(1.2, 1.5)) * q);
       this.bendCourse(c, Math.log(lift));
-      this.overlayPump(c, this.simNow, lift * this.rng.range(1.25, 1.8), this.rng.range(12000, 25000), this.rng.range(30000, 60000));
+      this.overlayPump(c, this.simNow, lift * Math.exp(Math.log(this.rng.range(1.25, 1.8)) * q), this.rng.range(12000, 25000), this.rng.range(30000, 60000));
     }
     this.emitNow();
     return { ok: true };
@@ -937,7 +1024,7 @@ export class Engine {
       const hit = o.kind === "tp" ? mcUsd >= o.triggerMcUsd : mcUsd <= o.triggerMcUsd;
       if (!hit || this.simNow < c.lockUntil) continue;
       this.filling = true;
-      const trade = this.sell(c.id, o.fraction);
+      const trade = this.sell(c.id, o.fraction, this.simNow, "all");
       this.filling = false;
       if (!trade) continue;
       o.status = "filled";
@@ -1124,16 +1211,8 @@ export class Engine {
   /** One 100 ms step of a scripted pre-migration path: trade through the curve to stay on the glide. */
   private driveStep(c: Coin, at: number): void {
     if (!this.coins.has(c.id) || c.migrated) return;
-    // Nobody apes a coin with a 4%+ wallet: while you hold that much the script stands still and it slowly bleeds.
-    if (this.bigHolder(c)) {
-      c.pausedMs += 100;
-      if (this.rng.chance(0.25) && c.curve.realTok > 0) {
-        const price = curveLib.mcSol(c.curve) / SUPPLY;
-        this.applySell(c, Math.min(c.curve.realTok * 0.02, this.rng.range(0.05, 0.3) / price), at, "bot");
-      }
-      this.at(at + 100, (a) => this.driveStep(c, a));
-      return;
-    }
+    // A 5%+ wallet makes buyers hesitate: the launch script runs at a quarter of its speed while you hold it.
+    if (this.bigHolder(c)) c.pausedMs += 75;
     const st = at - c.pausedMs;
     const legs = c.preLegs;
     const i = legs.findIndex((l) => st < l.end);
@@ -1427,15 +1506,14 @@ export class Engine {
     }
 
     const before = c.postMc;
-    const stalled = scripted && this.bigHolder(c);
-    if (stalled) c.pausedMs += 250;
-    const st = at - c.pausedMs;
+    const heavy = scripted && this.bigHolder(c);
+    const st = at;
     if (scripted) {
       const leg = c.legs.find((l) => st < l.end);
       if ((leg?.kind === "rug" || leg?.kind === "spike") && leg.from === undefined) {
         // The whole move prints in one step: an insider dump, or a catalyst's giga candle.
         const up = leg.kind === "spike";
-        c.postMc = leg.to * Math.exp(c.course);
+        c.postMc = leg.to * Math.exp(c.course + c.drag);
         c.osc = 0;
         leg.from = leg.to;
         const size = Math.max(before, leg.to) * this.rng.range(0.04, 0.08);
@@ -1469,17 +1547,19 @@ export class Engine {
         const last = c.legs[c.legs.length - 1];
         want = Math.max(Math.min(last.to, 4500 / SOL_USD), last.to * Math.exp((-(st - last.end) * Math.LN2) / 90000));
       }
+      // While one of your wallets holds 5%+, the coin only gets a quarter of each rise the script asks for; the rest
+      // is lost for good (drops land in full).
+      if (c.lastWant > 0 && heavy && want > c.lastWant) c.drag -= Math.log(want / c.lastWant) * 0.75;
+      c.lastWant = want;
       // Your DEX payment, boosts and trades bend the course: the script now plays out from a different level.
       c.course += (c.courseTarget - c.course) * 0.05;
-      want *= Math.exp(c.course);
+      want *= Math.exp(c.course + c.drag);
       // A boost or DEX payment that worked lays a pump over the script, then hands back to it.
       const o = c.overlay;
       if (o && at < o.end) {
         if (at < o.peakAt) want = Math.max(want, o.from * Math.pow(o.peak / o.from, (at - o.start) / (o.peakAt - o.start)));
         else want = Math.max(want, o.peak * Math.pow(want / o.peak, (at - o.peakAt) / (o.end - o.peakAt)));
       } else if (o) c.overlay = null;
-      // Holding 4%+ of supply: no new buyers, it just bleeds.
-      if (stalled) want = (c.postMc / Math.exp(c.osc)) * Math.exp(-0.003);
       // Two layers. The level only moves with real size: a slow drift plus whale buys/sells that close most of the
       // gap to the script in one go (the further behind, the more likely). On top, a volume bot keeps the price
       // bouncing around that level, so candles wiggle both ways instead of stepping. Player trades move the level.
@@ -1491,7 +1571,7 @@ export class Engine {
         move = gap * this.rng.range(0.3, 0.6);
         volMul *= 2 + Math.abs(gap) * 20;
         whaleSide = move > 0 ? "buy" : "sell";
-      } else if (!stalled && leg && leg.kind !== "rug" && this.rng.chance(leg.kind === "base" ? 0.05 : 0.09)) {
+      } else if (leg && leg.kind !== "rug" && this.rng.chance(leg.kind === "base" ? 0.05 : 0.09)) {
         // Against the trend: panic sells into a pump, FOMO buys into a dip. The script pulls it back, so these print
         // as sharp counter-candles that shake out the weak hands.
         const against = leg.kind === "push" ? -1 : leg.kind === "dip" ? 1 : this.rng.chance(0.5) ? 1 : -1;
@@ -1809,13 +1889,33 @@ export class Engine {
       return null;
     }
     if (sol <= 0 || sol > this.wallet + 1e-9) return null;
+    const pos = this.positions.get(coinId) ?? newPos();
+    // 10% of supply across all your wallets is the most you can hold: a bigger buy is trimmed to fit.
+    const room = (SUPPLY * MAX_HOLD_PCT) / 100 - pos.tokens;
+    if (room < SUPPLY * 1e-3) {
+      this.buyNote = `You already hold ${MAX_HOLD_PCT}% of supply: that's the max`;
+      return null;
+    }
+    const quote = this.quoteTokens(c, sol);
+    if (quote > room) {
+      // Tokens per SOL fall as price rises, so find the size that fits by bisection.
+      let lo = 0;
+      let hi = sol;
+      for (let k = 0; k < 30; k++) {
+        const mid = (lo + hi) / 2;
+        if (this.quoteTokens(c, mid) > room * 0.998) hi = mid;
+        else lo = mid;
+      }
+      sol = lo;
+      this.buyNote = `Trimmed to ${sol.toFixed(2)} SOL: ${MAX_HOLD_PCT}% of supply is the max across your wallets`;
+    }
 
     const rank = c.botBuys;
     const { tokens, spent } = this.applyBuy(c, sol, this.simNow, "player");
     if (tokens <= 0) return null;
     this.wallet -= spent;
-    const pos = this.positions.get(coinId) ?? { tokens: 0, boughtTokens: 0, boughtSol: 0, soldSol: 0, promoSol: 0 };
     pos.tokens += tokens;
+    for (const i of this.walletSel) pos.wallets[i] += tokens / this.walletSel.length;
     pos.boughtTokens += tokens;
     pos.boughtSol += spent;
     this.positions.set(coinId, pos);
@@ -1862,16 +1962,25 @@ export class Engine {
     return trade;
   }
 
-  sell(coinId: string, fraction: number, at: number = this.simNow): PlayerTrade | null {
+  /**
+   * Sell `fraction` of what the trading wallets hold (or of every wallet with `from: "all"`, as TP/SL orders do).
+   * If the trading wallets hold none of it, it sells from all of them rather than doing nothing.
+   */
+  sell(coinId: string, fraction: number, at: number = this.simNow, from: "selected" | "all" = "selected"): PlayerTrade | null {
     if (at > this.simNow) this.advanceTo(at);
     const c = this.coins.get(coinId);
     const pos = this.positions.get(coinId);
     if (!c || !pos || pos.tokens <= 0) return null;
-    const tokens = pos.tokens * Math.min(1, Math.max(0, fraction));
+    const f = Math.min(1, Math.max(0, fraction));
+    let which = from === "all" ? pos.wallets.map((_, i) => i) : this.walletSel;
+    if (which.every((i) => pos.wallets[i] <= 1e-6)) which = pos.wallets.map((_, i) => i);
+    const parts = pos.wallets.map((t, i) => (which.includes(i) ? t * f : 0));
+    const tokens = parts.reduce((n, x) => n + x, 0);
     if (tokens <= 0) return null;
     if (this.simNow < c.lockUntil) return null;
     const sol = this.applySell(c, tokens, this.simNow, "player");
-    pos.tokens -= tokens;
+    pos.wallets = pos.wallets.map((t, i) => Math.max(0, t - parts[i]));
+    pos.tokens = Math.max(0, pos.tokens - tokens);
     pos.soldSol += sol;
     this.wallet += sol;
     this.logIfClosed(coinId, c, pos);
@@ -1961,7 +2070,7 @@ export class Engine {
       const check = (a: number) => {
         if (sc.phase !== "live") return;
         const last = this.sagaEndCoin;
-        if (last && a - last.pausedMs >= this.sagaEndAt) this.finishLive();
+        if (last && a >= this.sagaEndAt) this.finishLive();
         else if (!last && a >= this.sagaEndAt && this.allClosed()) this.finishLive();
         else this.at(a + 1000, check);
       };
@@ -2016,6 +2125,7 @@ export class Engine {
       const tokens = pos.tokens;
       const sol = this.applySell(c, tokens, this.simNow, "player", true);
       pos.tokens = 0;
+      pos.wallets = pos.wallets.map(() => 0);
       pos.soldSol += sol;
       this.wallet += sol;
       this.logIfClosed(coinId, c, pos);
@@ -2215,6 +2325,7 @@ export class Engine {
       feed: [...this.feed],
       walletSol: this.wallet,
       positions,
+      walletSel: [...this.walletSel],
       closed: [...this.closedLog],
       orders: this.orders.map((o) => ({ ...o })),
       round: this.roundView,

@@ -1,5 +1,7 @@
 "use client";
 
+import { WalletPicker, WALLET_NAMES } from "./Wallets";
+import { BIG_WALLET_PCT, MAX_HOLD_PCT } from "@/engine/engine";
 import { useState } from "react";
 import type { CoinView, Position } from "@/engine/types";
 import { pct, signed, sol, tokens, usd } from "./format";
@@ -101,10 +103,61 @@ interface Props {
   changePct: number;
   onBuy: (sol: number, eventTs: number) => void;
   onSell: (fraction: number, eventTs: number) => void;
-  /** Your share of supply (%). Over 4% the coin will not run. */
+  /** Your share of supply (%), all wallets. */
   holdingPct: number;
+  /** Each wallet's share of supply (%), and which wallets trade. */
+  walletPcts: number[];
+  walletSel: readonly number[];
+  onWalletSel: (s: number[]) => void;
+  onSplit: (n: number) => void;
+  onConsolidate: () => void;
   onBoost: (label: string) => void;
   onPayDex: () => void;
+}
+
+/** Your three wallets on this coin: which ones trade, split the bag, pull it back together, and the 5% / 10% rules. */
+function Wallets({ pcts, sel, onSel, held, holdingPct, onSplit, onConsolidate }: {
+  pcts: number[];
+  sel: readonly number[];
+  onSel: (s: number[]) => void;
+  held: boolean;
+  holdingPct: number;
+  onSplit: (n: number) => void;
+  onConsolidate: () => void;
+}) {
+  const bigIdx = pcts.findIndex((p) => p >= BIG_WALLET_PCT);
+  const used = pcts.filter((p) => p > 1e-4).length;
+  const btn = "rounded-md border border-line px-2 py-1 text-[11px] font-bold text-dim transition-colors enabled:hover:border-line-hi enabled:hover:text-ink disabled:opacity-40";
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between text-[11px]">
+        <span className="font-bold text-dim">Wallets</span>
+        <span className={`tabular ${holdingPct >= MAX_HOLD_PCT - 0.05 ? "font-bold text-down" : "text-faint"}`}>
+          {holdingPct.toFixed(2)}% of supply · max {MAX_HOLD_PCT}%
+        </span>
+      </div>
+      <WalletPicker sel={sel} onSel={onSel} pcts={pcts} />
+      <div className="flex gap-1.5">
+        <button type="button" className={btn} disabled={!held} onClick={() => onSplit(2)} title="Spread the bag evenly over Main and Wallet 2">
+          Split ×2
+        </button>
+        <button type="button" className={btn} disabled={!held} onClick={() => onSplit(3)} title="Spread the bag evenly over all three wallets">
+          Split ×3
+        </button>
+        <button type="button" className={btn} disabled={!held || used < 2} onClick={onConsolidate} title="Move the whole bag into the first selected wallet">
+          Consolidate
+        </button>
+      </div>
+      {bigIdx >= 0 && (
+        <div className="rounded-lg border border-amber/50 bg-amber/10 px-3 py-2 text-[12px] leading-snug text-amber">
+          <span className="font-extrabold">
+            {WALLET_NAMES[bigIdx]} holds {pcts[bigIdx].toFixed(1)}% of supply.
+          </span>{" "}
+          Buyers hold back from a {BIG_WALLET_PCT}%+ wallet: while it&apos;s that big the coin only climbs a quarter as far. Split it or trim.
+        </div>
+      )}
+    </div>
+  );
 }
 
 const BOOSTS = [
@@ -158,7 +211,7 @@ function Promote({ coin, walletSol, locked, onBoost, onPayDex }: { coin: CoinVie
   );
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, onBoost, onPayDex }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -392,12 +445,15 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
           </div>
         )}
 
-        {holdingPct >= 4 && (
-          <div className="rounded-lg border border-amber/50 bg-amber/10 px-3 py-2 text-[12px] leading-snug text-amber">
-            <span className="font-extrabold">You hold {holdingPct.toFixed(1)}% of supply.</span> Nobody apes a coin with a 4%+ wallet, so it
-            won&apos;t run until you&apos;re under 4%.
-          </div>
-        )}
+        <Wallets
+          pcts={walletPcts}
+          sel={walletSel}
+          onSel={onWalletSel}
+          held={held}
+          holdingPct={holdingPct}
+          onSplit={onSplit}
+          onConsolidate={onConsolidate}
+        />
         <div className="grid grid-cols-4 gap-1.5">
           <Mini k="Bought">
             <SolIcon />{sol(position?.boughtSol ?? 0)}

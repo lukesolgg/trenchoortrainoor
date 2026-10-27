@@ -1,7 +1,8 @@
 "use client";
 
 import { useUi } from "@/store/ui";
-import type { RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { WalletPicker, WALLET_NAMES } from "./Wallets";
 import type { NavTab } from "@/store/ui";
 import { sol } from "./format";
 import { Logo } from "./Logo";
@@ -16,6 +17,8 @@ interface Props {
   onQuery: (q: string) => void;
   searchRef: RefObject<HTMLInputElement | null>;
   walletSol: number;
+  walletSel: readonly number[];
+  onWalletSel: (s: number[]) => void;
   onMenu: () => void;
 }
 
@@ -30,6 +33,51 @@ const ITEMS: Item[] = [
   { id: "portfolio", label: "Portfolio" },
   { id: "rewards", label: "Rewards" },
 ];
+
+/** Balance pill that opens the wallet switcher: which of your three wallets trade. */
+function WalletMenu({ walletSol, sel, onSel }: { walletSol: number; sel: readonly number[]; onSel: (s: number[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [open]);
+  const label = sel.length === WALLET_NAMES.length ? "All wallets" : sel.map((i) => WALLET_NAMES[i]).join(" + ");
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="tabular flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-bold transition-colors hover:border-line-hi"
+        title="Paper wallets"
+      >
+        <SolIcon />
+        {sol(walletSol)}
+        <span className="ml-1 max-w-[120px] truncate text-[11px] font-semibold text-dim">{label}</span>
+        <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 text-faint" fill="currentColor" aria-hidden>
+          <path d="M2 4l4 4 4-4z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-[300px] rounded-xl border border-line-hi bg-card p-3 shadow-2xl">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-[12px] font-bold">Trade from</span>
+            <span className="text-[10.5px] text-faint">SOL is shared across wallets</span>
+          </div>
+          <WalletPicker sel={sel} onSel={onSel} />
+          <p className="mt-2 text-[11px] leading-snug text-dim">
+            Buys split evenly over the selected wallets; sells come out of each. One wallet at 5%+ of a coin drags it, 10% across all is the max.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Top bar: brand, sections, search, wallet. CopyTrade, Monitor and Track are placeholders. */
 function MuteButton() {
@@ -52,7 +100,7 @@ function MuteButton() {
   );
 }
 
-export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery, searchRef, walletSol, onMenu }: Props) {
+export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery, searchRef, walletSol, walletSel, onWalletSel, onMenu }: Props) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-nav px-4">
       <Logo />
@@ -95,10 +143,7 @@ export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery,
           />
           <kbd className="rounded border border-line-hi px-1.5 text-[11px] text-dim">/</kbd>
         </div>
-        <div className="tabular flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-bold" title="Paper wallet">
-          <SolIcon />
-          {sol(walletSol)}
-        </div>
+        <WalletMenu walletSol={walletSol} sel={walletSel} onSel={onWalletSel} />
         <MuteButton />
         <button
           type="button"

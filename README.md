@@ -38,7 +38,12 @@ Home is "Choose your path": Trader (live) or Dev (coming soon). Levelling comes 
 Rules worth knowing:
 
 - The runner sits in New Pairs for a few seconds, then Almost bonded for a few seconds, then migrates.
-- **4% rule:** while you hold 4% or more of supply the coin stalls (its script clock pauses and it bleeds). Sell under 4% and it resumes.
+- **Wallets and the 5% rule:** you have three wallets (Main, Wallet 2, Wallet 3), sharing one SOL balance. Pick which
+  trade from the balance menu or the trade panel; buys split evenly over the selected ones, sells come out of each.
+  While any one wallet holds 5%+ of a coin, buyers hold back: before migration the launch runs at quarter speed,
+  after it the coin only gets a quarter of each rise the script asks for (the rest is lost for good; drops land in
+  full; boosts and DEX are blunted to a quarter). **Split ×2 / ×3** spreads a bag evenly, **Consolidate** pulls it
+  into one wallet. 10% of supply across all wallets is the max: bigger buys are trimmed to fit.
 - **Promote** (token page, post-migration): buy x10-x500 boosts or pay the DEX profile ($299) from your balance. Each has a chance,
   not a promise, of pumping the coin back towards its ATH.
 - KOL tweets and catalysts print an immediate giga candle, then heavy volume either way.

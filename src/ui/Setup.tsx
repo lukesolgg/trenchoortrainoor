@@ -152,7 +152,7 @@ export function Setup() {
                 ))}
               </div>
               <p className="mt-2 text-[12px] text-dim">
-                Buy sizes scale with it. Careful with size: a wallet over 4% of a coin&apos;s supply scares buyers off and it won&apos;t run.
+                Buy sizes scale with it. You have three wallets: one holding 5%+ of a coin scares buyers off (it only climbs a quarter as far), and 10% across all three is the max. Split big bags.
               </p>
             </div>
           </div>

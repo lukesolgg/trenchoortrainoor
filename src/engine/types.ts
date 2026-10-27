@@ -192,6 +192,8 @@ export interface Position {
   boughtTokens: number;
   boughtSol: number;
   soldSol: number;
+  /** Tokens in each of your wallets. */
+  wallets: number[];
   /** Boosts and DEX payments you bought for this coin (count against its PnL). */
   promoSol: number;
   /** Mark-to-market value of the remaining tokens. */
@@ -232,6 +234,8 @@ export interface Snapshot {
   feed: TweetView[];
   walletSol: number;
   positions: Position[];
+  /** Which of your wallets trade (indexes). */
+  walletSel: number[];
   /** Fully closed positions this session, oldest first. */
   closed: ClosedTrade[];
   /** TP/SL orders, newest first. */

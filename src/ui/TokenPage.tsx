@@ -1,5 +1,6 @@
 "use client";
 
+import { buyWarning, WALLET_NAMES } from "./Wallets";
 import { useEffect, useRef, useState } from "react";
 import { MIGRATION_MC_USD, SOL_USD, SUPPLY } from "@/engine/curve";
 import type { Engine } from "@/engine/engine";
@@ -133,15 +134,13 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
 
   const buy = (amount: number, eventTs: number) => {
     const trade = engine.quickBuy(coinId, amount, engine.fromEventTime(eventTs));
-    const pct = engine.holdingPct(coinId);
     notify(
-      trade && pct >= 4
-        ? `You now hold ${pct.toFixed(1)}% of supply: over 4%, nobody apes it until you trim below`
-        : trade
+      buyWarning(engine, coinId, trade !== null) ??
+      (trade
         ? `Bought ${sol(trade.sol)} SOL of ${coin?.ticker ?? "coin"} · ${trade.rank} bot buys ahead of you`
         : engine.isMigrating(coinId)
           ? "Migrating: buys reopen in a moment"
-          : "Buy failed: not enough SOL, or the curve is complete",
+          : "Buy failed: not enough SOL, or the curve is complete"),
     );
   };
 
@@ -385,6 +384,15 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
         </div>
         <TradePanel
           holdingPct={engine.holdingPct(coinId)}
+          walletPcts={engine.walletPcts(coinId)}
+          walletSel={snap.walletSel}
+          onWalletSel={(s) => engine.setWalletSel(s)}
+          onSplit={(n) => {
+            if (engine.splitPosition(coinId, n)) notify(`Split your ${coin.ticker} evenly over ${n} wallets · trading from all ${n}`);
+          }}
+          onConsolidate={() => {
+            if (engine.consolidate(coinId)) notify(`Moved all your ${coin.ticker} into ${WALLET_NAMES[engine.getWalletSel()[0]]}`);
+          }}
           onBoost={(label) => {
             const r = engine.buyBoost(coinId, label);
             notify(r.ok ? `🚀 Boost ${label} is live on ${coin.ticker}` : (r.reason ?? "Boost failed"));

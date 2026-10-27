@@ -1,5 +1,6 @@
 "use client";
 
+import { buyWarning } from "./Wallets";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory } from "@/store/history";
 import { DIFFICULTIES } from "@/engine/difficulty";
@@ -72,15 +73,13 @@ export function Game() {
       const trade = engine.quickBuy(coinId, amount, engine.fromEventTime(eventTs));
       const s = snapRef.current;
       const coin = [...s.newPairs, ...s.finalStretch, ...s.migrated].find((c) => c.id === coinId);
-      const pct = engine.holdingPct(coinId);
       notify(
-        trade && pct >= 4
-          ? `You now hold ${pct.toFixed(1)}% of ${coin?.ticker ?? "it"}: over 4%, nobody apes it until you trim below`
-          : trade
+        buyWarning(engine, coinId, trade !== null) ??
+        (trade
           ? `Bought ${sol(trade.sol, 2)} SOL of ${coin?.ticker ?? "coin"} · ${trade.rank} bot buys ahead of you`
           : engine.isMigrating(coinId)
             ? "Migrating: buys reopen in a moment"
-            : "Buy failed: not enough SOL, or the coin is gone",
+            : "Buy failed: not enough SOL, or the coin is gone"),
       );
     },
     [engine, notify],
@@ -283,6 +282,8 @@ export function Game() {
         onQuery={setQuery}
         searchRef={searchRef}
         walletSol={snap.walletSol}
+        walletSel={snap.walletSel}
+        onWalletSel={(s) => engine.setWalletSel(s)}
         onMenu={toModes}
       />
       <div className={`flex h-9 shrink-0 items-center justify-center gap-3 border-b border-line px-4 text-[12.5px] transition-colors ${statusStripClass(scored, snap.now)}`}>

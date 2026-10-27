@@ -300,10 +300,10 @@ describe("token page data", () => {
     const e = make();
     e.startRound({ leadMs: 0 });
     const id = landTarget(e);
-    e.quickBuy(id, 2);
-    e.quickBuy(id, 3);
+    e.quickBuy(id, 0.5);
+    e.quickBuy(id, 0.3);
     const pos = e.getSnapshot().positions[0];
-    expect(pos.boughtSol).toBeCloseTo(5, 5);
+    expect(pos.boughtSol).toBeCloseTo(0.8, 5);
     expect(pos.boughtTokens).toBeGreaterThan(pos.tokens - 1e-6);
     expect(e.getTradesFor(id)).toHaveLength(2);
     expect(e.getTradesFor(id)[0].execAt).toBe(e.now());
@@ -1130,15 +1130,70 @@ describe("4% rule, boosts and DEX", () => {
     return { e, id };
   };
 
-  it("holding 4%+ of supply stalls the coin until you sell below it", () => {
+  it("a 5%+ wallet slows the launch to a quarter speed instead of stopping it", () => {
     const { e, id } = run(1, 3);
-    expect(e.holdingPct(id)).toBeGreaterThan(4);
-    e.advanceTo(e.now() + 30000);
+    expect(Math.max(...e.walletPcts(id))).toBeGreaterThan(5);
+    e.advanceTo(e.now() + 8000);
     expect(e.getCoinView(id)!.migratedAt).toBeNull();
-    // Trim under 4%: it runs again.
-    while (e.holdingPct(id) >= 4) e.sell(id, 0.5);
+    // Split over three wallets: none is 5%+ any more, so it runs at full speed.
+    expect(e.splitPosition(id, 3)).toBe(true);
+    expect(Math.max(...e.walletPcts(id))).toBeLessThan(5);
     e.advanceTo(e.now() + 30000);
     expect(e.getCoinView(id)!.migratedAt).not.toBeNull();
+  });
+
+  it("10% of supply across all wallets is the cap: a bigger buy is trimmed, then refused", () => {
+    const { e, id } = run(4, 0);
+    e.quickBuy(id, 50);
+    expect(e.holdingPct(id)).toBeLessThanOrEqual(10.01);
+    expect(e.holdingPct(id)).toBeGreaterThan(9);
+    expect(e.takeBuyNote()).toMatch(/Trimmed/);
+    expect(e.quickBuy(id, 1)).toBeNull();
+    expect(e.takeBuyNote()).toMatch(/max/);
+  });
+
+  it("split, consolidate and wallet switching move the bag and pick who trades", () => {
+    const { e, id } = run(5, 0.6);
+    const total = e.holdingPct(id);
+    e.splitPosition(id, 2);
+    expect(e.walletPcts(id)[0]).toBeCloseTo(total / 2, 6);
+    expect(e.walletPcts(id)[1]).toBeCloseTo(total / 2, 6);
+    expect(e.getSnapshot().walletSel).toEqual([0, 1]);
+    // Trade from wallet 2 only: a sell takes from it alone.
+    e.setWalletSel([1]);
+    for (let t = e.now(); e.now() < (e.getCoinView(id)!.migratingUntil ?? 0) || !e.sell(id, 1); t += 250) e.advanceTo(t);
+    expect(e.walletPcts(id)[1]).toBeCloseTo(0, 6);
+    expect(e.walletPcts(id)[0]).toBeGreaterThan(0);
+    // Buys land in the selected wallet; consolidate pulls everything into it.
+    e.quickBuy(id, 0.2);
+    expect(e.walletPcts(id)[1]).toBeGreaterThan(0);
+    e.consolidate(id);
+    expect(e.walletPcts(id)[0]).toBe(0);
+    expect(e.walletPcts(id)[1]).toBeCloseTo(e.holdingPct(id), 6);
+  });
+
+  it("after migration a 5%+ wallet only lets the coin climb a quarter as far", () => {
+    // Same seed twice: once holding a 5%+ wallet through the climb, once split under the line.
+    const climb = (split: boolean) => {
+      const e = new Engine({ seed: 6, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut] });
+      e.startRound({ memeId: "pnut", leadMs: 0 });
+      const id = landTarget(e);
+      e.quickBuy(id, 3);
+      e.splitPosition(id, 3);
+      for (let t = e.now(); e.getCoinView(id)!.migratedAt === null || e.now() < (e.getCoinView(id)!.migratingUntil ?? 0); t += 250) e.advanceTo(t);
+      if (!split) e.consolidate(id);
+      let peak = 0;
+      for (let t = e.now(), end = e.now() + 20000; t < end; t += 250) {
+        e.advanceTo(t);
+        peak = Math.max(peak, e.getCoinView(id)!.mcUsd);
+      }
+      return { peak, drag: (e as unknown as { coins: Map<string, { drag: number }> }).coins.get(id)!.drag };
+    };
+    const free = climb(true);
+    const heavy = climb(false);
+    expect(free.drag).toBe(0);
+    expect(heavy.drag).toBeLessThan(0);
+    expect(heavy.peak).toBeLessThan(free.peak);
   });
 
   it("you can pay the DEX once and buy boosts after migration, out of your wallet", () => {

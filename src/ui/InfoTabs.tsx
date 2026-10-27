@@ -1,5 +1,7 @@
 "use client";
 
+import { BIG_WALLET_PCT } from "@/engine/engine";
+import { WALLET_NAMES } from "./Wallets";
 import { useMemo, useState } from "react";
 import type { CoinView, Order, Position, TapeEntry } from "@/engine/types";
 import { Rng } from "@/engine/rng";
@@ -41,7 +43,7 @@ interface Props {
   onCancelOrder: (id: number) => void;
   currentId: string;
   /** Known holders: you, the dev and KOLs (% of supply). */
-  holders: { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[]; anon: number[] };
+  holders: { youPct: number; you: number[]; devPct: number; kols: { name: string; handle: string; pct: number }[]; anon: number[] };
 }
 
 /** The one panel under the chart. Holders, top holders and dev tokens are modelled, not real wallets. */
@@ -277,7 +279,10 @@ function topHolders(coin: CoinView, known: Props["holders"]): HolderRow[] {
   const rows: HolderRow[] = [];
   if (coin.stage === "migrated") rows.push({ key: "lp", label: "Liquidity pool", pct: coin.mcUsd > 0 ? (coin.liqUsd / 2 / coin.mcUsd) * 100 : 0, tag: "LP" });
   const named: HolderRow[] = [];
-  if (known.youPct > 0.001) named.push({ key: "you", label: "You", pct: known.youPct, tag: "YOU" });
+  // One row per wallet of yours that holds any (Main, Wallet 2, Wallet 3).
+  known.you.forEach((pct, i) => {
+    if (pct > 0.001) named.push({ key: `you-${i}`, label: `You · ${WALLET_NAMES[i]}`, pct, tag: "YOU" });
+  });
   if (known.devPct > 0.001) named.push({ key: "dev", label: "Dev wallet", pct: known.devPct, tag: "DEV" });
   for (const k of known.kols) named.push({ key: `kol-${k.handle}`, label: k.name, pct: k.pct, tag: "KOL", pic: `/kols/${k.handle.toLowerCase()}.jpg` });
   // Anonymous wallets come from the sim too (stable per coin), so the Top 10 % adds up.
@@ -288,8 +293,7 @@ function topHolders(coin: CoinView, known: Props["holders"]): HolderRow[] {
   const sorted = [...named, ...anon].sort((a, b) => b.pct - a.pct);
   const top = sorted.slice(0, 10);
   // You always see your own row, even outside the top 10.
-  const you = sorted.find((h) => h.key === "you");
-  if (you && !top.includes(you)) top.push(you);
+  for (const h of sorted) if (h.tag === "YOU" && !top.includes(h)) top.push(h);
   return [...rows, ...top];
 }
 
@@ -308,7 +312,7 @@ function Holders({ coin, known }: { coin: CoinView; known: Props["holders"] }) {
       <div className="grid grid-cols-6 border-b border-line">
         <StatBox k="Holders" v={coin.holders.toLocaleString("en-US")} />
         <StatBox k="Top 10" v={`${coin.stats.top10}%`} bad={coin.stats.top10 >= 25} />
-        <StatBox k="You hold" v={`${known.youPct.toFixed(2)}%`} bad={known.youPct >= 4} />
+        <StatBox k="You hold" v={`${known.youPct.toFixed(2)}%`} bad={known.you.some((p) => p >= BIG_WALLET_PCT)} />
         <StatBox k="Dev holds" v={`${known.devPct.toFixed(2)}%`} bad={known.devPct >= 5} />
         <StatBox k="KOLs in" v={String(known.kols.length)} />
         <StatBox k="Bonded" v={coin.stage === "migrated" ? "100%" : `${Math.round(coin.progress * 100)}%`} />
@@ -338,7 +342,7 @@ function Holders({ coin, known }: { coin: CoinView; known: Props["holders"] }) {
               </td>
               <td className="tabular py-1.5 text-right">
                 <span className="mr-2 inline-block h-1.5 w-16 overflow-hidden rounded-full bg-line align-middle">
-                  <span className={`block h-full ${h.tag === "YOU" ? "bg-blue" : h.pct >= 4 && h.tag !== "LP" ? "bg-down/80" : "bg-up/70"}`} style={{ width: `${Math.min(100, h.pct * 4)}%` }} />
+                  <span className={`block h-full ${h.tag === "YOU" ? "bg-blue" : h.pct >= BIG_WALLET_PCT && h.tag !== "LP" ? "bg-down/80" : "bg-up/70"}`} style={{ width: `${Math.min(100, h.pct * 4)}%` }} />
                 </span>
                 {h.pct.toFixed(2)}%
               </td>
