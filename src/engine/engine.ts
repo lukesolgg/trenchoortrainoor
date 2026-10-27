@@ -54,6 +54,8 @@ export interface EngineOptions {
   startingSol?: number;
   /** How many of your wallets you may use (1-5). Default all five. */
   walletCount?: number;
+  /** Your following (campaign KOL Rep). Tier 0 or absent: nobody tails you. */
+  kol?: { tier: number; followers: number; name: string; handle: string } | null;
   /** Real clock in ms. Defaults to performance.now. */
   clock?: () => number;
   /** Training style: a wrong buy costs points but does not end the round. */
@@ -167,6 +169,10 @@ interface Coin {
   lastWant: number;
   /** Anonymous top wallets (% of supply), biggest first. Normal coins: none over ~3%. Coins set to rug: 1-2 whales. */
   anon: number[];
+  /** Your followers who tailed you into this coin: what each holds, paid, and when they bought. */
+  tailers: { tokens: number; sol: number; at: number; dumped: boolean }[];
+  /** Your call on this coin, if you posted one. */
+  thesis: string | null;
   /** KOLs holding this coin: share of supply (%) and what they paid (SOL). */
   kolHold: Map<number, { pct: number; sol: number }>;
   volumeSol: number;
@@ -427,6 +433,8 @@ export class Engine {
       lastWant: 0,
       anon: [],
       kolHold: new Map(),
+      tailers: [],
+      thesis: null,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -893,6 +901,94 @@ export class Engine {
   /** Shift the coin's course (log units), within limits. */
   private bendCourse(c: Coin, by: number): void {
     c.courseTarget = Math.max(-1.5, Math.min(1.5, c.courseTarget + by));
+  }
+
+  // ------------------------------------------------------------------ your following (KOL Rep)
+
+  private kolStats = { tailers: 0, tailSol: 0, dumpedOn: 0, called: false };
+
+  /**
+   * Followers copy a buy of yours a few seconds later: more of them, and bigger, the higher your tier. Real buys
+   * with real impact, but never more than twice what you bought (a call brings a bigger wave).
+   */
+  private tailBuy(c: Coin, sol: number, at: number, wave = 1): void {
+    const k = this.opts.kol;
+    if (!k || k.tier < 1 || sol <= 0) return;
+    const r = this.rng;
+    const tier = Math.min(5, Math.floor(k.tier));
+    const counts: [number, number][] = [[0, 0], [0, 1], [1, 3], [2, 4], [3, 6], [5, 10]];
+    const sizes: [number, number][] = [[0, 0], [0.05, 0.3], [0.1, 0.5], [0.2, 1], [0.3, 1.5], [0.5, 2]];
+    let n = tier === 1 ? (r.chance(0.35) ? 1 : 0) : r.int(counts[tier][0], counts[tier][1]);
+    n = Math.round(n * wave);
+    let budget = sol * 2 * wave;
+    // Small buys get a crowd of small tailers, not one big one: sizes shrink so the whole crowd fits the cap.
+    const avg = (sizes[tier][0] + sizes[tier][1]) / 2;
+    const scale = n > 0 ? Math.min(1, budget / (n * avg)) : 1;
+    for (let i = 0; i < n && budget > 0.005; i++) {
+      const s = Math.min(budget, r.range(sizes[tier][0], sizes[tier][1]) * scale);
+      budget -= s;
+      this.at(at + r.range(1500, 6000), (a) => {
+        if (!this.coins.has(c.id)) return;
+        const got = this.applyBuy(c, s, a, "bot");
+        if (got.tokens <= 0) return;
+        if (c.tape[0]) c.tape[0].trader = "Tailer";
+        c.tailers.push({ tokens: got.tokens, sol: got.spent, at: a, dumped: false });
+        this.kolStats.tailers++;
+        this.kolStats.tailSol += got.spent;
+        this.touch(c);
+      });
+    }
+  }
+
+  /**
+   * You sold `fraction` of your bag: your tailers follow you out a few seconds later. Selling a real chunk within
+   * 20 s of them buying in is dumping on your followers.
+   */
+  private tailSell(c: Coin, fraction: number, at: number): void {
+    if (!c.tailers.length || fraction <= 0) return;
+    for (const t of c.tailers) {
+      if (t.tokens <= 1e-6) continue;
+      if (fraction >= 0.25 && !t.dumped && at - t.at < 20_000) {
+        t.dumped = true;
+        this.kolStats.dumpedOn++;
+      }
+      const tok = t.tokens * Math.min(1, fraction);
+      t.tokens -= tok;
+      this.at(at + this.rng.range(2000, 8000), (a) => {
+        if (this.coins.has(c.id)) this.marketSell(c, a, tok, "Tailer");
+      });
+    }
+  }
+
+  /**
+   * Post a call on a coin you hold: it goes out to your followers on the Tracker and on the chart, and pulls in a
+   * bigger wave of tailers. One call per coin.
+   */
+  postThesis(coinId: string, text: string): { ok: boolean; reason?: string } {
+    const k = this.opts.kol;
+    const c = this.coins.get(coinId);
+    if (!k || k.tier < 1) return { ok: false, reason: "Nobody follows you yet: build KOL Rep first" };
+    if (!c) return { ok: false, reason: "Coin is gone" };
+    if (!this.holding(coinId)) return { ok: false, reason: "Buy it first: a call is a coin you're in" };
+    if (c.thesis !== null) return { ok: false, reason: "You already called this one" };
+    const tag = `$${c.spec.ticker}`;
+    let body = text.trim().slice(0, 160) || tag;
+    if (!body.toUpperCase().includes(tag.toUpperCase())) body = `${body} ${tag}`;
+    c.thesis = body;
+    this.kolStats.called = true;
+    const fmt = k.followers >= 1000 ? `${(k.followers / 1000).toFixed(k.followers >= 10000 ? 0 : 1)}K` : String(Math.round(k.followers));
+    const author: Author = { name: k.name, handle: k.handle, followers: fmt, verified: k.tier >= 4, hue: 45, authority: false };
+    const segs: TweetSeg[] = body.split(/(\$[A-Za-z0-9]+)/).filter(Boolean).map((x) => ({ text: x, hl: x.startsWith("$") }));
+    this.pushTweet(author, segs, false, undefined, this.simNow, true);
+    this.social(c, this.simNow, { kind: "tweet", side: null, name: `${k.name} called it`, handle: k.handle, hue: 45, sol: 0, text: body });
+    const pos = this.positions.get(coinId)!;
+    this.tailBuy(c, pos.boughtSol, this.simNow, 1.5);
+    this.emitNow();
+    return { ok: true };
+  }
+
+  getKol(): { tier: number; followers: number; name: string; handle: string } | null {
+    return this.opts.kol && this.opts.kol.tier >= 1 ? this.opts.kol : null;
   }
 
   /** Boosts and DEX payments come out of the wallet and count against that coin's PnL. */
@@ -1788,8 +1884,8 @@ export class Engine {
 
   // ------------------------------------------------------------------ tweets
 
-  private pushTweet(author: Author, segments: TweetSeg[], memeTweet: boolean, art: ArtSpec | undefined, at: number): void {
-    this.feed.unshift({ id: `t${this.tweetId++}`, at, author, segments, art, memeTweet });
+  private pushTweet(author: Author, segments: TweetSeg[], memeTweet: boolean, art: ArtSpec | undefined, at: number, mine = false): void {
+    this.feed.unshift({ id: `t${this.tweetId++}`, at, author, segments, art, memeTweet, ...(mine ? { mine } : {}) });
     if (this.feed.length > FEED_CAP) this.feed.length = FEED_CAP;
     this.dirty = true;
   }
@@ -1926,6 +2022,7 @@ export class Engine {
     this.positions.set(coinId, pos);
     const trade: PlayerTrade = { coinId, side: "buy", at, execAt: this.simNow, sol: spent, tokens, rank };
     this.trades.push(trade);
+    this.tailBuy(c, spent, this.simNow);
 
     // Saga vamps: getting onto the new narrative is timed; its look-alikes cost points but never end the round.
     if (sc && sc.phase === "live" && (c.spec.wave ?? 0) > 0) {
@@ -1991,6 +2088,7 @@ export class Engine {
     this.logIfClosed(coinId, c, pos);
     const trade: PlayerTrade = { coinId, side: "sell", at, execAt: this.simNow, sol, tokens, rank: c.botBuys };
     this.trades.push(trade);
+    this.tailSell(c, tokens / (tokens + pos.tokens), this.simNow);
 
     // Selling out of the right coin finishes a successful round.
     const sc = this.scored;
@@ -2209,6 +2307,7 @@ export class Engine {
       training: !!this.opts.training,
       length: this.length,
       vamps: sc.vamps.map((v) => ({ ...v })),
+      kol: { tailers: this.kolStats.tailers, tailSol: this.kolStats.tailSol, dumpedOn: this.kolStats.dumpedOn, called: this.kolStats.called },
     };
   }
 
@@ -2298,6 +2397,9 @@ export class Engine {
       proTraders: Math.round(c.holders * c.proFrac),
       bundlers: c.bundlers,
       dexPaid: c.dexPaid,
+      called: c.thesis !== null,
+      tailers: c.tailers.length,
+      tailSol: c.tailers.reduce((n, t) => n + t.sol, 0),
       pair: c.pair,
       mint: c.mint,
       creator: c.creator,

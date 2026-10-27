@@ -41,6 +41,12 @@ Campaign (rules in `src/campaign/progression.ts`, state in `src/store/campaign.t
 - Ranks: Fresh Wallet 1, Paper Hands 3, Jeeter 5, Trencher 8, Degen 11, Sniper 15, Chad 20, Whale 25, Insider 30.
 - Level gates on existing features: Medium 2, TP/SL 3, Saga 4, side wallets at 5/8/11/18, boosts 7, DEX and Hard 10,
   consolidate 11, Dev 15. Market threats per level are listed on the road (only vamps are in so far).
+- **KOL Rep** (from level 8, campaign only): Rep points → tiers Anon Caller 30 / Micro KOL 120 / Rising 400 / KOL 1200 /
+  Big KOL 3500, followers 50 → 50K. Followers tail your buys 1.5-6 s later (real buys, capped at 2× yours) and
+  follow you out when you sell. Post a call on a coin you hold (once per coin) for a bigger wave; it goes to the
+  Tracker and the chart. From Rising your trades draw as your own bubble. Rep per round: profitable trades, early
+  entries and calls that play out add; getting rugged, bad calls and dumping on followers (selling 25%+ within
+  20 s of them buying) cost.
 - **Admin (temporary):** the ADMIN button on menu screens, or the backtick key anywhere: set level, balances, reps,
   unlock everything, or reset the campaign.
 

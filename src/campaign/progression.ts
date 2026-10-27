@@ -100,8 +100,52 @@ export const UNLOCKS: { level: number; label: string; threat?: string; threatLiv
   { level: 30, label: "Insider prestige badge" },
 ];
 
+// ------------------------------------------------------------------ KOL Rep
+
+/** KOL tiers: Rep points where each starts, and followers at that point. */
+export const KOL_TIERS: { name: string; at: number; followers: number }[] = [
+  { name: "Nobody", at: 0, followers: 0 },
+  { name: "Anon Caller", at: 30, followers: 50 },
+  { name: "Micro KOL", at: 120, followers: 500 },
+  { name: "Rising", at: 400, followers: 2000 },
+  { name: "KOL", at: 1200, followers: 10000 },
+  { name: "Big KOL", at: 3500, followers: 50000 },
+];
+/** Tier where your own bubble shows on the chart. */
+export const KOL_BUBBLE_TIER = 3;
+
+export const kolTier = (points: number): number => KOL_TIERS.reduce((t, k, i) => (points >= k.at ? i : t), 0);
+
+/** Followers grow smoothly between tiers (and keep growing past Big KOL, slowly). */
+export function followersFor(points: number): number {
+  const t = kolTier(points);
+  const a = KOL_TIERS[t];
+  const b = KOL_TIERS[t + 1] ?? { at: a.at * 2.3, followers: a.followers * 2 };
+  if (t === 0) return Math.round((points / KOL_TIERS[1].at) * 20);
+  const f = Math.min(1.5, (points - a.at) / (b.at - a.at));
+  return Math.round(a.followers * Math.pow(b.followers / a.followers, f));
+}
+
+/**
+ * KOL Rep for one round: good trades build it, getting rugged and dumping on your followers cost it, and a call
+ * you posted pays (or costs) extra depending on how it played out.
+ */
+export function kolRepFor(r: RoundResult): { label: string; rep: number }[] {
+  const out: { label: string; rep: number }[] = [];
+  const success = r.outcome === "success";
+  if (success && r.pnlPct > 0) out.push({ label: `Profitable trade (+${Math.round(r.pnlPct)}%)`, rep: Math.round(Math.min(30, 3 + r.pnlPct / 25)) });
+  if (success && r.buyNumber !== null && r.buyNumber <= 5) out.push({ label: "Early on the right coin", rep: 4 });
+  if (r.boughtSol > 0 && r.pnlPct <= -60) out.push({ label: "Got rugged holding", rep: -10 });
+  if (r.kol.called && r.pnlPct >= 50) out.push({ label: "Your call played out", rep: 10 });
+  if (r.kol.called && r.pnlPct <= -30) out.push({ label: "Bad call", rep: -10 });
+  if (r.kol.dumpedOn > 0) out.push({ label: `Dumped on ${r.kol.dumpedOn} follower${r.kol.dumpedOn > 1 ? "s" : ""}`, rep: -Math.min(30, r.kol.dumpedOn * 6) });
+  return out;
+}
+
 export interface CampaignProgress {
   xp: number;
+  /** KOL Rep points (counted from campaign level 8). */
+  kolPoints: number;
   traderSol: number;
   rounds: number;
   /** Consecutive rounds with the right coin bought. */
@@ -117,6 +161,10 @@ export interface Award {
   solBefore: number;
   solAfter: number;
   bust: boolean;
+  /** KOL Rep this round (empty before level 8). */
+  kolLines: { label: string; rep: number }[];
+  kolBefore: number;
+  kolAfter: number;
 }
 
 /**
@@ -159,9 +207,23 @@ export function awardRound(p: CampaignProgress, r: RoundResult, endSol: number):
     lines.push({ label: `Busted: topped up to ${START_SOL} SOL`, xp: -lost });
     solAfter = START_SOL;
   }
-  const next: CampaignProgress = { xp, traderSol: solAfter, rounds: p.rounds + 1, streak, firsts };
+  // KOL Rep counts once your following is unlocked (level 8).
+  const kolLines = featuresFor(levelBefore).kolRep ? kolRepFor(r) : [];
+  const kolPoints = Math.max(0, p.kolPoints + kolLines.reduce((n, l) => n + l.rep, 0));
+  const next: CampaignProgress = { xp, kolPoints, traderSol: solAfter, rounds: p.rounds + 1, streak, firsts };
   return {
     next,
-    award: { lines, xp: lines.reduce((n, l) => n + l.xp, 0), levelBefore, levelAfter: levelForXp(xp), solBefore: p.traderSol, solAfter, bust },
+    award: {
+      lines,
+      xp: lines.reduce((n, l) => n + l.xp, 0),
+      levelBefore,
+      levelAfter: levelForXp(xp),
+      solBefore: p.traderSol,
+      solAfter,
+      bust,
+      kolLines,
+      kolBefore: p.kolPoints,
+      kolAfter: kolPoints,
+    },
   };
 }

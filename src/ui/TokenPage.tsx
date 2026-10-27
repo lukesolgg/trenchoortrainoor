@@ -1,6 +1,6 @@
 "use client";
 
-import type { Features } from "@/campaign/progression";
+import { KOL_BUBBLE_TIER, type Features } from "@/campaign/progression";
 import { buyWarning, WALLET_NAMES } from "./Wallets";
 import { useEffect, useRef, useState } from "react";
 import { MIGRATION_MC_USD, SOL_USD, SUPPLY } from "@/engine/curve";
@@ -123,6 +123,7 @@ function SocialMenu() {
 
 export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify, features }: Props) {
   const coin = engine.getCoinView(coinId);
+  const kol = engine.getKol();
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
   const instant = useUi((u) => u.instantTrade);
@@ -346,6 +347,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               earlyAvgMcUsd={coin.earlyAvgMcUsd}
               ticker={coin.ticker}
               show={social}
+              youKol={kol && kol.tier >= KOL_BUBBLE_TIER ? kol : null}
             />
           </div>
           <div className="flex h-7 shrink-0 items-center gap-2 border-t border-line bg-nav px-3">
@@ -391,6 +393,11 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           walletPcts={engine.walletPcts(coinId)}
           walletSel={snap.walletSel}
           walletCount={snap.walletCount}
+          kol={kol}
+          onPostCall={(text) => {
+            const r = engine.postThesis(coinId, text);
+            notify(r.ok ? `Call posted to ${kol?.followers.toLocaleString("en-US")} followers: they're coming in` : (r.reason ?? "Could not post"));
+          }}
           canConsolidate={features.consolidate}
           canBoost={features.boosts}
           canPayDex={features.dex}

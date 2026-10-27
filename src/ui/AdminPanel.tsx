@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { levelForXp, MAX_LEVEL, rankFor, xpForLevel } from "@/campaign/progression";
+import { KOL_TIERS, kolTier, levelForXp, MAX_LEVEL, rankFor, xpForLevel } from "@/campaign/progression";
 import { useCampaign } from "@/store/campaign";
 import { useUi } from "@/store/ui";
 
@@ -81,8 +81,15 @@ export function AdminPanel() {
               />
             </label>
             <label className="text-[10.5px] font-bold uppercase tracking-wider text-faint">
-              KOL Rep (0-5)
-              <input type="number" min={0} max={5} value={c.kolRep} onChange={(e) => c.admin({ kolRep: num(e.target.value, 0, 5) })} className={`${field} mt-1`} />
+              KOL tier · {KOL_TIERS[kolTier(c.kolPoints)].name}
+              <input
+                type="number"
+                min={0}
+                max={5}
+                value={kolTier(c.kolPoints)}
+                onChange={(e) => c.admin({ kolPoints: KOL_TIERS[num(e.target.value, 0, 5)].at })}
+                className={`${field} mt-1`}
+              />
             </label>
             <label className="text-[10.5px] font-bold uppercase tracking-wider text-faint">
               Dev Rep (0-10)

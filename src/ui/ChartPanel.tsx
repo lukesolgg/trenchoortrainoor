@@ -50,6 +50,8 @@ export interface Mark {
   text?: string;
   /** Your trades merged into one badge per candle: how many fills. */
   count?: number;
+  /** Your trades drawn as your KOL bubble. */
+  self?: { name: string; handle: string; followers: number };
 }
 
 /** Profile pictures drawn inside KOL markers, loaded once and shared by every chart. */
@@ -222,10 +224,10 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                 const yc = slot(x0, m.side, y0);
                 const x = x0 * hr;
                 const y = yc * vr;
-                const r = (m.kind === "you" ? 7.5 : 9.5) * hr;
+                const r = (m.kind === "you" && !m.self ? 7.5 : m.self ? 10.5 : 9.5) * hr;
                 const buy = m.side === "buy";
                 const ring = buy ? "#35d07f" : "#f0455a";
-                const fill = m.kind === "you" ? ring : `hsl(${m.hue ?? 200} 55% 42%)`;
+                const fill = m.self ? "#f5c542" : m.kind === "you" ? ring : `hsl(${m.hue ?? 200} 55% 42%)`;
                 ctx.shadowColor = m.kind === "tweet" ? "rgba(29,155,240,.6)" : buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
                 ctx.shadowBlur = 8 * hr;
                 ctx.beginPath();
@@ -243,12 +245,12 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.drawImage(pic, x - r, y - r, r * 2, r * 2);
                   ctx.restore();
                 }
-                ctx.lineWidth = (m.kind === "you" ? 1.5 : 2) * hr;
-                ctx.strokeStyle = m.kind === "you" ? "#0e0f12" : m.kind === "tweet" ? "#1d9bf0" : ring;
+                ctx.lineWidth = (m.kind === "you" && !m.self ? 1.5 : 2) * hr;
+                ctx.strokeStyle = m.self ? ring : m.kind === "you" ? "#0e0f12" : m.kind === "tweet" ? "#1d9bf0" : ring;
                 ctx.stroke();
                 ctx.font = `800 ${Math.round(m.letter.length > 1 ? 7.5 : 9) * vr}px Inter, ui-sans-serif, system-ui, sans-serif`;
                 if (!pic) {
-                  ctx.fillStyle = m.kind === "you" && buy ? "#111" : "#fff";
+                  ctx.fillStyle = m.self || (m.kind === "you" && buy) ? "#111" : "#fff";
                   ctx.fillText(m.letter, x, y + 0.5 * vr);
                 }
                 if (m.count && m.count > 1) {
@@ -342,6 +344,8 @@ interface Props {
   ticker: string;
   /** Social layers on the chart. */
   show: { dev: boolean; kol: boolean; boost: boolean; news: boolean };
+  /** You as a KOL (Rising tier and up): your trades draw as your own bubble. */
+  youKol?: { name: string; handle: string; followers: number } | null;
 }
 
 const UP = "#35d07f";
@@ -371,7 +375,7 @@ interface Bar {
  * Live data goes through series.update so panning and zoom survive ticks.
  * Mount with key={coinId}: a new coin is a new chart.
  */
-export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metric, unit, scale, entryMcUsd, earlyAvgMcUsd, ticker, show }: Props) {
+export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metric, unit, scale, entryMcUsd, earlyAvgMcUsd, ticker, show, youKol = null }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -632,6 +636,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
         mcUsd: (g.sol / g.tokens) * SUPPLY * SOL_USD,
         at: g.at,
         count: g.count,
+        ...(youKol ? { self: youKol, letter: youKol.name.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "ME" } : {}),
       }));
       const theirs: Mark[] = socials
         .filter((e) => (e.kind === "dev" ? show.dev : e.kind === "kol" ? show.kol : e.kind === "boost" ? show.boost : show.news))
@@ -660,7 +665,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
       dotsRef.current?.setMarks([...theirs, ...mine]);
       markerCount.current = markKey;
     }
-  }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd, show.dev, show.kol, show.boost, show.news]);
+  }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd, show.dev, show.kol, show.boost, show.news, youKol]);
 
   // Switching timeframe, metric or unit changes where the badges sit.
   useEffect(() => {
@@ -726,6 +731,7 @@ function MarkCard({ x, y, m, width }: { x: number; y: number; m: Mark; width: nu
     : m.kind === "boost" ? `Boost ${m.label ?? ""}`
     : m.kind === "dex" ? "DEX Screener paid"
     : m.kind === "cto" ? "Community takeover"
+    : m.self ? m.self.name
     : m.name;
   const amount = (m.sol ?? 0).toFixed(m.sol && m.sol < 10 ? 2 : 1);
   return (
@@ -753,6 +759,11 @@ function MarkCard({ x, y, m, width }: { x: number; y: number; m: Mark; width: nu
         <div className="min-w-0 leading-tight">
           <div className="truncate font-bold text-ink">{title}</div>
           {m.handle && <div className="truncate text-[11px] text-dim">@{m.handle}</div>}
+          {m.self && (
+            <div className="truncate text-[11px] text-dim">
+              @{m.self.handle} · <span className="text-amber">{m.self.followers.toLocaleString("en-US")} followers</span>
+            </div>
+          )}
           {(m.kind === "kol" || m.kind === "tweet") && <div className="text-[10px] text-faint">simulated</div>}
         </div>
       </div>

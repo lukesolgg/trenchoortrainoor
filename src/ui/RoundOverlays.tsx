@@ -1,6 +1,6 @@
 "use client";
 
-import { levelForXp, rankFor, START_SOL, UNLOCKS, xpForLevel, type Award } from "@/campaign/progression";
+import { followersFor, KOL_TIERS, kolTier, levelForXp, rankFor, START_SOL, UNLOCKS, xpForLevel, type Award } from "@/campaign/progression";
 import { useCampaign } from "@/store/campaign";
 import type { Flaw, RoundResult, ScoredView, WrongBuy } from "@/engine/types";
 import { SCORE } from "@/engine/scoring";
@@ -512,6 +512,7 @@ function CampaignAward({ a }: { a: Award }) {
               {xp - from}/{to - from}
             </span>
           </div>
+          {a.kolLines.length > 0 && <KolAward a={a} />}
           {unlocked.length > 0 && (
             <ul className="mt-2 flex flex-wrap gap-1.5">
               {unlocked.map((u) => (
@@ -531,6 +532,33 @@ function CampaignAward({ a }: { a: Award }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/** KOL Rep from this round: the lines, the change in followers, and a new tier if you reached one. */
+function KolAward({ a }: { a: Award }) {
+  const d = a.kolAfter - a.kolBefore;
+  const t0 = kolTier(a.kolBefore);
+  const t1 = kolTier(a.kolAfter);
+  return (
+    <div className="mt-2.5 rounded-lg border border-line bg-bg/40 px-3 py-2">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11.5px] text-dim">
+        <span className={`tabular text-[13px] font-black ${d >= 0 ? "text-amber" : "text-down"}`}>
+          KOL Rep {d >= 0 ? "+" : ""}
+          {d}
+        </span>
+        {a.kolLines.map((l, i) => (
+          <span key={i}>
+            {l.label} <span className={`tabular font-bold ${l.rep >= 0 ? "text-ink" : "text-down"}`}>{l.rep >= 0 ? `+${l.rep}` : l.rep}</span>
+          </span>
+        ))}
+      </div>
+      <div className="tabular mt-1 text-[11px] text-faint">
+        {KOL_TIERS[t1].name} · {followersFor(a.kolBefore).toLocaleString("en-US")} → <span className="font-bold text-ink">{followersFor(a.kolAfter).toLocaleString("en-US")}</span> followers
+        {t1 > t0 && <span className="ml-2 rounded bg-amber px-1.5 py-px text-[10px] font-black text-black">NEW TIER · {KOL_TIERS[t1].name}</span>}
+        {t1 < t0 && <span className="ml-2 rounded bg-down px-1.5 py-px text-[10px] font-black text-white">DROPPED TO {KOL_TIERS[t1].name}</span>}
+      </div>
+    </div>
   );
 }
 

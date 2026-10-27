@@ -8,7 +8,11 @@ interface CampaignState {
   traderSol: number;
   /** Dev wallet balance; null until Dev is opened with its deposit. */
   devSol: number | null;
-  kolRep: number;
+  /** KOL Rep points (tiers and followers come from these). */
+  kolPoints: number;
+  /** Your name and @handle as a caller. */
+  kolName: string;
+  kolHandle: string;
   devRep: number;
   rounds: number;
   streak: number;
@@ -26,7 +30,8 @@ interface CampaignState {
   finishRound: (r: RoundResult, endSol: number) => Award;
   /** Leaving mid-round: the balance keeps what your open bags were worth; no XP. */
   abandonRound: (endSol: number) => void;
-  admin: (patch: Partial<Pick<CampaignState, "xp" | "traderSol" | "devSol" | "kolRep" | "devRep" | "unlockAll">>) => void;
+  setKolHandle: (name: string, handle: string) => void;
+  admin: (patch: Partial<Pick<CampaignState, "xp" | "traderSol" | "devSol" | "kolPoints" | "devRep" | "unlockAll">>) => void;
   reset: () => void;
 }
 
@@ -34,7 +39,9 @@ const fresh = {
   xp: 0,
   traderSol: START_SOL,
   devSol: null,
-  kolRep: 0,
+  kolPoints: 0,
+  kolName: "You",
+  kolHandle: "you",
   devRep: 0,
   rounds: 0,
   streak: 0,
@@ -58,6 +65,7 @@ export const useCampaign = create<CampaignState>()(
         set(next);
         return award;
       },
+      setKolHandle: (kolName, kolHandle) => set({ kolName: kolName.slice(0, 24) || "You", kolHandle: kolHandle.replace(/[^A-Za-z0-9_]/g, "").slice(0, 15) || "you" }),
       abandonRound: (endSol) => set({ traderSol: Math.max(0, endSol) }),
       admin: (patch) => set(patch),
       reset: () => set({ ...fresh }),
@@ -69,7 +77,9 @@ export const useCampaign = create<CampaignState>()(
         xp: s.xp,
         traderSol: s.traderSol,
         devSol: s.devSol,
-        kolRep: s.kolRep,
+        kolPoints: s.kolPoints,
+        kolName: s.kolName,
+        kolHandle: s.kolHandle,
         devRep: s.devRep,
         rounds: s.rounds,
         streak: s.streak,

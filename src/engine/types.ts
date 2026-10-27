@@ -73,6 +73,10 @@ export interface CoinView {
   proTraders: number;
   bundlers: number;
   dexPaid: boolean;
+  /** KOL Rep: you posted a call on this coin; how many of your followers tailed you in, and with how much. */
+  called: boolean;
+  tailers: number;
+  tailSol: number;
   /** Shortened pool address. */
   pair: string;
   /** Shortened mint address, e.g. "cJK...pump". */
@@ -109,6 +113,8 @@ export interface TweetView {
   art?: ArtSpec;
   /** True for tweets that name a meme (purple card border). */
   memeTweet: boolean;
+  /** Your own call (KOL Rep thesis). */
+  mine?: boolean;
 }
 
 export interface Meme {
@@ -261,6 +267,16 @@ export interface DecoySummary extends CoinSummary {
   flaw: Flaw;
 }
 
+/** What your following did this round (campaign KOL Rep). */
+export interface KolRoundStats {
+  tailers: number;
+  tailSol: number;
+  /** Followers you sold on within seconds of them buying in. */
+  dumpedOn: number;
+  /** You posted a call this round. */
+  called: boolean;
+}
+
 export interface RoundResult {
   outcome: RoundOutcome;
   memeName: string;
@@ -297,6 +313,7 @@ export interface RoundResult {
   training: boolean;
   length: RoundLength;
   vamps: VampView[];
+  kol: KolRoundStats;
 }
 
 export interface WrongBuy {

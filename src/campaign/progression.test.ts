@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { RoundResult } from "@/engine/types";
 import { awardRound, featuresFor, levelForXp, rankFor, START_SOL, xpForLevel, type CampaignProgress } from "./progression";
 
-const fresh: CampaignProgress = { xp: 0, traderSol: START_SOL, rounds: 0, streak: 0, firsts: { tenX: false, vamp: false, saga: false } };
+const fresh: CampaignProgress = { xp: 0, kolPoints: 0, traderSol: START_SOL, rounds: 0, streak: 0, firsts: { tenX: false, vamp: false, saga: false } };
 const result = (over: Partial<RoundResult> = {}): RoundResult =>
-  ({ outcome: "success", score: 600, training: false, pnlPct: 50, vamps: [], length: "blitz", ...over }) as RoundResult;
+  ({ outcome: "success", score: 600, training: false, pnlPct: 50, vamps: [], length: "blitz", buyNumber: 8, boughtSol: 1, kol: { tailers: 0, tailSol: 0, dumpedOn: 0, called: false }, ...over }) as RoundResult;
 
 describe("campaign progression", () => {
   it("levels come at the planned pace: ~3 rounds to 2, ~40 to 10, ~250 to 30 at a typical score", () => {
@@ -58,5 +58,35 @@ describe("campaign progression", () => {
     expect(next.traderSol).toBe(START_SOL);
     expect(levelForXp(next.xp)).toBe(5);
     expect(next.xp).toBeLessThan(p.xp);
+  });
+});
+
+describe("KOL Rep", () => {
+  it("tiers and followers climb smoothly", async () => {
+    const { kolTier, followersFor, KOL_TIERS } = await import("./progression");
+    expect(kolTier(0)).toBe(0);
+    expect(kolTier(30)).toBe(1);
+    expect(kolTier(400)).toBe(3);
+    expect(kolTier(9999)).toBe(5);
+    for (let i = 1; i < KOL_TIERS.length; i++) expect(followersFor(KOL_TIERS[i].at)).toBe(KOL_TIERS[i].followers);
+    let last = -1;
+    for (let p = 0; p < 6000; p += 50) {
+      const f = followersFor(p);
+      expect(f).toBeGreaterThanOrEqual(last);
+      last = f;
+    }
+  });
+
+  it("only counts from level 8; good trades and calls build it, rugs and dumping on followers cost it", () => {
+    const lvl8 = { ...fresh, xp: xpForLevel(8) };
+    const good = awardRound(lvl8, result({ pnlPct: 300, buyNumber: 3, kol: { tailers: 4, tailSol: 1, dumpedOn: 0, called: true } }), 5);
+    expect(good.award.kolLines.map((l) => l.label)).toEqual(["Profitable trade (+300%)", "Early on the right coin", "Your call played out"]);
+    expect(good.next.kolPoints).toBe(15 + 4 + 10);
+    const dump = awardRound({ ...lvl8, kolPoints: 50 }, result({ pnlPct: 10, kol: { tailers: 3, tailSol: 1, dumpedOn: 3, called: false } }), 5);
+    expect(dump.next.kolPoints).toBeLessThan(50);
+    const rugged = awardRound({ ...lvl8, kolPoints: 5 }, result({ outcome: "missed", pnlPct: -80, score: 0 }), 1);
+    expect(rugged.next.kolPoints).toBe(0);
+    // Before level 8 nothing moves.
+    expect(awardRound(fresh, result({ pnlPct: 300 }), 5).next.kolPoints).toBe(0);
   });
 });

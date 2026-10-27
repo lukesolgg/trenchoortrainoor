@@ -35,7 +35,7 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
   return (
     <article
       className={`anim-tweet rounded-xl border bg-tk-card p-3 ${
-        t.memeTweet ? "border-violet/60 shadow-[0_0_0_1px_rgba(139,92,246,.15)]" : "border-tk-line"
+        t.mine ? "border-amber/60 bg-amber/[0.05]" : t.memeTweet ? "border-violet/60 shadow-[0_0_0_1px_rgba(139,92,246,.15)]" : "border-tk-line"
       }`}
     >
       <header className="flex items-center gap-2.5">

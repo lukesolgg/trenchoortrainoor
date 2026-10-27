@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { DIFFICULTIES } from "@/engine/difficulty";
 import type { DifficultyId } from "@/engine/types";
-import { DEV_DEPOSIT_SOL, featuresFor, levelForXp, rankFor, START_SOL, UNLOCKS, xpForLevel, BUST_BELOW_SOL } from "@/campaign/progression";
+import { DEV_DEPOSIT_SOL, featuresFor, followersFor, KOL_BUBBLE_TIER, KOL_TIERS, kolTier, levelForXp, rankFor, START_SOL, UNLOCKS, xpForLevel, BUST_BELOW_SOL } from "@/campaign/progression";
 import { campaignFeatures, useCampaign } from "@/store/campaign";
 import { useUi, type Port } from "@/store/ui";
 import { sol } from "./format";
@@ -93,8 +93,8 @@ export function CampaignHub() {
           <Balance k="Dev" locked={!f.dev} sub={f.dev ? (c.devSol === null ? `${DEV_DEPOSIT_SOL} SOL to open` : "dev wallet") : "Lvl 15"}>
             {c.devSol === null ? "—" : <><SolIcon /> {sol(c.devSol)}</>}
           </Balance>
-          <Balance k="KOL Rep" locked={!f.kolRep} sub={f.kolRep ? "coming next" : "Lvl 8"}>
-            {f.kolRep ? c.kolRep : "—"}
+          <Balance k="KOL Rep" locked={!f.kolRep} sub={f.kolRep ? `${compactNum(followersFor(c.kolPoints))} followers` : "Lvl 8"}>
+            <span className={f.kolRep ? "text-[17px]" : ""}>{f.kolRep ? KOL_TIERS[kolTier(c.kolPoints)].name : "—"}</span>
           </Balance>
         </div>
       </section>
@@ -154,6 +154,7 @@ export function CampaignHub() {
           <p className="mt-2 text-center text-[11.5px] text-faint">
             {c.rounds} rounds played · hit streak {c.streak}
           </p>
+          {f.kolRep && <Following />}
         </section>
 
         {/* The road */}
@@ -191,6 +192,58 @@ export function CampaignHub() {
         </section>
       </div>
     </main>
+  );
+}
+
+const compactNum = (n: number) => (n >= 10000 ? `${Math.round(n / 1000)}K` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+
+/** KOL Rep: your tier ladder, followers, the next tier, your caller name, and how the following works. */
+function Following() {
+  const c = useCampaign();
+  const tier = kolTier(c.kolPoints);
+  const next = KOL_TIERS[tier + 1];
+  const cur = KOL_TIERS[tier];
+  const pct = next ? ((c.kolPoints - cur.at) / (next.at - cur.at)) * 100 : 100;
+  const field = "rounded-md border border-line bg-bg px-2 py-1 text-[12.5px] outline-none focus:border-line-hi";
+  return (
+    <div className="mt-5 border-t border-line pt-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">Your following</h2>
+        <span className="tabular text-[11.5px] text-faint">{c.kolPoints} Rep</span>
+      </div>
+      <div className="mt-2.5 grid grid-cols-5 gap-1">
+        {KOL_TIERS.slice(1).map((t, i) => {
+          const on = tier >= i + 1;
+          return (
+            <div key={t.name} className={`rounded-md border px-1.5 py-1 text-center leading-tight ${on ? "border-amber/60 bg-amber/10" : "border-line"}`}>
+              <div className={`text-[10.5px] font-bold ${on ? "text-amber" : "text-faint"}`}>{t.name}</div>
+              <div className="tabular text-[9.5px] text-faint">{compactNum(t.followers)}</div>
+            </div>
+          );
+        })}
+      </div>
+      {next && (
+        <div className="mt-2 flex items-center gap-2 text-[11px] text-faint">
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+            <span className="block h-full rounded-full bg-amber" style={{ width: `${pct}%` }} />
+          </span>
+          <span className="tabular">
+            {next.at - c.kolPoints} Rep to {next.name}
+          </span>
+        </div>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <input aria-label="Caller name" className={`${field} w-32`} defaultValue={c.kolName} onBlur={(e) => c.setKolHandle(e.target.value, c.kolHandle)} />
+        <span className="text-dim">@</span>
+        <input aria-label="Caller handle" className={`${field} w-32`} defaultValue={c.kolHandle} onBlur={(e) => c.setKolHandle(c.kolName, e.target.value)} />
+      </div>
+      <ul className="mt-3 space-y-1 text-[12px] leading-snug text-dim">
+        <li>▸ Followers tail your buys a few seconds behind you: real buys, never more than twice yours.</li>
+        <li>▸ Post a call on a coin you hold for a bigger wave. A call that plays out earns Rep; a bad one costs it.</li>
+        <li>▸ Selling within 20 s of them buying in is dumping on your followers: it costs Rep.</li>
+        <li>▸ At {KOL_TIERS[KOL_BUBBLE_TIER].name} your own bubble shows on the chart.</li>
+      </ul>
+    </div>
   );
 }
 

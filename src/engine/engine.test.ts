@@ -1431,3 +1431,67 @@ describe("course changes and holder spread", () => {
     }
   });
 });
+
+describe("KOL Rep: tailers and calls", () => {
+  const pnut = MEME_PACK.find((m) => m.id === "pnut")!;
+  const make = (tier: number, seed = 3) => {
+    const kol = tier ? { tier, followers: 10000, name: "Luke", handle: "luke" } : null;
+    const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut], kol });
+    e.startScored({ memeId: "pnut" });
+    e.advanceTo(e.getSnapshot().scored!.tTweet + 1);
+    return { e, id: landTarget(e) };
+  };
+
+  it("followers tail your buy a few seconds later, never more than twice what you bought", () => {
+    const { e, id } = make(4);
+    e.quickBuy(id, 0.4);
+    e.advanceTo(e.now() + 8000);
+    const v = e.getCoinView(id)!;
+    expect(v.tailers).toBeGreaterThanOrEqual(3);
+    expect(v.tailSol).toBeLessThanOrEqual(0.8 + 1e-9);
+    expect(e.getTape(id).some((t) => t.trader === "Tailer")).toBe(true);
+  });
+
+  it("nobody tails you without a following", () => {
+    const { e, id } = make(0);
+    e.quickBuy(id, 0.4);
+    e.advanceTo(e.now() + 8000);
+    expect(e.getCoinView(id)!.tailers).toBe(0);
+    expect(e.postThesis(id, "sending").ok).toBe(false);
+  });
+
+  it("a call needs a bag, goes to the Tracker once, and brings a bigger wave", () => {
+    const { e, id } = make(3);
+    expect(e.postThesis(id, "early").ok).toBe(false);
+    e.quickBuy(id, 0.3);
+    e.advanceTo(e.now() + 7000);
+    const before = e.getCoinView(id)!.tailers;
+    const r = e.postThesis(id, "this is the one");
+    expect(r.ok).toBe(true);
+    expect(e.postThesis(id, "again").ok).toBe(false);
+    const mine = e.getSnapshot().feed.find((t) => t.mine);
+    expect(mine?.author.handle).toBe("luke");
+    expect(mine?.segments.some((s) => s.hl && s.text.toUpperCase() === `$${e.getCoinView(id)!.ticker}`)).toBe(true);
+    e.advanceTo(e.now() + 7000);
+    expect(e.getCoinView(id)!.tailers).toBeGreaterThan(before);
+    expect(e.getCoinView(id)!.called).toBe(true);
+  });
+
+  it("selling right after your followers buy in counts as dumping on them; waiting does not", () => {
+    const fast = make(4, 5);
+    fast.e.quickBuy(fast.id, 0.4);
+    fast.e.advanceTo(fast.e.now() + 7000);
+    for (let t = fast.e.now(); !fast.e.sell(fast.id, 1); t += 250) fast.e.advanceTo(t);
+    fast.e.advanceTo(fast.e.now() + 200_000);
+    expect(fast.e.getSnapshot().scored!.result!.kol.dumpedOn).toBeGreaterThan(0);
+
+    const slow = make(4, 5);
+    slow.e.quickBuy(slow.id, 0.4);
+    slow.e.advanceTo(slow.e.now() + 30_000);
+    for (let t = slow.e.now(); !slow.e.sell(slow.id, 1); t += 250) slow.e.advanceTo(t);
+    slow.e.advanceTo(slow.e.now() + 200_000);
+    const r = slow.e.getSnapshot().scored!.result!;
+    expect(r.kol.dumpedOn).toBe(0);
+    expect(r.kol.tailers).toBeGreaterThan(0);
+  });
+});

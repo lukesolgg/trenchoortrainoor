@@ -110,6 +110,9 @@ interface Props {
   walletSel: readonly number[];
   /** Wallets you may use, and whether Consolidate, boosts and the DEX are unlocked (campaign levels). */
   walletCount: number;
+  /** Your following (campaign KOL Rep), and posting a call on this coin. */
+  kol: { tier: number; followers: number; name: string; handle: string } | null;
+  onPostCall: (text: string) => void;
   canConsolidate: boolean;
   canBoost: boolean;
   canPayDex: boolean;
@@ -174,6 +177,69 @@ function Wallets({ count, canConsolidate, pcts, sel, onSel, held, holdingPct, on
   );
 }
 
+const CALL_TEMPLATES = ["sending this", "early. this is the one", "narrative is too strong", "chart is a thing of beauty", "sized in, not selling"];
+
+/** KOL Rep: post a call on a coin you hold (once), and see who tailed you in. */
+function YourCall({ coin, held, kol, onPost }: { coin: CoinView; held: boolean; kol: NonNullable<Props["kol"]>; onPost: (text: string) => void }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="border-b border-line p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h3 className="text-[13px] font-bold">Your call</h3>
+        <span className="tabular text-[10.5px] text-faint">
+          @{kol.handle} · {kol.followers.toLocaleString("en-US")} followers
+        </span>
+      </div>
+      {coin.tailers > 0 && (
+        <div className="mb-2 rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1.5 text-[11.5px] text-amber">
+          <span className="font-extrabold">{coin.tailers} follower{coin.tailers > 1 ? "s" : ""} tailed you in</span> · {sol(coin.tailSol)} SOL. Sell
+          within 20 s of them and you&apos;ve dumped on them.
+        </div>
+      )}
+      {coin.called ? (
+        <p className="text-[11.5px] text-dim">Called. It&apos;s on the Tracker and the chart.</p>
+      ) : (
+        <>
+          <div className="flex gap-1.5">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={140}
+              placeholder={held ? `Why $${coin.ticker}?` : "Buy it first to call it"}
+              disabled={!held}
+              className="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1.5 text-[12px] outline-none focus:border-line-hi disabled:opacity-50"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && held) onPost(text);
+              }}
+            />
+            <button
+              type="button"
+              disabled={!held}
+              onClick={() => onPost(text)}
+              className="rounded-md bg-amber px-3 text-[12px] font-extrabold text-black transition-[filter] hover:brightness-110 disabled:opacity-40"
+            >
+              Post
+            </button>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {CALL_TEMPLATES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                disabled={!held}
+                onClick={() => onPost(t)}
+                className="rounded border border-line px-1.5 py-0.5 text-[10.5px] text-dim transition-colors enabled:hover:border-amber/60 enabled:hover:text-amber disabled:opacity-40"
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const BOOSTS = [
   { label: "x10", usd: 99 },
   { label: "x30", usd: 249 },
@@ -225,7 +291,7 @@ function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayD
   );
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -493,6 +559,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
 
       </div>
 
+      {kol && <YourCall coin={coin} held={held} kol={kol} onPost={onPostCall} />}
       <Promote coin={coin} walletSol={walletSol} locked={buyLocked} canBoost={canBoost} canPayDex={canPayDex} onBoost={onBoost} onPayDex={onPayDex} />
 
       {/* Token info */}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCampaign, campaignFeatures } from "@/store/campaign";
-import { ALL_FEATURES, type Award } from "@/campaign/progression";
+import { ALL_FEATURES, followersFor, kolTier, type Award } from "@/campaign/progression";
 import { buyWarning } from "./Wallets";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory } from "@/store/history";
@@ -40,7 +40,10 @@ export function Game() {
   // A campaign round plays with the campaign's settings, balance and unlocks (read once: the round is fixed at start).
   const [camp] = useState(() => {
     const c = useCampaign.getState();
-    return { difficulty: c.difficulty, length: c.length, style: c.style, sol: c.traderSol, features: campaignFeatures(c) };
+    const features = campaignFeatures(c);
+    // Your following tails you from level 8 (KOL Rep), campaign only.
+    const kol = features.kolRep && kolTier(c.kolPoints) >= 1 ? { tier: kolTier(c.kolPoints), followers: followersFor(c.kolPoints), name: c.kolName, handle: c.kolHandle } : null;
+    return { difficulty: c.difficulty, length: c.length, style: c.style, sol: c.traderSol, features, kol };
   });
   const difficulty = campaign ? camp.difficulty : uiDifficulty;
   const style = campaign ? camp.style : uiStyle;
@@ -53,6 +56,7 @@ export function Game() {
     length: scoredMode ? length : "blitz",
     startingSol: campaign ? camp.sol : PORTS[port].sol,
     walletCount: features.wallets,
+    kol: campaign ? camp.kol : null,
   });
   const snap = useSnapshot(engine);
   // ?debug exposes the engine to the console and to browser tests.
