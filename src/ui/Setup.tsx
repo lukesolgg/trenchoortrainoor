@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { DIFFICULTIES, DIFFICULTY_ORDER } from "@/engine/difficulty";
+import { statsFor, useRuns, type RunRecord } from "@/store/runs";
 import { useUi } from "@/store/ui";
 
 const COPY = {
@@ -11,7 +12,7 @@ const COPY = {
     steps: [
       ["Read the tweet", "Work out the meme from an authority account and its best ticker."],
       ["Check the config", "The right coin is on Pump with Dividends on. The pair follows the author: /SPACEX for Elon (/TESLA for Tesla tweets), SOL for Toly and Solana, /PUMP for Alon, Ansem, Truth Terminal and pump.fun. Look-alikes get exactly one thing wrong."],
-      ["Quick-buy it first", "Hit the ⚡ button on its New Pairs card. Buy before the tweet and it is a false start; buy a look-alike and the round ends. Then sell into the run, or press Space to close out."],
+      ["Quick-buy it first", "Hit the ⚡ button on its card. Buy before the tweet and it is a false start; buy a look-alike and the round ends (Training lets you keep going). The round ends when you sell 100%. Score: speed up to 800, entry up to 100, exit up to 100."],
     ],
   },
   dev: {
@@ -26,7 +27,7 @@ const COPY = {
 } as const;
 
 export function Setup() {
-  const { mode, difficulty, setDifficulty, start, toModes } = useUi();
+  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle } = useUi();
   const copy = COPY[mode === "dev" ? "dev" : "firsttx"];
   const diff = DIFFICULTIES[difficulty];
 
@@ -42,7 +43,7 @@ export function Setup() {
   }, [start, toModes]);
 
   return (
-    <main className="mx-auto flex h-dvh max-w-5xl flex-col justify-center px-6">
+    <main className="mx-auto flex h-dvh max-w-5xl flex-col overflow-y-auto px-6 py-10">
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">How to play</p>
       <h1 className="mt-1 text-[40px] font-black leading-none tracking-tight">{copy.title}</h1>
       <p className="mt-3 max-w-2xl text-[15px] leading-snug text-dim">{copy.lead}</p>
@@ -75,14 +76,31 @@ export function Setup() {
             </div>
             <div>
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Style</div>
-              <div className="flex gap-2">
-                <span className="rounded-lg border border-line px-3.5 py-2 text-[13px] font-bold text-faint" title="Coming in v1.1">
-                  Mess around
-                </span>
-                <span className="rounded-lg border border-up bg-up/10 px-3.5 py-2 text-[13px] font-bold text-up">Training</span>
+              <div className="flex gap-2" role="radiogroup" aria-label="Style">
+                {(
+                  [
+                    ["strict", "Strict"],
+                    ["training", "Training"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={style === id}
+                    onClick={() => setStyle(id)}
+                    className={`rounded-lg border px-3.5 py-2 text-[13px] font-bold transition-colors ${
+                      style === id ? "border-up bg-up/10 text-up" : "border-line-hi text-dim hover:text-ink"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
               <p className="mt-2 text-[12px] text-dim">
-                Real bonding-curve price impact and real waits. Deleted tweets and rugs arrive in v1.1.
+                {style === "strict"
+                  ? "A wrong buy ends the round. Counts towards your personal bests."
+                  : "A wrong buy costs 150 points and the round keeps going, so you can practise spotting the right one. No PBs."}
               </p>
             </div>
           </div>
@@ -108,8 +126,10 @@ export function Setup() {
       <p className="mt-4 text-[12px] text-amber">
         {mode === "dev"
           ? "DEV deploy arrives in phase 7: Start opens the free-running board for now."
-          : "Each round: 3 s countdown, then an armed wait of 1.5 to 4 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
+          : "Each round: 3 s countdown, then an armed wait of 4 to 55 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
       </p>
+
+      {mode !== "dev" && <Progress difficulty={difficulty} />}
 
       <div className="mt-6 flex items-center justify-between">
         <button
@@ -128,5 +148,72 @@ export function Setup() {
         </button>
       </div>
     </main>
+  );
+}
+
+const OUTCOME: Record<RunRecord["outcome"], { label: string; tone: string }> = {
+  success: { label: "Hit", tone: "text-up" },
+  false_start: { label: "False start", tone: "text-amber" },
+  wrong_coin: { label: "Wrong coin", tone: "text-down" },
+  missed: { label: "Missed", tone: "text-down" },
+};
+
+const ms = (v: number | null) => (v === null ? "—" : `${Math.round(v)} ms`);
+
+/** Personal bests and recent runs for the selected difficulty, from this browser's run history. */
+function Progress({ difficulty }: { difficulty: keyof typeof DIFFICULTIES }) {
+  const runs = useRuns((r) => r.runs);
+  const stats = useMemo(() => statsFor(runs, difficulty), [runs, difficulty]);
+  const last = useMemo(() => runs.filter((r) => r.difficulty === difficulty).slice(-10).reverse(), [runs, difficulty]);
+  const tile = (k: string, v: string, tone = "text-ink") => (
+    <div className="rounded-lg border border-line bg-panel px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{k}</div>
+      <div className={`tabular text-[17px] font-extrabold ${tone}`}>{v}</div>
+    </div>
+  );
+  return (
+    <section className="mt-5 rounded-2xl border border-line bg-card p-5">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">Your progress · {DIFFICULTIES[difficulty].label}</h2>
+        <span className="text-[11px] text-faint">Kept in this browser</span>
+      </div>
+      <div className="mt-3 grid grid-cols-6 gap-2">
+        {tile("PB reaction", ms(stats.pbReactionMs), "text-amber")}
+        {tile("Best score", stats.pbScore === null ? "—" : String(stats.pbScore), "text-amber")}
+        {tile("Avg reaction", ms(stats.avgReactionMs))}
+        {tile("Accuracy", stats.accuracyPct === null ? "—" : `${Math.round(stats.accuracyPct)}%`)}
+        {tile("Best streak", String(stats.bestStreak))}
+        {tile("Rounds", String(stats.runs))}
+      </div>
+      {last.length > 0 && (
+        <table className="mt-3 w-full text-[12.5px]">
+          <thead className="text-[10px] uppercase tracking-wider text-faint">
+            <tr>
+              <th className="py-1 text-left font-semibold">Last {last.length}</th>
+              <th className="py-1 text-left font-semibold">Coin</th>
+              <th className="py-1 text-right font-semibold">Reaction</th>
+              <th className="py-1 text-right font-semibold">Score</th>
+              <th className="py-1 text-right font-semibold">Look-alikes</th>
+              <th className="py-1 text-right font-semibold">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {last.map((r) => (
+              <tr key={r.id} className="border-t border-line/60">
+                <td className={`py-1 font-bold ${OUTCOME[r.outcome].tone}`}>
+                  {OUTCOME[r.outcome].label}
+                  {r.training && <span className="ml-1.5 text-[10px] font-semibold text-faint">training</span>}
+                </td>
+                <td className="py-1 font-semibold">{r.ticker}</td>
+                <td className="tabular py-1 text-right">{ms(r.reactionMs)}</td>
+                <td className="tabular py-1 text-right font-bold">{r.score}</td>
+                <td className="tabular py-1 text-right text-dim">{r.decoys}</td>
+                <td className="tabular py-1 text-right text-faint">{new Date(r.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }

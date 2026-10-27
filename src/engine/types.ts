@@ -259,6 +259,27 @@ export interface RoundResult {
   pnlSol: number;
   pnlPct: number;
   rating: string | null;
+  /** Out of 1000, with its parts. Zero unless you bought the right coin. */
+  score: number;
+  scoreParts: { speed: number; entry: number; exit: number; penalty: number };
+  /** Training style: wrong coins bought before the right one (the round kept going). */
+  wrongBuys: WrongBuy[];
+  training: boolean;
+}
+
+export interface WrongBuy {
+  ticker: string;
+  flaw: Flaw | "unrelated";
+  /** ms after the tweet. */
+  atMs: number;
+}
+
+/** Shown the instant you buy the right coin, before the round is over. */
+export interface Hit {
+  reactionMs: number;
+  rating: string;
+  buyNumber: number;
+  ticker: string;
 }
 
 export interface ScoredView {
@@ -269,4 +290,9 @@ export interface ScoredView {
   tTweet: number;
   tEnd: number | null;
   result: RoundResult | null;
+  /** Set the moment you buy the right coin. */
+  hit: Hit | null;
+  /** Wrong coins bought so far. In strict style the first one ends the round. */
+  misses: WrongBuy[];
+  training: boolean;
 }

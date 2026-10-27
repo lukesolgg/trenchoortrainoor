@@ -147,6 +147,25 @@ body {
     transform: translate(var(--dx), calc(var(--dy) + 60px)) rotate(var(--rot)) scale(1);
   }
 }
+@keyframes edge-flash {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.anim-edge-up {
+  box-shadow: inset 0 0 140px 30px rgba(53, 208, 127, 0.45);
+  animation: edge-flash 1100ms ease-out both;
+}
+.anim-edge-down {
+  box-shadow: inset 0 0 140px 30px rgba(240, 69, 90, 0.5);
+  animation: edge-flash 1100ms ease-out both;
+}
 @keyframes go-flash {
   0% {
     opacity: 0;
@@ -192,6 +211,8 @@ body {
   .anim-count,
   .anim-go,
   .anim-mult,
+  .anim-edge-up,
+  .anim-edge-down,
   .anim-confetti,
   .anim-armed {
     animation: none;

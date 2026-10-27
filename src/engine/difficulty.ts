@@ -14,6 +14,8 @@ export interface Difficulty {
   rivalDeployMs: [number, number];
   rivalDeployers: [number, number];
   /** How many noise memes (distractor tweets) show up per round. */
+  /** When look-alikes land, ms after the right coin. Easier levels give you a beat to see the real one first. */
+  decoyDelayMs: [number, number];
   /** Extra image tweets with their own coins. Zero: the round tweet is the only big tweet. */
   distractors: [number, number];
 }
@@ -29,6 +31,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     sniperReactMs: [600, 1500],
     rivalDeployMs: [4000, 8000],
     rivalDeployers: [2, 4],
+    decoyDelayMs: [300, 800],
     distractors: [0, 0],
   },
   trencher: {
@@ -41,6 +44,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     sniperReactMs: [300, 800],
     rivalDeployMs: [2000, 4500],
     rivalDeployers: [4, 8],
+    decoyDelayMs: [300, 800],
     distractors: [0, 0],
   },
   sniper: {
@@ -53,6 +57,7 @@ export const DIFFICULTIES: Record<DifficultyId, Difficulty> = {
     sniperReactMs: [140, 420],
     rivalDeployMs: [1000, 2500],
     rivalDeployers: [8, 14],
+    decoyDelayMs: [-150, 250],
     distractors: [0, 0],
   },
 };

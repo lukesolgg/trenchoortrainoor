@@ -1,12 +1,13 @@
 "use client";
 
-import type { Flaw, RoundResult, ScoredView } from "@/engine/types";
+import type { Flaw, RoundResult, ScoredView, WrongBuy } from "@/engine/types";
+import { SCORE } from "@/engine/scoring";
+import type { RunStats } from "@/store/runs";
 import { Art } from "./Art";
 import { ConfigChips } from "./chips";
 import { signed, sol, usd } from "./format";
-import { SolIcon } from "./icons";
 
-/** Center-screen countdown and the GO flash. The armed/live status lives in the strip under the nav. Never blocks clicks: a click here is a false start. */
+/** Center-screen countdown and the TWEET LANDED flash. Never blocks clicks: a click here is a false start. */
 export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number }) {
   if (scored.phase === "countdown") {
     const n = Math.max(1, Math.ceil((scored.tArm - now) / 1000));
@@ -23,11 +24,12 @@ export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number 
       </div>
     );
   }
-  if (scored.phase === "live" && now - scored.tTweet < 900) {
+  if (scored.phase === "live" && now - scored.tTweet < 1100 && !scored.hit) {
     return (
       <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center">
-        <div className="anim-go text-[96px] font-black leading-none tracking-tighter text-up drop-shadow-[0_0_40px_rgba(46,230,166,.6)]">
-          GO
+        <div className="anim-go flex items-center gap-4 text-up drop-shadow-[0_0_40px_rgba(46,230,166,.6)]">
+          <span className="text-[64px] font-black leading-none">←</span>
+          <span className="text-[64px] font-black leading-none tracking-tighter">TWEET LANDED</span>
         </div>
       </div>
     );
@@ -35,28 +37,93 @@ export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number 
   return null;
 }
 
-/** Status text for the session strip. */
+/** Status text for the strip under the nav. The strip itself changes colour by phase (see `statusStripClass`). */
 export function RoundStatus({ scored, now }: { scored: ScoredView; now: number }) {
   switch (scored.phase) {
     case "countdown":
       return <span className="font-semibold text-dim">Starting…</span>;
     case "armed":
-      return <span className="font-bold text-amber">ARMED: don&apos;t buy until the tweet lands</span>;
-    case "live":
+      return (
+        <span className="flex items-center gap-2 text-[14px] font-extrabold uppercase tracking-wide text-amber">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-amber" />
+          Armed: don&apos;t buy until the tweet lands
+        </span>
+      );
+    case "live": {
+      const t = Math.max(0, (now - scored.tTweet) / 1000);
+      const fresh = now - scored.tTweet < 2000;
       return (
         <>
-          <span className="tabular rounded bg-up/15 px-2.5 py-0.5 text-[13px] font-extrabold text-up">
-            LIVE {Math.max(0, (now - scored.tTweet) / 1000).toFixed(1)}s
+          <span className={`tabular rounded px-2.5 py-0.5 text-[14px] font-black ${fresh ? "bg-up text-black" : "bg-up/15 text-up"}`}>
+            {fresh ? "TWEET LANDED" : "LIVE"} {t.toFixed(1)}s
           </span>
-          <span className="text-dim">
-            Buy the right coin. The round ends when you sell 100%. Not holding?{" "}
-            <kbd className="rounded border border-line-hi px-1 text-[11px]">Space</kbd> ends it.
-          </span>
+          {scored.hit ? (
+            <span className="font-bold text-up">
+              Hit in {Math.round(scored.hit.reactionMs)} ms. Sell 100% to end the round.
+            </span>
+          ) : (
+            <span className="text-dim">
+              Buy the right coin. The round ends when you sell 100%. Not holding?{" "}
+              <kbd className="rounded border border-line-hi px-1 text-[11px]">Space</kbd> ends it.
+            </span>
+          )}
+          {scored.training && scored.misses.length > 0 && (
+            <span className="font-bold text-down">
+              {scored.misses.length} wrong (−{scored.misses.length * SCORE.wrongPenalty})
+            </span>
+          )}
         </>
       );
+    }
     case "ended":
       return <span className="font-semibold text-dim">Round over</span>;
   }
+}
+
+/** Colours the status strip so the phase reads from the corner of your eye. */
+export function statusStripClass(scored: ScoredView | null, now: number): string {
+  if (!scored) return "bg-bg";
+  if (scored.phase === "armed") return "bg-amber/[0.08] border-amber/40";
+  if (scored.phase === "live") return now - scored.tTweet < 2000 ? "bg-up/25 border-up/60" : "bg-up/[0.07] border-up/30";
+  return "bg-bg";
+}
+
+export const FLAW_SHORT: Record<Flaw | "unrelated", string> = {
+  ticker: "Wrong ticker",
+  launchpad: "Launched on Bonk, not Pump",
+  dividends: "Dividends are off",
+  pair: "Wrong pair",
+  unrelated: "Not the meme from the tweet",
+};
+
+export type Flash = { kind: "hit"; ms: number; rating: string; buyer: number } | { kind: "miss"; title: string; sub: string };
+
+/** The instant reaction to a buy: green with your time, or red with what was wrong. */
+export function BuyFlash({ flash }: { flash: Flash }) {
+  const hit = flash.kind === "hit";
+  return (
+    <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center">
+      <div className={`absolute inset-0 ${hit ? "anim-edge-up" : "anim-edge-down"}`} />
+      <div className={`anim-mult rounded-3xl border bg-black/75 px-10 py-6 text-center shadow-2xl backdrop-blur-md ${hit ? "border-up/50" : "border-down/50"}`}>
+        {hit ? (
+          <>
+            <div className="tabular text-[104px] font-black leading-none tracking-tighter text-up drop-shadow-[0_0_40px_rgba(46,230,166,.55)]">
+              {Math.round(flash.ms)}
+              <span className="ml-1 text-[44px]">ms</span>
+            </div>
+            <div className="mt-2 text-[15px] font-extrabold uppercase tracking-[0.2em] text-ink drop-shadow-[0_1px_8px_rgba(0,0,0,.8)]">
+              {flash.rating} · Buyer #{flash.buyer}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-[84px] font-black leading-none tracking-tighter text-down drop-shadow-[0_0_40px_rgba(240,69,90,.55)]">{flash.title}</div>
+            <div className="mt-2 text-[15px] font-bold text-ink drop-shadow-[0_1px_8px_rgba(0,0,0,.8)]">{flash.sub}</div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function flawReason(flaw: Flaw | "unrelated" | null, ticker: string, config: { pair: string }, right: RoundResult["rightCoin"]) {
@@ -83,14 +150,78 @@ const HEAD = {
   missed: { kicker: "Missed it", tone: "text-down", edge: "bg-down" },
 } as const;
 
-const Stat = ({ k, v, tone }: { k: string; v: React.ReactNode; tone?: string }) => (
+const Stat = ({ k, v, tone, sub }: { k: string; v: React.ReactNode; tone?: string; sub?: string }) => (
   <div className="rounded-xl border border-line bg-card px-3 py-2.5">
     <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{k}</div>
     <div className={`tabular mt-0.5 text-[18px] font-extrabold ${tone ?? "text-ink"}`}>{v}</div>
+    {sub && <div className="text-[11px] text-dim">{sub}</div>}
   </div>
 );
 
-export function ResultsOverlay({ result: r, onNext, onMenu }: { result: RoundResult; onNext: () => void; onMenu: () => void }) {
+/** Score bar: how the 1000 splits between speed, entry and exit. */
+function ScoreBreakdown({ r }: { r: RoundResult }) {
+  const p = r.scoreParts;
+  const seg = (v: number, color: string) => <span className={`h-full ${color}`} style={{ width: `${(v / 1000) * 100}%` }} />;
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline gap-2">
+        <span className="tabular text-[34px] font-black leading-none">{r.score}</span>
+        <span className="text-[14px] font-bold text-dim">/ 1000</span>
+      </div>
+      <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-line">
+        {seg(p.speed, "bg-up")}
+        {seg(p.entry, "bg-blue")}
+        {seg(p.exit, "bg-amber")}
+      </div>
+      <div className="tabular mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-dim">
+        <span>
+          <span className="font-bold text-up">Speed {p.speed}</span>/{SCORE.speedMax} · full at {SCORE.fastMs} ms, 0 at {SCORE.slowMs / 1000} s
+        </span>
+        <span>
+          <span className="font-bold text-blue">Entry {p.entry}</span>/{SCORE.entryMax} · buyer #1-5 full, 0 by #40
+        </span>
+        <span>
+          <span className="font-bold text-amber">Exit {p.exit}</span>/{SCORE.exitMax} · PnL, full at +200%
+        </span>
+        {p.penalty > 0 && <span className="font-bold text-down">Wrong buys −{p.penalty}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** "+47 ms better than your PB" / "Missed PB by 89 ms" / "First PB". */
+function PbLine({ r, prev }: { r: RoundResult; prev: RunStats }) {
+  if (r.outcome !== "success" || r.reactionMs === null) return null;
+  if (r.training) return <p className="mt-1 text-[13px] font-semibold text-faint">Training round: doesn&apos;t count towards PBs.</p>;
+  const ms = Math.round(r.reactionMs);
+  if (prev.pbReactionMs === null) return <p className="mt-1 text-[13px] font-extrabold text-amber">First PB on this difficulty: {ms} ms</p>;
+  const d = Math.round(prev.pbReactionMs - r.reactionMs);
+  return d > 0 ? (
+    <p className="mt-1 text-[13px] font-extrabold text-amber">New PB! {d} ms better than your best ({Math.round(prev.pbReactionMs)} ms)</p>
+  ) : (
+    <p className="mt-1 text-[13px] font-semibold text-dim">
+      Missed your PB ({Math.round(prev.pbReactionMs)} ms) by {-d} ms
+    </p>
+  );
+}
+
+const fmtMs = (v: number | null) => (v === null ? "—" : `${Math.round(v)} ms`);
+
+export function ResultsOverlay({
+  result: r,
+  prev,
+  session,
+  onNext,
+  onMenu,
+}: {
+  result: RoundResult;
+  /** Stats before this round (for the PB comparison). */
+  prev: RunStats;
+  /** This session's stats including this round. */
+  session: RunStats;
+  onNext: () => void;
+  onMenu: () => void;
+}) {
   const head = HEAD[r.outcome];
   const landed = r.rightAppearMs !== null ? `${(r.rightAppearMs / 1000).toFixed(1)}s after the tweet` : "never";
 
@@ -124,37 +255,67 @@ export function ResultsOverlay({ result: r, onNext, onMenu }: { result: RoundRes
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Round result">
-      <div className="relative flex max-h-[90vh] w-full max-w-[760px] flex-col overflow-hidden rounded-2xl border border-line-hi bg-panel shadow-2xl">
+      <div className="relative flex max-h-[92vh] w-full max-w-[820px] flex-col overflow-hidden rounded-2xl border border-line-hi bg-panel shadow-2xl">
         <span className={`absolute inset-x-0 top-0 h-[3px] ${head.edge}`} />
         <div className="overflow-y-auto p-6">
-          <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${head.tone}`}>{head.kicker}</p>
-          <div className="mt-1 flex items-baseline gap-3">
-            <h2 className={`tabular text-[54px] font-black leading-none tracking-tight ${r.outcome === "success" ? "text-ink" : head.tone}`}>{big}</h2>
-            {r.rating && (
-              <span className="rounded-full border border-up/40 bg-up/10 px-2.5 py-0.5 text-[12px] font-bold text-up">{r.rating}</span>
-            )}
-          </div>
-          <p className="mt-2 max-w-xl text-[14px] leading-snug text-dim">{sub}</p>
-
-          {r.outcome === "success" && (
-            <div className="mt-5 grid grid-cols-4 gap-2.5">
-              <Stat k="Reaction" v={`${Math.round(r.reactionMs ?? 0)} ms`} />
-              <Stat k="Tweet to buy" v={`${((r.tweetToBuyMs ?? 0) / 1000).toFixed(2)} s`} />
-              <Stat k="Buyer" v={`#${r.buyNumber}`} />
-              <Stat k="Entry MC" v={usd(r.entryMcUsd ?? 0)} />
-              <Stat k="Spent" v={<><SolIcon /> {sol(r.boughtSol)}</>} />
-              <Stat k="Closed for" v={<><SolIcon /> {sol(r.closedSol)}</>} />
-              <div className="col-span-2">
-                <Stat
-                  k="PnL"
-                  v={`${signed(r.pnlSol)} SOL (${signed(r.pnlPct, 1)}%)`}
-                  tone={r.pnlSol >= 0 ? "text-up" : "text-down"}
-                />
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${head.tone}`}>
+                {head.kicker}
+                {r.training && <span className="ml-2 rounded bg-card-hi px-1.5 py-px text-[10px] text-dim">TRAINING</span>}
+              </p>
+              <div className="mt-1 flex items-baseline gap-3">
+                <h2 className={`tabular text-[54px] font-black leading-none tracking-tight ${r.outcome === "success" ? "text-ink" : head.tone}`}>{big}</h2>
+                {r.rating && <span className="rounded-full border border-up/40 bg-up/10 px-2.5 py-0.5 text-[12px] font-bold text-up">{r.rating}</span>}
+              </div>
+              <PbLine r={r} prev={prev} />
+              <p className="mt-2 max-w-xl text-[14px] leading-snug text-dim">{sub}</p>
+            </div>
+            <div className="shrink-0 rounded-xl border border-line bg-card px-4 py-3 text-right">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">This session</div>
+              <div className="tabular mt-1 space-y-0.5 text-[12.5px] text-dim">
+                <div>
+                  Accuracy <span className="font-bold text-ink">{session.accuracyPct === null ? "—" : `${Math.round(session.accuracyPct)}%`}</span>{" "}
+                  <span className="text-faint">
+                    ({session.hits}/{session.runs})
+                  </span>
+                </div>
+                <div>
+                  Avg reaction <span className="font-bold text-ink">{fmtMs(session.avgReactionMs)}</span>
+                </div>
+                <div>
+                  Streak <span className="font-bold text-ink">{session.streak}</span> · best <span className="font-bold text-ink">{session.bestStreak}</span>
+                </div>
               </div>
             </div>
-          )}
+          </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3">
+          {r.outcome === "success" && <ScoreBreakdown r={r} />}
+
+          <div className="mt-5 grid grid-cols-4 gap-2.5">
+            <Stat k="Right coin landed" v={r.rightAppearMs === null ? "never" : `+${(r.rightAppearMs / 1000).toFixed(2)} s`} sub="after the tweet" />
+            <Stat k="Look-alikes landed" v={String(r.decoys.length)} sub="each one thing wrong" />
+            {r.outcome === "success" ? (
+              <>
+                <Stat k="Tweet to buy" v={`${((r.tweetToBuyMs ?? 0) / 1000).toFixed(2)} s`} sub={`buyer #${r.buyNumber} · entry ${usd(r.entryMcUsd ?? 0)}`} />
+                <Stat
+                  k="PnL"
+                  v={`${signed(r.pnlSol)} SOL`}
+                  sub={`${signed(r.pnlPct, 1)}% · spent ${sol(r.boughtSol)}`}
+                  tone={r.pnlSol >= 0 ? "text-up" : "text-down"}
+                />
+              </>
+            ) : (
+              <>
+                <Stat k="PB reaction" v={fmtMs(prev.pbReactionMs)} sub="this difficulty" />
+                <Stat k="Best score" v={prev.pbScore === null ? "—" : String(prev.pbScore)} sub="this difficulty" />
+              </>
+            )}
+          </div>
+
+          {r.wrongBuys.length > 0 && <WrongList list={r.wrongBuys} />}
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <section className="rounded-xl border border-line bg-card p-3">
               <h3 className="text-[10px] font-bold uppercase tracking-wider text-faint">The tweet</h3>
               <p className="mt-1 text-[11px] text-dim">
@@ -188,18 +349,13 @@ export function ResultsOverlay({ result: r, onNext, onMenu }: { result: RoundRes
           </div>
 
           <section className="mt-3 rounded-xl border border-line bg-card p-3">
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-faint">
-              Look-alikes that landed ({r.decoys.length}): each gets exactly one thing wrong
-            </h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-faint">Look-alikes that landed ({r.decoys.length}): each gets exactly one thing wrong</h3>
             {r.decoys.length === 0 ? (
               <p className="mt-2 text-[12px] text-faint">None had landed by the time the round ended.</p>
             ) : (
               <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
                 {r.decoys.map((d, i) => (
-                  <li
-                    key={i}
-                    className={`flex items-center gap-2 rounded-lg px-1.5 py-1 ${boughtDecoy(d) ? "bg-down/10 ring-1 ring-down/40" : ""}`}
-                  >
+                  <li key={i} className={`flex items-center gap-2 rounded-lg px-1.5 py-1 ${boughtDecoy(d) ? "bg-down/10 ring-1 ring-down/40" : ""}`}>
                     <Art art={d.art} className="h-8 w-8 shrink-0 rounded-md border border-line-hi" glyphSize={16} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1">
@@ -238,3 +394,21 @@ export function ResultsOverlay({ result: r, onNext, onMenu }: { result: RoundRes
     </div>
   );
 }
+
+function WrongList({ list }: { list: WrongBuy[] }) {
+  return (
+    <section className="mt-3 rounded-xl border border-down/30 bg-down/[0.05] p-3">
+      <h3 className="text-[10px] font-bold uppercase tracking-wider text-down">
+        Wrong coins bought on the way ({list.length}) · −{list.length * SCORE.wrongPenalty}
+      </h3>
+      <ul className="mt-1.5 space-y-0.5 text-[12.5px]">
+        {list.map((w, i) => (
+          <li key={i} className="tabular text-dim">
+            <span className="font-bold text-ink">{w.ticker}</span> at +{(w.atMs / 1000).toFixed(2)} s · {FLAW_SHORT[w.flaw]}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+

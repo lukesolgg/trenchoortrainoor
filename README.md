@@ -80,6 +80,16 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
 - Round flow: New Pairs is kept thin (1-3 coins at start, a new one every 8-20 s). The tweet brings a flood of 2-4 / 4-7 / 6-12
   coins (Paper / Trencher / Sniper) with the runner landing early. Every runner launch is scripted (`scriptLaunch`) and migrates
   3-15 s after it lands. A scored round only auto-ends once you are flat: hold and it keeps running until you sell 100%. Space only ends it when you hold nothing.
+- Scoring (`scoreRound` in scoring.ts): out of 1000. Speed up to 800 (full at 150 ms, 0 at 3 s), entry up to 100 (buyer #1-5 full,
+  0 by #40), exit up to 100 (PnL, full at +200%), minus 150 per wrong buy in Training. Only a correct buy scores.
+- Feedback: the strip under the nav goes amber when armed and flashes green with TWEET LANDED; a WebAudio ping plays (mute in the
+  nav). Buying the right coin flashes your reaction ms immediately; a wrong coin or false start flashes red before the results open.
+- Styles: Strict (a wrong buy ends the round, counts for PBs) and Training (−150 per wrong buy, keep going, no PBs).
+- Progression (`store/runs.ts`, localStorage `gngm.runs.v1`): PB reaction and best score per difficulty, average reaction,
+  accuracy, streaks, last 10 runs on the setup screen; results compare against your PB and show this session's stats.
+- Look-alikes land 0.3-0.8 s (+ stagger) after the right coin on Paper Hands and Trencher, on top of it on Sniper (`decoyDelayMs`).
+  Pair and DIV chips are large and colour-filled; no DIV shows as a struck-through chip.
+- `?debug` in the URL exposes the engine as `window.__engine` (used by browser tests).
 - Big coins (the five main memes, `big` in memes.json) pick an outcome each round (`BIG_OUTCOME_WEIGHTS`, documented on `BigOutcome`
   in engine.ts): standard, runner ($0.7-2.5M), moon ($3-50M) or top-and-rug ($200-400K then ~$25K within ~8 s). Runners migrate in
   2.5-5 s (sometimes up to 12 s) and top out 13-50 s after launch, calibrated to txgym sweat rounds. $1M+ runs get giga candles.

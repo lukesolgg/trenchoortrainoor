@@ -249,8 +249,14 @@ export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
   const all = [...specs, target];
   // The runner lands early in the flood, so it can be spotted in under 3 s.
   const targetAt = rng.range(0.05, 0.4) * diff.floodMs;
+  // Look-alikes chase the real coin (a beat behind on easier levels, on top of it on Sniper); fillers land anywhere.
   const spawns: TimedSpawn[] = all.map((spec) => ({
-    at: spec === target ? targetAt : rng.range(0, diff.floodMs),
+    at:
+      spec === target
+        ? targetAt
+        : spec.role === "decoy"
+          ? Math.max(0, targetAt + rng.range(diff.decoyDelayMs[0], diff.decoyDelayMs[1]) + rng.range(0, 600))
+          : rng.range(0, diff.floodMs),
     spec,
   }));
   spawns.sort((a, b) => a.at - b.at);

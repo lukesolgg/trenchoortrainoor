@@ -1,10 +1,10 @@
 import type { CoinConfig, Pair } from "@/engine/types";
 
 export const PAIR_STYLE: Record<Pair, string> = {
-  SPACEX: "bg-blue/10 text-blue border-blue/40",
-  TESLA: "bg-down/15 text-down border-down/40",
-  PUMP: "bg-white/10 text-ink border-white/20",
-  SOL: "bg-violet/15 text-violet border-violet/40",
+  SPACEX: "bg-blue/25 text-[#9fd8ff] border-blue/70",
+  TESLA: "bg-down/25 text-[#ff9aa6] border-down/70",
+  PUMP: "bg-up/20 text-[#8ff0bf] border-up/60",
+  SOL: "bg-violet/30 text-[#c9b3ff] border-violet/70",
 };
 
 const base = "rounded border px-1.5 py-px text-[10px] font-bold leading-4 tracking-wide";

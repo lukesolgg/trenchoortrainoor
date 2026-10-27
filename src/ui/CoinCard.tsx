@@ -8,8 +8,9 @@ import { sol, usd } from "./format";
 import { BoltIcon, DevIcon, HoldersIcon, ProIcon, SolIcon } from "./icons";
 import { SourceBadge } from "./SourceBadge";
 
+/** Pair and DIV are what separate the right coin from its look-alikes, so they are big and loud. */
 const Chip = ({ className, children }: { className: string; children: React.ReactNode }) => (
-  <span className={`rounded-[3px] border px-1 text-[9.5px] font-bold leading-[15px] tracking-wide ${className}`}>{children}</span>
+  <span className={`rounded-[4px] border px-1.5 text-[11.5px] font-black leading-[19px] tracking-wide ${className}`}>{children}</span>
 );
 
 const ICONS: Record<string, string> = { T10: "♛", DEV: "♞", SNP: "⌖", INS: "◈" };
@@ -99,7 +100,11 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
         </div>
         <div className="flex items-center gap-1">
           <Chip className={PAIR_STYLE[config.pair]}>/{config.pair}</Chip>
-          {config.dividends && <Chip className="border-amber/40 bg-amber/15 text-amber">DIV</Chip>}
+          {config.dividends ? (
+            <Chip className="border-amber bg-amber text-black">DIV</Chip>
+          ) : (
+            <Chip className="border-line-hi text-faint line-through decoration-1">DIV</Chip>
+          )}
         </div>
         <div className="flex items-center gap-2.5">
           <span className="tabular text-[12px] font-bold text-up">{ageText}</span>

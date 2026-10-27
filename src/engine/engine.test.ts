@@ -850,3 +850,84 @@ describe("orders, holders, top 10 avg", () => {
     expect(peak.earlyAvgMcUsd).toBeGreaterThan(early.earlyAvgMcUsd * 1.5);
   });
 });
+
+describe("score, hit feedback and training style", () => {
+  const live = (opts: { seed?: number; training?: boolean; difficulty?: "paper" | "trencher" | "sniper" } = {}) => {
+    const e = new Engine({ seed: opts.seed ?? 5, difficulty: opts.difficulty ?? "sniper", autoRounds: false, clock: () => 0, training: opts.training });
+    e.startScored();
+    const sc = e.getSnapshot().scored!;
+    e.advanceTo(sc.tTweet + 1);
+    return e;
+  };
+  const target = (e: Engine) => {
+    for (let t = e.now(); !e.getRound()?.targetCoinId; t += 25) e.advanceTo(t);
+    return e.getRound()!.targetCoinId!;
+  };
+  const decoy = (e: Engine) => {
+    for (let t = e.now(); t < e.now() + 20000; t += 50) {
+      e.advanceTo(t);
+      const d = e.debugCoins().find((c) => c.role === "decoy");
+      if (d) return d.id;
+    }
+    throw new Error("no decoy");
+  };
+
+  it("scores speed, entry and exit out of 1000", async () => {
+    const { scoreRound } = await import("./scoring");
+    expect(scoreRound({ success: true, reactionMs: 100, buyNumber: 1, pnlPct: 300, wrongBuys: 0 }).total).toBe(1000);
+    expect(scoreRound({ success: true, reactionMs: 3000, buyNumber: 40, pnlPct: -50, wrongBuys: 0 }).total).toBe(0);
+    const mid = scoreRound({ success: true, reactionMs: 1575, buyNumber: 5, pnlPct: 100, wrongBuys: 1 });
+    expect(mid).toEqual({ speed: 400, entry: 100, exit: 50, penalty: 150, total: 400 });
+    expect(scoreRound({ success: false, reactionMs: 200, buyNumber: 1, pnlPct: 100, wrongBuys: 0 }).total).toBe(0);
+  });
+
+  it("shows the reaction time the instant you buy the right coin", () => {
+    const e = live();
+    const id = target(e);
+    e.advanceTo(e.now() + 400);
+    e.quickBuy(id, 1);
+    const sc = e.getSnapshot().scored!;
+    expect(sc.phase).toBe("live");
+    expect(sc.hit!.reactionMs).toBeGreaterThanOrEqual(400);
+    expect(sc.hit!.reactionMs).toBeLessThan(600);
+    while (!e.sell(id, 1)) e.advanceTo(e.now() + 250);
+    const r = e.getSnapshot().scored!.result!;
+    expect(r.outcome).toBe("success");
+    expect(r.score).toBeGreaterThan(0);
+    expect(r.score).toBe(r.scoreParts.speed + r.scoreParts.entry + r.scoreParts.exit);
+  });
+
+  it("strict style: a wrong buy ends the round; training style: it costs points and you keep going", () => {
+    const strict = live({ seed: 6 });
+    strict.quickBuy(decoy(strict), 1);
+    expect(strict.getSnapshot().scored!.result!.outcome).toBe("wrong_coin");
+
+    const e = live({ seed: 6, training: true });
+    const d = decoy(e);
+    e.quickBuy(d, 1);
+    let sc = e.getSnapshot().scored!;
+    expect(sc.phase).toBe("live");
+    expect(sc.misses).toHaveLength(1);
+    const id = target(e);
+    e.quickBuy(id, 1);
+    expect(e.getSnapshot().scored!.hit).not.toBeNull();
+    while (!e.sell(id, 1)) e.advanceTo(e.now() + 250);
+    while (!e.sell(d, 1)) e.advanceTo(e.now() + 250);
+    sc = e.getSnapshot().scored!;
+    expect(sc.result!.outcome).toBe("success");
+    expect(sc.result!.training).toBe(true);
+    expect(sc.result!.wrongBuys).toHaveLength(1);
+    expect(sc.result!.scoreParts.penalty).toBe(150);
+  });
+
+  it("on easier levels look-alikes land after the real coin", () => {
+    for (const seed of [1, 2, 3, 4]) {
+      const e = live({ seed, difficulty: "paper" });
+      const id = target(e);
+      const landed = e.now();
+      expect(e.debugCoins().filter((c) => c.role === "decoy" && c.id !== id)).toHaveLength(0);
+      e.advanceTo(landed + 2500);
+      expect(e.debugCoins().filter((c) => c.role === "decoy").length).toBeGreaterThan(0);
+    }
+  });
+});

@@ -2,7 +2,7 @@ import * as curveLib from "./curve";
 import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
-import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor } from "./scoring";
+import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound } from "./scoring";
 import {
   MEME_PACK,
   fillerSource,
@@ -36,6 +36,8 @@ import type {
   TweetSource,
   TweetView,
   Order,
+  Hit,
+  WrongBuy,
 } from "./types";
 
 export interface EngineOptions {
@@ -47,6 +49,8 @@ export interface EngineOptions {
   startingSol?: number;
   /** Real clock in ms. Defaults to performance.now. */
   clock?: () => number;
+  /** Training style: a wrong buy costs points but does not end the round. */
+  training?: boolean;
 }
 
 /**
@@ -145,6 +149,7 @@ interface ScoredState {
   tTweet: number;
   tEnd: number | null;
   firstBuy: { trade: PlayerTrade; coinId: string; isTarget: boolean; flaw: Flaw | "unrelated" | null } | null;
+  misses: WrongBuy[];
   result: RoundResult | null;
   view: ScoredView;
 }
@@ -907,7 +912,9 @@ export class Engine {
         const idx = c.legs.indexOf(leg);
         if (leg.from === undefined) leg.from = c.postMc / Math.exp(c.osc);
         const start = idx === 0 ? c.lockUntil : c.legs[idx - 1].end;
-        const frac = Math.min(1, Math.max(0, (at - start) / Math.max(1, leg.end - start)));
+        // Aim a little ahead on the script: the level trails it (it only moves on size), and this lead cancels the lag
+        // so tops and bottoms are actually reached.
+        const frac = Math.min(1, Math.max(0, (at + 750 - start) / Math.max(1, leg.end - start)));
         want = leg.from * Math.pow(leg.to / leg.from, frac);
         volMul *= leg.vol;
       } else {
@@ -1215,8 +1222,22 @@ export class Engine {
 
     if (sc && sc.phase === "live" && !sc.firstBuy) {
       const isTarget = c.spec.role === "target";
-      sc.firstBuy = { trade, coinId, isTarget, flaw: isTarget ? null : (c.spec.flaw ?? "unrelated") };
-      if (!isTarget) this.endScored("wrong_coin");
+      const flaw = isTarget ? null : (c.spec.flaw ?? "unrelated");
+      if (isTarget) {
+        sc.firstBuy = { trade, coinId, isTarget, flaw };
+        const appear = this.roundView?.tTargetAppear ?? at;
+        const reactionMs = Math.max(0, at - appear);
+        const hit: Hit = { reactionMs, rating: ratingFor(reactionMs), buyNumber: rank + 1, ticker: c.spec.ticker };
+        sc.view = { ...sc.view, hit };
+      } else {
+        const miss: WrongBuy = { ticker: c.spec.ticker, flaw: flaw!, atMs: at - sc.tTweet };
+        sc.misses.push(miss);
+        sc.view = { ...sc.view, misses: [...sc.misses] };
+        if (!this.opts.training) {
+          sc.firstBuy = { trade, coinId, isTarget, flaw };
+          this.endScored("wrong_coin");
+        }
+      }
     }
     this.emitNow();
     return trade;
@@ -1289,8 +1310,9 @@ export class Engine {
       tTweet,
       tEnd: null,
       firstBuy: null,
+      misses: [],
       result: null,
-      view: { phase: "countdown", tStart, tArm, tTweet, tEnd: null, result: null },
+      view: { phase: "countdown", tStart, tArm, tTweet, tEnd: null, result: null, hit: null, misses: [], training: !!this.opts.training },
     };
     this.scored = sc;
     this.emitEvery = EMIT_SCORED_MS;
@@ -1347,7 +1369,7 @@ export class Engine {
     sc.phase = "ended";
     sc.tEnd = this.simNow;
     sc.result = this.buildResult(sc, outcome, extra.buyAt ?? null);
-    sc.view = { phase: "ended", tStart: sc.tStart, tArm: sc.tArm, tTweet: sc.tTweet, tEnd: sc.tEnd, result: sc.result };
+    sc.view = { ...sc.view, phase: "ended", tEnd: sc.tEnd, result: sc.result };
     this.emitEvery = EMIT_EVERY_MS;
     this.emitNow();
   }
@@ -1409,6 +1431,19 @@ export class Engine {
       pnlSol,
       pnlPct: boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0,
       rating: reactionMs !== null ? ratingFor(reactionMs) : null,
+      ...(() => {
+        const parts = scoreRound({
+          success,
+          reactionMs,
+          buyNumber: fb ? fb.trade.rank + 1 : null,
+          pnlPct: boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0,
+          wrongBuys: sc.misses.length,
+        });
+        const { total, ...rest } = parts;
+        return { score: total, scoreParts: rest };
+      })(),
+      wrongBuys: this.opts.training ? [...sc.misses] : [],
+      training: !!this.opts.training,
     };
   }
 

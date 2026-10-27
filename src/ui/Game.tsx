@@ -5,7 +5,9 @@ import { useHistory } from "@/store/history";
 import { DIFFICULTIES } from "@/engine/difficulty";
 import { useUi } from "@/store/ui";
 import { PulseBoard } from "./PulseBoard";
-import { ResultsOverlay, RoundOverlay, RoundStatus } from "./RoundOverlays";
+import { BuyFlash, FLAW_SHORT, ResultsOverlay, RoundOverlay, RoundStatus, statusStripClass, type Flash } from "./RoundOverlays";
+import { SESSION_START, statsFor, useRuns, type RunStats } from "@/store/runs";
+import { sfx } from "./sound";
 import { TokenPage } from "./TokenPage";
 import { Portfolio, type OpenRow } from "./Portfolio";
 import { MultiplierFlash } from "./MultiplierFlash";
@@ -27,12 +29,16 @@ interface Toast {
 export function Game() {
   const {
     mode, difficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
-    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start,
+    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style,
   } = useUi();
   // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
   const scoredMode = mode === "firsttx";
-  const engine = useEngine({ difficulty, autoRounds: !scoredMode });
+  const engine = useEngine({ difficulty, autoRounds: !scoredMode, training: style === "training" });
   const snap = useSnapshot(engine);
+  // ?debug exposes the engine to the console and to browser tests.
+  useEffect(() => {
+    if (new URLSearchParams(location.search).has("debug")) (window as unknown as { __engine?: typeof engine }).__engine = engine;
+  }, [engine]);
   const scored = snap.scored;
   const [wallStart] = useState(() => Date.now());
   const [query, setQuery] = useState("");
@@ -159,6 +165,88 @@ export function Game() {
     addHistory(fresh.map((t) => ({ key: `${wallStart}-${t.id}`, ticker: t.ticker, name: t.name, art: t.art, invested: t.invested, returned: t.returned, closedAt: Date.now() })));
   }, [snap.closed, addHistory, wallStart]);
   const tickerOf = useCallback((id: string) => engine.getCoinView(id)?.ticker ?? "", [engine]);
+  // ---- Round feedback: sounds, the hit/miss flash, and holding results back a beat so the flash lands first.
+  const [flash, setFlash] = useState<(Flash & { id: number }) | null>(null);
+  const [resultsShown, setResultsShown] = useState(false);
+  const seenMisses = useRef(0);
+  const seenHit = useRef(false);
+  const lastPhase = useRef<string | null>(null);
+  const lastCount = useRef(0);
+  useEffect(() => {
+    if (!scored) return;
+    if (scored.phase !== lastPhase.current) {
+      if (scored.phase === "live") sfx.tweet();
+      if (scored.phase === "ended" && scored.result) {
+        const r = scored.result;
+        if (r.outcome === "false_start") {
+          sfx.miss();
+          setFlash({ id: Date.now(), kind: "miss", title: "FALSE START", sub: `${Math.round(r.earlyMs ?? 0)} ms before the tweet` });
+        } else if (r.outcome === "wrong_coin" && !r.training) {
+          sfx.miss();
+          setFlash({ id: Date.now(), kind: "miss", title: "WRONG COIN", sub: `${r.bought?.ticker}: ${FLAW_SHORT[r.bought?.flaw ?? "unrelated"]}` });
+        }
+      }
+      lastPhase.current = scored.phase;
+    }
+    if (scored.phase === "countdown") {
+      const n = Math.ceil((scored.tArm - snap.now) / 1000);
+      if (n !== lastCount.current && n > 0) sfx.tick();
+      lastCount.current = n;
+    }
+    if (scored.hit && !seenHit.current) {
+      seenHit.current = true;
+      sfx.hit();
+      setFlash({ id: Date.now(), kind: "hit", ms: scored.hit.reactionMs, rating: scored.hit.rating, buyer: scored.hit.buyNumber });
+    }
+    if (scored.misses.length > seenMisses.current) {
+      const m = scored.misses[scored.misses.length - 1];
+      seenMisses.current = scored.misses.length;
+      if (scored.training) {
+        sfx.miss();
+        setFlash({ id: Date.now(), kind: "miss", title: "WRONG COIN", sub: `${m.ticker}: ${FLAW_SHORT[m.flaw]} · −150 · keep going` });
+      }
+    }
+  }, [scored, snap.now]);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 1100);
+    return () => clearTimeout(t);
+  }, [flash]);
+  // Results open a beat after the round ends, longer when a red flash has to land first.
+  const endedOutcome = scored?.phase === "ended" ? (scored.result?.outcome ?? null) : null;
+  useEffect(() => {
+    if (!endedOutcome) return;
+    const quiet = endedOutcome === "success" || endedOutcome === "missed";
+    const t = setTimeout(() => setResultsShown(true), quiet ? 250 : 1100);
+    return () => clearTimeout(t);
+  }, [endedOutcome]);
+
+  // ---- Progression: record each finished round once; PB comparison uses the stats from before it.
+  const runs = useRuns((r) => r.runs);
+  const addRun = useRuns((r) => r.add);
+  const [prevStats, setPrevStats] = useState<RunStats | null>(null);
+  const runId = useRef(`${wallStart}-${Math.random().toString(36).slice(2, 8)}`);
+  useEffect(() => {
+    const r = scored?.result;
+    if (!r || prevStats) return;
+    setPrevStats(statsFor(useRuns.getState().runs, difficulty));
+    addRun({
+      id: runId.current,
+      at: Date.now(),
+      difficulty,
+      training: r.training,
+      outcome: r.outcome,
+      reactionMs: r.reactionMs,
+      score: r.score,
+      ticker: r.rightCoin.ticker,
+      rightAppearMs: r.rightAppearMs,
+      decoys: r.decoys.length,
+      buyNumber: r.buyNumber,
+      pnlPct: r.pnlPct,
+    });
+  }, [scored?.result, prevStats, addRun, difficulty]);
+  const sessionStats = useMemo(() => statsFor(runs, difficulty, { since: SESSION_START }), [runs, difficulty]);
+
   const diff = DIFFICULTIES[difficulty];
 
   return (
@@ -182,7 +270,7 @@ export function Game() {
         walletSol={snap.walletSol}
         onMenu={toModes}
       />
-      <div className="flex h-8 shrink-0 items-center justify-center gap-3 border-b border-line bg-bg px-4 text-[12px]">
+      <div className={`flex h-9 shrink-0 items-center justify-center gap-3 border-b border-line px-4 text-[12.5px] transition-colors ${statusStripClass(scored, snap.now)}`}>
         {scored ? (
           <RoundStatus scored={scored} now={snap.now} />
         ) : (
@@ -247,7 +335,10 @@ export function Game() {
 
       <MultiplierFlash positions={snap.positions} tickerOf={tickerOf} />
       {scored && scored.phase !== "ended" && <RoundOverlay scored={scored} now={snap.now} />}
-      {scored?.result && <ResultsOverlay result={scored.result} onNext={start} onMenu={toModes} />}
+      {flash && <BuyFlash key={flash.id} flash={flash} />}
+      {scored?.result && resultsShown && prevStats && (
+        <ResultsOverlay result={scored.result} prev={prevStats} session={sessionStats} onNext={start} onMenu={toModes} />
+      )}
 
       {toast && (
         <div

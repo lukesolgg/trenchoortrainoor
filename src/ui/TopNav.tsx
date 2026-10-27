@@ -1,5 +1,6 @@
 "use client";
 
+import { useUi } from "@/store/ui";
 import type { RefObject } from "react";
 import type { NavTab } from "@/store/ui";
 import { sol } from "./format";
@@ -31,6 +32,26 @@ const ITEMS: Item[] = [
 ];
 
 /** Top bar: brand, sections, search, wallet. CopyTrade, Monitor and Track are placeholders. */
+function MuteButton() {
+  const muted = useUi((u) => u.muted);
+  const setMuted = useUi((u) => u.setMuted);
+  return (
+    <button
+      type="button"
+      onClick={() => setMuted(!muted)}
+      aria-pressed={muted}
+      title={muted ? "Sound off" : "Sound on"}
+      aria-label={muted ? "Turn sound on" : "Turn sound off"}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line-hi text-dim transition-colors hover:text-ink"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M11 5L6 9H3v6h3l5 4V5z" />
+        {muted ? <path d="M22 9l-6 6M16 9l6 6" /> : <path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" />}
+      </svg>
+    </button>
+  );
+}
+
 export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery, searchRef, walletSol, onMenu }: Props) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-nav px-4">
@@ -78,6 +99,7 @@ export function TopNav({ tab, onTab, modeLabel, difficultyLabel, query, onQuery,
           <SolIcon />
           {sol(walletSol)}
         </div>
+        <MuteButton />
         <button
           type="button"
           onClick={onMenu}

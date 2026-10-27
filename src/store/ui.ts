@@ -17,6 +17,9 @@ interface UiState {
   /** Selected preset index for each Pulse column: New, Almost bonded, Migrated. */
   colPreset: number[];
   quickEnabled: boolean;
+  /** Strict: a wrong buy ends the round and runs count for PBs. Training: wrong buys cost points, the round goes on. */
+  style: "strict" | "training";
+  muted: boolean;
   /** Tweet feed column expanded. */
   feedOpen: boolean;
   /** Token page: preset buttons fire immediately instead of arming an amount. */
@@ -32,6 +35,8 @@ interface UiState {
   setQuickPreset: (i: number, n: number) => void;
   setColPreset: (col: number, i: number) => void;
   setQuickAmount: (n: number) => void;
+  setStyle: (s: "strict" | "training") => void;
+  setMuted: (b: boolean) => void;
   setFeedOpen: (b: boolean) => void;
   setInstantTrade: (b: boolean) => void;
   setQuickEnabled: (b: boolean) => void;
@@ -53,6 +58,8 @@ export const useUi = create<UiState>((set) => ({
   feedOpen: true,
   instantTrade: true,
   quickEnabled: true,
+  style: "strict",
+  muted: false,
   buySets: [
     [1, 3, 5, 10, 2, 4, 0.5, 0.1],
     [0.1, 0.2, 0.3, 0.5, 0.15, 0.25, 0.75, 1],
@@ -66,6 +73,8 @@ export const useUi = create<UiState>((set) => ({
   setQuickPreset: (i, n) => set((st) => ({ quickPresets: st.quickPresets.map((v, k) => (k === i ? n : v)) })),
   setColPreset: (col, i) => set((st) => ({ colPreset: st.colPreset.map((v, k) => (k === col ? i : v)) })),
   setQuickAmount: (quickAmount) => set({ quickAmount }),
+  setStyle: (style) => set({ style }),
+  setMuted: (muted) => set({ muted }),
   setFeedOpen: (feedOpen) => set({ feedOpen }),
   setInstantTrade: (instantTrade) => set({ instantTrade }),
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),
