@@ -30,7 +30,7 @@ import { usd } from "./format";
 export interface Mark {
   time: Time;
   value: number;
-  kind: "you" | "dev" | "kol" | "boost";
+  kind: "you" | "dev" | "kol" | "boost" | "tweet" | "dex" | "cto";
   side: "buy" | "sell" | null;
   letter: string;
   hue?: number;
@@ -41,20 +41,27 @@ export interface Mark {
   sol?: number;
   mcUsd?: number;
   at?: number;
+  usd?: number;
+  hours?: number;
+  pct?: number;
+  all?: boolean;
+  avatar?: string;
+  text?: string;
 }
 
 /** Profile pictures drawn inside KOL markers, loaded once and shared by every chart. */
 const avatarCache = new Map<string, HTMLImageElement>();
-function avatar(handle: string, onLoad: () => void): HTMLImageElement | null {
-  let img = avatarCache.get(handle);
+function avatar(src: string, onLoad: () => void): HTMLImageElement | null {
+  let img = avatarCache.get(src);
   if (!img) {
     img = new Image();
-    img.src = `/kols/${handle.toLowerCase()}.jpg`;
+    img.src = src;
     img.onload = onLoad;
-    avatarCache.set(handle, img);
+    avatarCache.set(src, img);
   }
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
+const kolSrc = (handle: string) => `/kols/${handle.toLowerCase()}.jpg`;
 class ChartMarks implements ISeriesPrimitive<Time> {
   private marks: Mark[] = [];
   /** Where each mark was last drawn (CSS px), for hover. */
@@ -108,18 +115,18 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                 const x0 = chart.timeScale().timeToCoordinate(m.time);
                 const y0 = series.priceToCoordinate(m.value);
                 if (x0 === null || y0 === null) continue;
-                if (m.kind === "boost") {
-                  // Tag floating above the bar, with a drawn bolt (canvas fonts often lack the emoji).
+                if (m.kind === "boost" || m.kind === "dex" || m.kind === "cto") {
+                  // Tags floating above the bar: rocket boosts, DEX paid, CTO.
                   ctx.font = `800 ${Math.round(10 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-                  const text = m.label ?? "";
-                  const bw = 7 * hr;
-                  const w = ctx.measureText(text).width + bw + 14 * hr;
+                  const text = m.kind === "boost" ? (m.label ?? "") : m.kind === "dex" ? "DEX PAID" : "CTO";
+                  const icon = m.kind === "boost" ? 9 * hr : 0;
+                  const w = ctx.measureText(text).width + icon + 14 * hr;
                   const h = 16 * vr;
                   const stack = perBoost.get(x0) ?? 0;
                   perBoost.set(x0, stack + 1);
                   const x = x0 * hr;
                   const y = (y0 - 26 - stack * 20) * vr;
-                  ctx.fillStyle = "#f5c542";
+                  ctx.fillStyle = m.kind === "boost" ? "#f5c542" : m.kind === "dex" ? "#4db8ff" : "#35d07f";
                   ctx.beginPath();
                   ctx.roundRect(x - w / 2, y - h / 2, w, h, 4 * hr);
                   ctx.fill();
@@ -130,20 +137,44 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                     ctx.lineTo(x, y + h / 2 + 5 * vr);
                     ctx.fill();
                   }
-                  const bx = x - w / 2 + 5 * hr;
-                  const by = y - 5.5 * vr;
-                  ctx.fillStyle = "#1a1300";
-                  ctx.beginPath();
-                  ctx.moveTo(bx + 4.5 * hr, by);
-                  ctx.lineTo(bx, by + 6.5 * vr);
-                  ctx.lineTo(bx + 3 * hr, by + 6.5 * vr);
-                  ctx.lineTo(bx + 2 * hr, by + 11 * vr);
-                  ctx.lineTo(bx + 7 * hr, by + 4 * vr);
-                  ctx.lineTo(bx + 4 * hr, by + 4 * vr);
-                  ctx.closePath();
-                  ctx.fill();
+                  const ink = "#0d1200";
+                  let tx = x - w / 2 + 7 * hr;
+                  if (m.kind === "boost") {
+                    // Rocket: nose cone, body, fins and a flame, drawn at an angle.
+                    ctx.save();
+                    ctx.translate(tx + 3.5 * hr, y);
+                    ctx.rotate(Math.PI / 4);
+                    ctx.fillStyle = ink;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -6 * vr);
+                    ctx.quadraticCurveTo(3 * hr, -3 * vr, 2.4 * hr, 3 * vr);
+                    ctx.lineTo(-2.4 * hr, 3 * vr);
+                    ctx.quadraticCurveTo(-3 * hr, -3 * vr, 0, -6 * vr);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(-2.4 * hr, 1 * vr);
+                    ctx.lineTo(-4.2 * hr, 4.5 * vr);
+                    ctx.lineTo(-2.2 * hr, 3.4 * vr);
+                    ctx.moveTo(2.4 * hr, 1 * vr);
+                    ctx.lineTo(4.2 * hr, 4.5 * vr);
+                    ctx.lineTo(2.2 * hr, 3.4 * vr);
+                    ctx.fill();
+                    ctx.fillStyle = "#e5482a";
+                    ctx.beginPath();
+                    ctx.moveTo(-1.4 * hr, 3.4 * vr);
+                    ctx.lineTo(0, 6.5 * vr);
+                    ctx.lineTo(1.4 * hr, 3.4 * vr);
+                    ctx.fill();
+                    ctx.fillStyle = "#f5c542";
+                    ctx.beginPath();
+                    ctx.arc(0, -1.5 * vr, 1.1 * hr, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                    tx += icon;
+                  }
+                  ctx.fillStyle = ink;
                   ctx.textAlign = "left";
-                  ctx.fillText(text, bx + bw + 2 * hr, y + 0.5 * vr);
+                  ctx.fillText(text, tx + (m.kind === "boost" ? 2 * hr : 0), y + 0.5 * vr);
                   ctx.textAlign = "center";
                   self.drawn.push({ x: x0, y: y0 - 26 - stack * 20, r: Math.max(12, w / hr / 2), m });
                   continue;
@@ -151,15 +182,17 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                 if (m.kind === "dev") {
                   // The dev is a square tag, never confused with a KOL's round avatar.
                   const off = perBar.get(x0) ?? 0;
-                  perBar.set(x0, off + 30);
-                  const x = (x0 + off + (off ? 6 : 0)) * hr;
+                  perBar.set(x0, off + (m.all ? 70 : 30));
+                  const x = (x0 + off + (off ? (m.all ? 26 : 6) : 0)) * hr;
                   const y = y0 * vr;
                   const buy = m.side === "buy";
-                  const w = 26 * hr;
+                  const label = m.all ? "DEV SOLD ALL" : "DEV";
+                  ctx.font = `900 ${Math.round(8.5 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+                  const w = ctx.measureText(label).width + 10 * hr;
                   const h = 15 * vr;
                   ctx.shadowColor = buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
                   ctx.shadowBlur = 8 * hr;
-                  ctx.fillStyle = "#f5c542";
+                  ctx.fillStyle = m.all ? "#f0455a" : "#f5c542";
                   ctx.beginPath();
                   ctx.roundRect(x - w / 2, y - h / 2, w, h, 3 * hr);
                   ctx.fill();
@@ -167,10 +200,9 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.lineWidth = 2 * hr;
                   ctx.strokeStyle = buy ? "#35d07f" : "#f0455a";
                   ctx.stroke();
-                  ctx.font = `900 ${Math.round(8.5 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-                  ctx.fillStyle = "#111";
-                  ctx.fillText("DEV", x, y + 0.5 * vr);
-                  self.drawn.push({ x: x / hr, y: y0, r: 14, m });
+                  ctx.fillStyle = m.all ? "#fff" : "#111";
+                  ctx.fillText(label, x, y + 0.5 * vr);
+                  self.drawn.push({ x: x / hr, y: y0, r: Math.max(14, w / hr / 2), m });
                   continue;
                 }
                 // Several marks in one bar fan out sideways (by their real width) so none hides another.
@@ -182,14 +214,15 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                 const buy = m.side === "buy";
                 const ring = buy ? "#35d07f" : "#f0455a";
                 const fill = m.kind === "you" ? ring : `hsl(${m.hue ?? 200} 55% 42%)`;
-                ctx.shadowColor = buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
+                ctx.shadowColor = m.kind === "tweet" ? "rgba(29,155,240,.6)" : buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
                 ctx.shadowBlur = 8 * hr;
                 ctx.beginPath();
                 ctx.arc(x, y, r, 0, Math.PI * 2);
                 ctx.fillStyle = fill;
                 ctx.fill();
                 ctx.shadowBlur = 0;
-                const pic = m.kind === "kol" && m.handle ? avatar(m.handle, () => self.request?.()) : null;
+                const picSrc = m.kind === "kol" && m.handle ? kolSrc(m.handle) : m.kind === "tweet" ? (m.avatar ?? null) : null;
+                const pic = picSrc ? avatar(picSrc, () => self.request?.()) : null;
                 if (pic) {
                   ctx.save();
                   ctx.beginPath();
@@ -199,7 +232,7 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.restore();
                 }
                 ctx.lineWidth = (m.kind === "you" ? 1.5 : 2) * hr;
-                ctx.strokeStyle = m.kind === "you" ? "#0e0f12" : ring;
+                ctx.strokeStyle = m.kind === "you" ? "#0e0f12" : m.kind === "tweet" ? "#1d9bf0" : ring;
                 ctx.stroke();
                 ctx.font = `800 ${Math.round(m.letter.length > 1 ? 7.5 : 9) * vr}px Inter, ui-sans-serif, system-ui, sans-serif`;
                 if (!pic) {
@@ -246,7 +279,7 @@ interface Props {
   earlyAvgMcUsd: number;
   ticker: string;
   /** Social layers on the chart. */
-  show: { dev: boolean; kol: boolean; boost: boolean };
+  show: { dev: boolean; kol: boolean; boost: boolean; news: boolean };
 }
 
 const UP = "#35d07f";
@@ -471,7 +504,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
 
     const trades = engine.getTradesFor(coinId);
     const socials = engine.getSocial(coinId);
-    const markKey = trades.length * 100000 + socials.length * 10 + (show.dev ? 1 : 0) + (show.kol ? 2 : 0) + (show.boost ? 4 : 0);
+    const markKey = trades.length * 100000 + socials.length * 10 + (show.dev ? 1 : 0) + (show.kol ? 2 : 0) + (show.boost ? 4 : 0) + (show.news ? 8 : 0);
     if (markKey !== markerCount.current) {
       const bar = (atMs: number) => (Math.floor(Math.floor(atMs / 1000) / tf) * tf + timeOffset) as UTCTimestamp;
       const mine: Mark[] = trades
@@ -489,14 +522,14 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
           at: t.execAt,
         }));
       const theirs: Mark[] = socials
-        .filter((e) => (e.kind === "dev" ? show.dev : e.kind === "kol" ? show.kol : show.boost))
+        .filter((e) => (e.kind === "dev" ? show.dev : e.kind === "kol" ? show.kol : e.kind === "boost" ? show.boost : show.news))
         .map((e) => ({
           time: bar(e.at),
           value: e.mc * factor,
           kind: e.kind,
           side: e.side,
           // KOL avatars carry two initials, e.g. "DD" for Degen Dave.
-          letter: e.kind === "dev" ? "DEV" : e.name.split(" ").map((w) => w[0]).join("").slice(0, 2),
+          letter: e.kind === "dev" ? "DEV" : (e.handle ?? e.name).replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase(),
           hue: e.hue,
           label: e.label,
           name: e.name,
@@ -504,11 +537,17 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
           sol: e.sol,
           mcUsd: e.mc * SOL_USD,
           at: e.at,
+          usd: e.usd,
+          hours: e.hours,
+          pct: e.pct,
+          all: e.all,
+          avatar: e.avatar,
+          text: e.text,
         }));
       dotsRef.current?.setMarks([...theirs, ...mine]);
       markerCount.current = markKey;
     }
-  }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd, show.dev, show.kol, show.boost]);
+  }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd, show.dev, show.kol, show.boost, show.news]);
 
   // Switching timeframe, metric or unit changes where the badges sit.
   useEffect(() => {
@@ -545,47 +584,79 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
   );
 }
 
-/** Hover card for a chart mark: who, bought or sold, how much, at what market cap. */
+/** Hover card for a chart mark: who, what they did, how much, at what market cap. */
 function MarkCard({ x, y, m, width }: { x: number; y: number; m: Mark; width: number }) {
-  const left = x > width - 260 ? x - 252 : x + 16;
+  const left = x > width - 280 ? x - 272 : x + 16;
   const buy = m.side === "buy";
-  const verb = m.kind === "boost" ? "Boost purchased" : buy ? "Bought" : "Sold";
+  const pic = m.kind === "kol" && m.handle ? kolSrc(m.handle) : m.kind === "tweet" ? m.avatar : undefined;
+  const title =
+    m.kind === "dev" ? (m.all ? "Dev sold everything" : "Dev wallet")
+    : m.kind === "boost" ? `Boost ${m.label ?? ""}`
+    : m.kind === "dex" ? "DEX Screener paid"
+    : m.kind === "cto" ? "Community takeover"
+    : m.name;
+  const amount = (m.sol ?? 0).toFixed(m.sol && m.sol < 10 ? 2 : 1);
   return (
     <div
-      className="pointer-events-none absolute z-20 w-[236px] rounded-lg border border-line-hi bg-card/95 p-2.5 text-[12px] shadow-2xl backdrop-blur"
+      className="pointer-events-none absolute z-20 w-[256px] rounded-lg border border-line-hi bg-card/95 p-2.5 text-[12px] shadow-2xl backdrop-blur"
       style={{ left, top: Math.max(4, y - 30) }}
     >
       <div className="flex items-center gap-2">
-        {m.kind === "kol" && m.handle ? (
+        {pic ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={`/kols/${m.handle.toLowerCase()}.jpg`} alt="" className="h-8 w-8 rounded-full object-cover" />
+          <img src={pic} alt="" className="h-8 w-8 rounded-full object-cover" />
         ) : (
           <span
-            className={`grid h-8 w-8 place-items-center rounded-full text-[10px] font-black ${
-              m.kind === "dev" || m.kind === "boost" ? "bg-amber text-black" : buy ? "bg-up text-black" : "bg-down text-white"
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-[10px] font-black ${
+              m.kind === "dev" ? (m.all ? "bg-down text-white" : "bg-amber text-black")
+              : m.kind === "boost" ? "bg-amber text-black"
+              : m.kind === "dex" ? "bg-blue text-black"
+              : m.kind === "cto" ? "bg-up text-black"
+              : buy ? "bg-up text-black" : "bg-down text-white"
             }`}
           >
-            {m.kind === "dev" ? "DEV" : m.kind === "boost" ? "⚡" : m.letter}
+            {m.kind === "dev" ? "DEV" : m.kind === "boost" ? "🚀" : m.kind === "dex" ? "DEX" : m.kind === "cto" ? "CTO" : m.letter}
           </span>
         )}
         <div className="min-w-0 leading-tight">
-          <div className="truncate font-bold text-ink">{m.kind === "dev" ? "Dev wallet" : m.kind === "boost" ? `Boost ${m.label ?? ""}` : m.name}</div>
+          <div className="truncate font-bold text-ink">{title}</div>
           {m.handle && <div className="truncate text-[11px] text-dim">@{m.handle}</div>}
-          {m.kind === "kol" && <div className="text-[10px] text-faint">KOL · simulated trade</div>}
+          {(m.kind === "kol" || m.kind === "tweet") && <div className="text-[10px] text-faint">simulated</div>}
         </div>
       </div>
-      {m.kind !== "boost" ? (
+      {m.kind === "tweet" && m.text && <p className="mt-2 text-[12px] leading-snug text-ink/90">{m.text}</p>}
+      {(m.kind === "kol" || m.kind === "dev" || m.kind === "you") && (
         <div className="tabular mt-2 flex items-baseline justify-between">
           <span className={`font-bold ${buy ? "text-up" : "text-down"}`}>
-            {verb} {(m.sol ?? 0).toFixed(m.sol && m.sol < 10 ? 2 : 1)} SOL
+            {m.kind === "dev" && m.all ? "Sold all" : buy ? "Bought" : "Sold"} {amount} SOL
           </span>
           <span className="text-dim">
             at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
           </span>
         </div>
-      ) : (
+      )}
+      {m.kind === "dev" && m.pct !== undefined && (
+        <div className="tabular mt-1 text-[11px] text-dim">{m.pct.toFixed(2)}% of supply{m.all ? " · dev wallet now empty" : ""}</div>
+      )}
+      {m.kind === "boost" && (
         <div className="tabular mt-2 text-dim">
-          {verb} at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
+          Paid <span className="font-bold text-ink">${m.usd?.toLocaleString("en-US")}</span> for {m.label} · {m.hours} h · at{" "}
+          <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
+        </div>
+      )}
+      {m.kind === "dex" && (
+        <div className="tabular mt-2 text-dim">
+          Profile paid (${m.usd}) at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
+        </div>
+      )}
+      {m.kind === "cto" && (
+        <div className="tabular mt-2 text-dim">
+          Dev is gone, the community runs it now · at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
+        </div>
+      )}
+      {m.kind === "tweet" && (
+        <div className="tabular mt-1.5 text-[11px] text-dim">
+          at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC
         </div>
       )}
     </div>

@@ -37,6 +37,8 @@ export interface CoinSpec {
   profile: Profile;
   /** How long organic flow keeps running. Null means until it migrates. */
   ttlMs: number | null;
+  /** Saga: 0 for the round's first wave, 1+ for coins launched off a vamp tweet. */
+  wave?: number;
 }
 
 export interface TimedSpawn {

@@ -37,7 +37,25 @@
           85000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "Fred the Raccoon",
+          "tickers": [
+            "FRED",
+            "FREDDY",
+            "RACCOON",
+            "FREDR"
+          ],
+          "author": "elon",
+          "tweets": [
+            "And they took {name} too"
+          ],
+          "art": {
+            "src": "/coins/pnut~fred.jpg"
+          }
+        }
+      ]
     },
     {
       "id": "goat",
@@ -75,7 +93,22 @@
           80000,
           95000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "Goatseus Minimus",
+          "tickers": [
+            "MINIMUS",
+            "GOATMIN",
+            "GMIN",
+            "MINI"
+          ],
+          "author": "truthterminal",
+          "tweets": [
+            "{name} is the real one. the big goat was a prophecy"
+          ]
+        }
+      ]
     },
     {
       "id": "fartcoin",
@@ -151,7 +184,22 @@
           90000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "catwifhat",
+          "tickers": [
+            "CWIF",
+            "CATWIF",
+            "CATWIFHAT",
+            "CHAT"
+          ],
+          "author": "toly",
+          "tweets": [
+            "{name}"
+          ]
+        }
+      ]
     },
     {
       "id": "popcat",
@@ -189,7 +237,22 @@
           75000,
           90000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "Popdog",
+          "tickers": [
+            "POPDOG",
+            "PDOG",
+            "POPPUP",
+            "DOGPOP"
+          ],
+          "author": "alon",
+          "tweets": [
+            "{name} hits different"
+          ]
+        }
+      ]
     },
     {
       "id": "ansem-bag",
@@ -493,7 +556,7 @@
         "DELPHI",
         "ORACLE",
         "ODELPHI",
-        "PYTHIA"
+        "DELPHIC"
       ],
       "art": {
         "hue": 40,
@@ -513,7 +576,22 @@
           70000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "Pythia",
+          "tickers": [
+            "PYTHIA",
+            "PYTH",
+            "ORACLEP",
+            "PYTHI"
+          ],
+          "author": "truthterminal",
+          "tweets": [
+            "correction. the oracle had a name. {name}"
+          ]
+        }
+      ]
     },
     {
       "id": "silent-observer",
@@ -522,7 +600,7 @@
         "OBSERVER",
         "SILENT",
         "SILENTOBS",
-        "WATCHER"
+        "SOBS"
       ],
       "art": {
         "hue": 230,
@@ -545,7 +623,22 @@
           70000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "The Watcher",
+          "tickers": [
+            "WATCHER",
+            "THEWATCHER",
+            "WATCH",
+            "OBSERVE"
+          ],
+          "author": "trenchreport",
+          "tweets": [
+            "Correction: the wallet Ansem followed actually aped {name} first. Not Silent Observer."
+          ]
+        }
+      ]
     },
     {
       "id": "singularity",
@@ -578,7 +671,22 @@
           70000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "Meme Singularity",
+          "tickers": [
+            "MEMESING",
+            "MSING",
+            "MEMESINGULARITY",
+            "MSINGU"
+          ],
+          "author": "elon",
+          "tweets": [
+            "{name}"
+          ]
+        }
+      ]
     },
     {
       "id": "out-of-hand",
@@ -698,7 +806,22 @@
           70000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "Neural King",
+          "tickers": [
+            "KING",
+            "NEURALKING",
+            "NKING",
+            "NKG"
+          ],
+          "author": "elon",
+          "tweets": [
+            "Correction: {name}"
+          ]
+        }
+      ]
     },
     {
       "id": "bag-of-holding",
@@ -756,7 +879,22 @@
           70000,
           100000
         ]
-      }
+      },
+      "vamps": [
+        {
+          "name": "True Form",
+          "tickers": [
+            "TRUEFORM",
+            "TRUE",
+            "TFORM",
+            "TRUEF"
+          ],
+          "author": "truthterminal",
+          "tweets": [
+            "no. {name}. the final form was the cocoon"
+          ]
+        }
+      ]
     },
     {
       "id": "glass-cannon",
@@ -789,6 +927,70 @@
           100000
         ]
       }
+    },
+    {
+      "id": "polar-bear-cub",
+      "name": "Polar Bear Cub",
+      "tickers": [
+        "CUB",
+        "POLARBEAR",
+        "PBCUB",
+        "POLAR"
+      ],
+      "art": {
+        "hue": 200,
+        "glyph": "🐻‍❄️",
+        "src": "/coins/polar-bear-cub.jpg"
+      },
+      "author": "trenchreport",
+      "tweets": [
+        "A polar bear cub was just born at the zoo. First photos are out and the timeline is losing it."
+      ],
+      "noHighlight": true,
+      "highlight": [
+        "polar bear cub"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      },
+      "vamps": [
+        {
+          "name": "Polly the Polar Bear",
+          "tickers": [
+            "POLLY",
+            "POLLYBEAR",
+            "POLLYPOLAR",
+            "POL"
+          ],
+          "author": "trenchreport",
+          "tweets": [
+            "UPDATE: the zoo just named the cub {name}. Every chart just changed."
+          ],
+          "art": {
+            "src": "/coins/polar-bear-cub~polly.jpg"
+          }
+        },
+        {
+          "name": "Nora",
+          "tickers": [
+            "NORA",
+            "MAMABEAR",
+            "NORABEAR",
+            "MAMA"
+          ],
+          "author": "trenchreport",
+          "tweets": [
+            "Turns out Polly's mum {name} has her own fan account with 2M followers. Here we go again."
+          ]
+        }
+      ]
     }
   ]
 }

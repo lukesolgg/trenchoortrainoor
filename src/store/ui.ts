@@ -21,7 +21,9 @@ interface UiState {
   style: "strict" | "training";
   muted: boolean;
   /** Chart social layers. */
-  social: { dev: boolean; kol: boolean; boost: boolean };
+  social: { dev: boolean; kol: boolean; boost: boolean; news: boolean };
+  /** Round length: Blitz (done in about a minute) or Saga (a 5-10 minute story). */
+  length: "blitz" | "saga";
   /** Tweet feed column expanded. */
   feedOpen: boolean;
   /** Token page: preset buttons fire immediately instead of arming an amount. */
@@ -39,7 +41,8 @@ interface UiState {
   setQuickAmount: (n: number) => void;
   setStyle: (s: "strict" | "training") => void;
   setMuted: (b: boolean) => void;
-  toggleSocial: (k: "dev" | "kol" | "boost") => void;
+  toggleSocial: (k: "dev" | "kol" | "boost" | "news") => void;
+  setLength: (l: "blitz" | "saga") => void;
   setFeedOpen: (b: boolean) => void;
   setInstantTrade: (b: boolean) => void;
   setQuickEnabled: (b: boolean) => void;
@@ -63,7 +66,8 @@ export const useUi = create<UiState>((set) => ({
   quickEnabled: true,
   style: "strict",
   muted: false,
-  social: { dev: true, kol: true, boost: true },
+  social: { dev: true, kol: true, boost: true, news: true },
+  length: "blitz",
   buySets: [
     [1, 3, 5, 10, 2, 4, 0.5, 0.1],
     [0.1, 0.2, 0.3, 0.5, 0.15, 0.25, 0.75, 1],
@@ -79,6 +83,7 @@ export const useUi = create<UiState>((set) => ({
   setQuickAmount: (quickAmount) => set({ quickAmount }),
   setStyle: (style) => set({ style }),
   setMuted: (muted) => set({ muted }),
+  setLength: (length) => set({ length }),
   toggleSocial: (k) => set((st) => ({ social: { ...st.social, [k]: !st.social[k] } })),
   setFeedOpen: (feedOpen) => set({ feedOpen }),
   setInstantTrade: (instantTrade) => set({ instantTrade }),

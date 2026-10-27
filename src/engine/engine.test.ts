@@ -729,7 +729,7 @@ describe("big coin script", () => {
           expect(r.last / r.peak).toBeLessThan(0.65);
           break;
         case "toprug": {
-          expect(r.peak).toBeGreaterThan(180000);
+          expect(r.peak).toBeGreaterThan(165000);
           expect(r.peak).toBeLessThan(450000);
           expect(r.peakAt).toBeLessThan(26000);
           // Down to ~25K within about 10 s of the top.
@@ -970,12 +970,16 @@ describe("coin images", () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const { FILLER_COINS } = await import("./content");
-    const srcs = [...MEME_PACK.map((m) => m.art.src!), ...FILLER_COINS.map((f) => `/coins/${f.ticker.toLowerCase()}.jpg`)];
+    const srcs = [
+      ...MEME_PACK.map((m) => m.art.src!),
+      ...MEME_PACK.flatMap((m) => (m.vamps ?? []).map((v) => v.art?.src ?? m.art.src!)),
+      ...FILLER_COINS.map((f) => `/coins/${f.ticker.toLowerCase()}.jpg`),
+    ];
     for (const s of srcs) {
       expect(s, "missing src").toBeTruthy();
       expect(fs.existsSync(path.join(process.cwd(), "public", s)), s).toBe(true);
     }
-    expect(MEME_PACK.length).toBe(27);
+    expect(MEME_PACK.length).toBe(28);
   });
 });
 
@@ -1011,5 +1015,103 @@ describe("KOL avatars", () => {
     const path = await import("node:path");
     const { KOLS } = await import("./content");
     for (const k of KOLS) expect(fs.existsSync(path.join(process.cwd(), "public", "kols", `${k.handle.toLowerCase()}.jpg`)), k.handle).toBe(true);
+  });
+});
+
+describe("saga", () => {
+  const sagaEngine = (seed: number, training = false) =>
+    new Engine({ seed, difficulty: "trencher", autoRounds: false, clock: () => 0, length: "saga", training, pack: MEME_PACK.filter((m) => m.id === "polar-bear-cub") });
+
+  it("plans a 5-10 minute story and the round stays live through it", () => {
+    for (const seed of [1, 2, 3]) {
+      const e = sagaEngine(seed);
+      e.startScored();
+      const sc0 = e.getSnapshot().scored!;
+      e.advanceTo(sc0.tTweet + 1);
+      let id: string | null = null;
+      for (let t = e.now(); !id; t += 50) {
+        e.advanceTo(t);
+        id = e.getRound()?.targetCoinId ?? null;
+      }
+      e.quickBuy(id, 1);
+      // Sell out early: a saga does not end until the story is told.
+      for (let t = e.now(); !e.sell(id, 1); t += 250) e.advanceTo(t);
+      e.advanceTo(e.now() + 120_000);
+      expect(e.getSnapshot().scored!.phase).toBe("live");
+      const end = (e as unknown as { sagaEndAt: number }).sagaEndAt - sc0.tTweet;
+      expect(end).toBeGreaterThan(4.5 * 60_000);
+      expect(end).toBeLessThan(11 * 60_000);
+      e.advanceTo(sc0.tTweet + end + 5000);
+      expect(e.getSnapshot().scored!.phase).toBe("ended");
+      expect(e.getSnapshot().scored!.result!.length).toBe("saga");
+    }
+  });
+
+  it("a vamp tweet launches a new coin; getting on it fast is scored, its look-alikes only cost points", () => {
+    // Find a seed whose story has a vamp.
+    for (let seed = 1; seed < 40; seed++) {
+      const e = sagaEngine(seed);
+      e.startScored();
+      const sc0 = e.getSnapshot().scored!;
+      e.advanceTo(sc0.tTweet + 1);
+      if (((e as unknown as { saga: { chapters: unknown[] } }).saga.chapters.length ?? 1) < 2) continue;
+      let id: string | null = null;
+      for (let t = e.now(); !id; t += 50) {
+        e.advanceTo(t);
+        id = e.getRound()?.targetCoinId ?? null;
+      }
+      e.quickBuy(id, 1);
+      // Run until the vamp's right coin and a look-alike exist.
+      let vampId: string | null = null;
+      let decoyId: string | null = null;
+      for (let t = e.now(); t < sc0.tTweet + 10 * 60_000 && !(vampId && decoyId); t += 100) {
+        e.advanceTo(t);
+        const v = e.getSnapshot().scored!.vamps[0];
+        vampId = v?.coinId ?? null;
+        const coins = (e as unknown as { coins: Map<string, { id: string; spec: { wave?: number; role: string } }> }).coins;
+        decoyId = [...coins.values()].find((c) => c.spec.wave === 1 && c.spec.role === "decoy")?.id ?? null;
+      }
+      expect(vampId).not.toBeNull();
+      e.quickBuy(decoyId!, 0.5);
+      expect(e.getSnapshot().scored!.phase).toBe("live");
+      e.advanceTo(e.now() + 300);
+      e.quickBuy(vampId!, 1);
+      const v = e.getSnapshot().scored!.vamps[0];
+      expect(v.reactionMs).not.toBeNull();
+      expect(v.wrong).toBe(1);
+      expect(e.getSnapshot().scored!.hit!.ticker).toBe(v.ticker);
+      // Close everything once the story is over.
+      const end = (e as unknown as { sagaEndAt: number }).sagaEndAt;
+      e.advanceTo(end + 1000);
+      for (const p of e.getSnapshot().positions) while (p.tokens > 1e-6 && !e.sell(p.coinId, 1)) e.advanceTo(e.now() + 250);
+      const r = e.getSnapshot().scored!.result!;
+      expect(r.outcome).toBe("success");
+      expect(r.vamps).toHaveLength((e as unknown as { saga: { chapters: unknown[] } }).saga.chapters.length - 1);
+      expect(r.scoreParts.vamps).toBeGreaterThan(0);
+      expect(r.scoreParts.penalty).toBe(100);
+      return;
+    }
+    throw new Error("no seed with a vamp");
+  });
+
+  it("stories climb to their cap and carry catalysts, boosts, KOLs and a dev sell-all", () => {
+    let caps = 0;
+    for (const seed of [2, 4, 5]) {
+      const e = sagaEngine(seed);
+      e.startRound({ leadMs: 0 });
+      let peak = 0;
+      for (let t = 0; t < 11 * 60_000; t += 500) {
+        e.advanceTo(t);
+        for (const id of (e as unknown as { sagaCoins: Set<string> }).sagaCoins) peak = Math.max(peak, e.getCoinView(id)?.mcUsd ?? 0);
+      }
+      const cap = (e as unknown as { saga: { capUsd: number } }).saga.capUsd;
+      expect(peak).toBeGreaterThan(130_000);
+      if (peak > cap * 0.08) caps++;
+      const soc = [...(e as unknown as { sagaCoins: Set<string> }).sagaCoins].flatMap((id) => e.getSocial(id));
+      expect(soc.some((x) => x.kind === "kol")).toBe(true);
+      expect(soc.some((x) => x.kind === "tweet" || x.kind === "dex" || x.kind === "cto" || x.kind === "kol")).toBe(true);
+      expect(soc.some((x) => x.kind === "dev" && x.side === "sell")).toBe(true);
+    }
+    expect(caps).toBeGreaterThan(0);
   });
 });

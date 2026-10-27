@@ -9,6 +9,8 @@ export interface RunRecord {
   at: number;
   difficulty: DifficultyId;
   training: boolean;
+  /** Older records have no length: they were Blitz. */
+  length?: "blitz" | "saga";
   outcome: RoundOutcome;
   reactionMs: number | null;
   score: number;
@@ -55,8 +57,13 @@ export interface RunStats {
   streak: number;
 }
 
-export function statsFor(runs: readonly RunRecord[], difficulty: DifficultyId, opts: { since?: number } = {}): RunStats {
-  const mine = runs.filter((r) => r.difficulty === difficulty && r.at >= (opts.since ?? 0));
+export function statsFor(
+  runs: readonly RunRecord[],
+  difficulty: DifficultyId,
+  opts: { since?: number; length?: "blitz" | "saga" } = {},
+): RunStats {
+  const len = opts.length ?? "blitz";
+  const mine = runs.filter((r) => r.difficulty === difficulty && (r.length ?? "blitz") === len && r.at >= (opts.since ?? 0));
   const strictHits = mine.filter((r) => !r.training && r.outcome === "success" && r.reactionMs !== null);
   const hits = mine.filter((r) => r.outcome === "success" && r.reactionMs !== null);
   let streak = 0;

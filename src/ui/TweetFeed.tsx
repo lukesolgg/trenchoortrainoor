@@ -14,7 +14,7 @@ const AVATAR_BG = (hue: number) =>
  * Authority accounts use a real profile picture if one is dropped in public/avatars/<handle>.jpg; anything missing
  * falls back to the gradient initial.
  */
-function Avatar({ name, handle, hue, real }: { name: string; handle: string; hue: number; real: boolean }) {
+function Avatar({ name, src, hue }: { name: string; src: string | null; hue: number }) {
   const [failed, setFailed] = useState(false);
   return (
     <div
@@ -22,9 +22,9 @@ function Avatar({ name, handle, hue, real }: { name: string; handle: string; hue
       style={{ background: AVATAR_BG(hue) }}
     >
       {name[0].toUpperCase()}
-      {real && !failed && (
+      {src && !failed && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/avatars/${handle.toLowerCase()}.jpg`} alt="" className="absolute inset-0 h-full w-full object-cover" onError={() => setFailed(true)} />
+        <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" onError={() => setFailed(true)} />
       )}
     </div>
   );
@@ -39,7 +39,7 @@ const TweetCard = memo(function TweetCard({ t, wallStart }: { t: TweetView; wall
       }`}
     >
       <header className="flex items-center gap-2.5">
-        <Avatar name={author.name} handle={author.handle} hue={author.hue} real={author.authority} />
+        <Avatar name={author.name} hue={author.hue} src={author.avatar ?? (author.authority ? `/avatars/${author.handle.toLowerCase()}.jpg` : null)} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex items-center gap-1.5">
             <span className={`truncate text-[13px] font-semibold ${author.authority ? "text-violet" : "text-ink"}`}>

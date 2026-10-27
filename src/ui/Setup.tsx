@@ -27,7 +27,7 @@ const COPY = {
 } as const;
 
 export function Setup() {
-  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle } = useUi();
+  const { mode, difficulty, setDifficulty, start, toModes, style, setStyle, length, setLength } = useUi();
   const copy = COPY[mode === "dev" ? "dev" : "firsttx"];
   const diff = DIFFICULTIES[difficulty];
 
@@ -73,6 +73,35 @@ export function Setup() {
                 ))}
               </div>
               <p className="mt-2 text-[12px] text-dim">{diff.blurb}</p>
+            </div>
+            <div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Length</div>
+              <div className="flex gap-2" role="radiogroup" aria-label="Round length">
+                {(
+                  [
+                    ["blitz", "Blitz"],
+                    ["saga", "Saga"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={length === id}
+                    onClick={() => setLength(id)}
+                    className={`rounded-lg border px-3.5 py-2 text-[13px] font-bold transition-colors ${
+                      length === id ? "border-violet bg-violet/15 text-violet" : "border-line-hi text-dim hover:text-ink"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[12px] text-dim">
+                {length === "blitz"
+                  ? "Fast rounds: the run tops out inside about a minute, then rugs or goes again."
+                  : "A 5-10 minute story: pumps, fades, revivals off retweets, KOLs and boosts, and sometimes a new narrative that vamps the coin. Get onto each new one fast."}
+              </p>
             </div>
             <div>
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Style</div>
@@ -129,7 +158,7 @@ export function Setup() {
           : "Each round: 3 s countdown, then an armed wait of 4 to 55 s, then the tweet. Your reaction is timed from the moment the right coin lands."}
       </p>
 
-      {mode !== "dev" && <Progress difficulty={difficulty} />}
+      {mode !== "dev" && <Progress difficulty={difficulty} length={length} />}
 
       <div className="mt-6 flex items-center justify-between">
         <button
@@ -161,10 +190,10 @@ const OUTCOME: Record<RunRecord["outcome"], { label: string; tone: string }> = {
 const ms = (v: number | null) => (v === null ? "—" : `${Math.round(v)} ms`);
 
 /** Personal bests and recent runs for the selected difficulty, from this browser's run history. */
-function Progress({ difficulty }: { difficulty: keyof typeof DIFFICULTIES }) {
+function Progress({ difficulty, length }: { difficulty: keyof typeof DIFFICULTIES; length: "blitz" | "saga" }) {
   const runs = useRuns((r) => r.runs);
-  const stats = useMemo(() => statsFor(runs, difficulty), [runs, difficulty]);
-  const last = useMemo(() => runs.filter((r) => r.difficulty === difficulty).slice(-10).reverse(), [runs, difficulty]);
+  const stats = useMemo(() => statsFor(runs, difficulty, { length }), [runs, difficulty, length]);
+  const last = useMemo(() => runs.filter((r) => r.difficulty === difficulty && (r.length ?? "blitz") === length).slice(-10).reverse(), [runs, difficulty, length]);
   const tile = (k: string, v: string, tone = "text-ink") => (
     <div className="rounded-lg border border-line bg-panel px-3 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-faint">{k}</div>
@@ -174,7 +203,9 @@ function Progress({ difficulty }: { difficulty: keyof typeof DIFFICULTIES }) {
   return (
     <section className="mt-5 rounded-2xl border border-line bg-card p-5">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">Your progress · {DIFFICULTIES[difficulty].label}</h2>
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-dim">
+          Your progress · {DIFFICULTIES[difficulty].label} · {length === "blitz" ? "Blitz" : "Saga"}
+        </h2>
         <span className="text-[11px] text-faint">Kept in this browser</span>
       </div>
       <div className="mt-3 grid grid-cols-6 gap-2">

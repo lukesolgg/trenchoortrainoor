@@ -29,11 +29,11 @@ interface Toast {
 export function Game() {
   const {
     mode, difficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
-    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style,
+    setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style, length,
   } = useUi();
   // FIRST TX is a scored round. DEV and free play stay on the unscored free-running board for now.
   const scoredMode = mode === "firsttx";
-  const engine = useEngine({ difficulty, autoRounds: !scoredMode, training: style === "training" });
+  const engine = useEngine({ difficulty, autoRounds: !scoredMode, training: style === "training", length: scoredMode ? length : "blitz" });
   const snap = useSnapshot(engine);
   // ?debug exposes the engine to the console and to browser tests.
   useEffect(() => {
@@ -169,7 +169,8 @@ export function Game() {
   const [flash, setFlash] = useState<(Flash & { id: number }) | null>(null);
   const [resultsShown, setResultsShown] = useState(false);
   const seenMisses = useRef(0);
-  const seenHit = useRef(false);
+  const seenHit = useRef<unknown>(null);
+  const seenVamps = useRef(0);
   const lastPhase = useRef<string | null>(null);
   const lastCount = useRef(0);
   useEffect(() => {
@@ -193,17 +194,21 @@ export function Game() {
       if (n !== lastCount.current && n > 0) sfx.tick();
       lastCount.current = n;
     }
-    if (scored.hit && !seenHit.current) {
-      seenHit.current = true;
+    if (scored.vamps.length > seenVamps.current) {
+      seenVamps.current = scored.vamps.length;
+      sfx.tweet();
+    }
+    if (scored.hit && seenHit.current !== scored.hit) {
+      seenHit.current = scored.hit;
       sfx.hit();
       setFlash({ id: Date.now(), kind: "hit", ms: scored.hit.reactionMs, rating: scored.hit.rating, buyer: scored.hit.buyNumber });
     }
     if (scored.misses.length > seenMisses.current) {
       const m = scored.misses[scored.misses.length - 1];
       seenMisses.current = scored.misses.length;
-      if (scored.training) {
+      if (scored.training || m.vamp) {
         sfx.miss();
-        setFlash({ id: Date.now(), kind: "miss", title: "WRONG COIN", sub: `${m.ticker}: ${FLAW_SHORT[m.flaw]} · −150 · keep going` });
+        setFlash({ id: Date.now(), kind: "miss", title: "WRONG COIN", sub: `${m.ticker}: ${FLAW_SHORT[m.flaw]} · −${m.vamp ? 100 : 150} · keep going` });
       }
     }
   }, [scored, snap.now]);
@@ -229,11 +234,12 @@ export function Game() {
   useEffect(() => {
     const r = scored?.result;
     if (!r || prevStats) return;
-    setPrevStats(statsFor(useRuns.getState().runs, difficulty));
+    setPrevStats(statsFor(useRuns.getState().runs, difficulty, { length: r.length }));
     addRun({
       id: runId.current,
       at: Date.now(),
       difficulty,
+      length: r.length,
       training: r.training,
       outcome: r.outcome,
       reactionMs: r.reactionMs,
@@ -245,7 +251,7 @@ export function Game() {
       pnlPct: r.pnlPct,
     });
   }, [scored?.result, prevStats, addRun, difficulty]);
-  const sessionStats = useMemo(() => statsFor(runs, difficulty, { since: SESSION_START }), [runs, difficulty]);
+  const sessionStats = useMemo(() => statsFor(runs, difficulty, { since: SESSION_START, length: scored?.length ?? "blitz" }), [runs, difficulty, scored?.length]);
 
   const diff = DIFFICULTIES[difficulty];
 

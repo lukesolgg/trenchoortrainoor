@@ -92,6 +92,8 @@ export interface Author {
   hue: number;
   /** Accounts whose tweets can start a round. */
   authority: boolean;
+  /** Profile picture path, if there is one. */
+  avatar?: string;
 }
 
 export interface TweetSeg {
@@ -128,8 +130,26 @@ export interface Meme {
   noHighlight?: boolean;
   /** Extra phrases to highlight in pink in the tracker, as hints (not the coin name). */
   highlight?: string[];
+  /**
+   * Saga mode: the narratives that can take over from this coin, in order (a rename, a sequel, a relative...).
+   * When one lands, the original rugs and this one launches with its own look-alikes.
+   */
+  vamps?: VampDef[];
   /** Reference facts for the real coin this meme is based on. Not used in play yet (results screen later). */
   info?: { launch: string; athMcUsd: string; athDate: string; ca: string; lesson: string };
+}
+
+export interface VampDef {
+  name: string;
+  /** Ranked best to worst; index 0 is the right ticker. */
+  tickers: string[];
+  author: Meme["author"];
+  /** Templates must contain {name} unless noHighlight. */
+  tweets: string[];
+  /** Defaults to the original meme's art. */
+  art?: Partial<ArtSpec>;
+  highlight?: string[];
+  noHighlight?: boolean;
 }
 
 export interface RoundView {
@@ -261,10 +281,12 @@ export interface RoundResult {
   rating: string | null;
   /** Out of 1000, with its parts. Zero unless you bought the right coin. */
   score: number;
-  scoreParts: { speed: number; entry: number; exit: number; penalty: number };
+  scoreParts: { speed: number; entry: number; exit: number; penalty: number; vamps: number };
   /** Training style: wrong coins bought before the right one (the round kept going). */
   wrongBuys: WrongBuy[];
   training: boolean;
+  length: RoundLength;
+  vamps: VampView[];
 }
 
 export interface WrongBuy {
@@ -272,6 +294,8 @@ export interface WrongBuy {
   flaw: Flaw | "unrelated";
   /** ms after the tweet. */
   atMs: number;
+  /** A look-alike of a saga vamp (a penalty, never the end of the round). */
+  vamp?: boolean;
 }
 
 /** Shown the instant you buy the right coin, before the round is over. */
@@ -295,6 +319,24 @@ export interface ScoredView {
   /** Wrong coins bought so far. In strict style the first one ends the round. */
   misses: WrongBuy[];
   training: boolean;
+  length: RoundLength;
+  /** Saga: each new narrative that took over, and how fast you got on it. */
+  vamps: VampView[];
+}
+
+export type RoundLength = "blitz" | "saga";
+
+export interface VampView {
+  ticker: string;
+  name: string;
+  /** Sim ms the vamp tweet landed / its right coin appeared. */
+  tweetAt: number;
+  appearAt: number | null;
+  coinId: string | null;
+  /** Coin appeared to your first buy of it. Null if you never bought it. */
+  reactionMs: number | null;
+  /** Look-alikes of this vamp you bought. */
+  wrong: number;
 }
 
 /** Something social happening on a coin, drawn on its chart: the dev trading, a KOL trading, or a paid boost. */
@@ -302,7 +344,7 @@ export interface SocialEvent {
   id: number;
   /** Sim ms. */
   at: number;
-  kind: "dev" | "kol" | "boost";
+  kind: "dev" | "kol" | "boost" | "tweet" | "dex" | "cto";
   side: "buy" | "sell" | null;
   /** Market cap in SOL where it happened. */
   mc: number;
@@ -314,4 +356,13 @@ export interface SocialEvent {
   hue: number;
   /** Boost size, e.g. "x30". */
   label?: string;
+  /** Boosts and DEX paid: what it cost (USD), and how long a boost lasts. */
+  usd?: number;
+  hours?: number;
+  /** Dev trades: share of supply moved, and whether it was the dev's whole bag. */
+  pct?: number;
+  all?: boolean;
+  /** Tweets on the chart: picture and what was said. */
+  avatar?: string;
+  text?: string;
 }

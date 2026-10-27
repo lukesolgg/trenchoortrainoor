@@ -85,6 +85,15 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
 - Round flow: New Pairs is kept thin (1-3 coins at start, a new one every 8-20 s). The tweet brings a flood of 2-4 / 4-7 / 6-12
   coins (Paper / Trencher / Sniper) with the runner landing early. Every runner launch is scripted (`scriptLaunch`) and migrates
   3-15 s after it lands. A scored round only auto-ends once you are flat: hold and it keeps running until you sell 100%. Space only ends it when you hold nothing.
+- Length: Blitz (the run tops inside about a minute) or Saga (`saga.ts`): a 5-10 minute story planned as chapters of beats.
+  Pumps (KOL waves, boosts), fades (KOL exits), revivals off a catalyst (authority retweet or quote, KOL tweet, DEX paid, CTO,
+  big KOL buy) and a final rug or bleed; peaks mostly $150K-1M, sometimes $1-5M, rarely $10M+, very rarely $30M+. Vamps (0, 1,
+  rarely 2; written per meme as `vamps` in memes.json, e.g. Polar Bear Cub -> Polly -> Nora): the vamp tweet lands, the old coin's
+  dev sells everything and it rugs, the new coin launches with its own look-alikes. Getting on it fast is scored; missing it or
+  buying a look-alike is a penalty, never the end. A saga round runs until its story is over (Space ends it early when flat).
+  Saga score: speed 450-600, entry 100, vamps 200 (if any), exit 250-300 on PnL across the whole story.
+- Chart marks: DEV (partial) and DEV SOLD ALL with SOL, MC and % of supply; KOL pictures; tweets and retweets with the poster's
+  picture; rocket boosts (tier, price, hours); DEX PAID and CTO tags. Hover any of them for details. PBs are per difficulty and length.
 - Scoring (`scoreRound` in scoring.ts): out of 1000. Speed up to 800 (full at 150 ms, 0 at 3 s), entry up to 100 (buyer #1-5 full,
   0 by #40), exit up to 100 (PnL, full at +200%), minus 150 per wrong buy in Training. Only a correct buy scores.
 - Feedback: the strip under the nav goes amber when armed and flashes green with TWEET LANDED; a WebAudio ping plays (mute in the

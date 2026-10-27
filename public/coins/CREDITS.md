@@ -56,3 +56,6 @@ Cropped square to 320 px. File name = coin slug (meme id, or the filler coin's t
 | toly-tps.jpg | https://www.pexels.com/photo/19680232/ |
 | wheel.jpg | https://www.pexels.com/photo/33446711/ |
 | wif.jpg | https://www.pexels.com/photo/4588052/ |
+| polar-bear-cub.jpg | https://www.pexels.com/photo/33925353/ |
+| polar-bear-cub~polly.jpg | https://www.pexels.com/photo/13050907/ |
+| pnut~fred.jpg | https://www.pexels.com/photo/25711231/ |

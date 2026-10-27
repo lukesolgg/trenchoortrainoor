@@ -82,10 +82,11 @@ function SocialMenu() {
   const toggle = useUi((u) => u.toggleSocial);
   const [open, setOpen] = useState(false);
   const on = Object.values(social).filter(Boolean).length;
-  const rows: { k: "dev" | "kol" | "boost"; label: string; hint: string }[] = [
+  const rows: { k: "dev" | "kol" | "boost" | "news"; label: string; hint: string }[] = [
     { k: "dev", label: "Dev buys & sells", hint: "DEV" },
     { k: "kol", label: "KOL buys & sells", hint: "●" },
-    { k: "boost", label: "Boosts", hint: "⚡" },
+    { k: "boost", label: "Boosts", hint: "🚀" },
+    { k: "news", label: "Tweets, DEX paid, CTO", hint: "𝕏" },
   ];
   return (
     <div className="relative" onMouseLeave={() => setOpen(false)}>
@@ -97,7 +98,7 @@ function SocialMenu() {
           on ? "border-line-hi text-ink" : "border-line text-faint"
         }`}
       >
-        Socials <span className="tabular text-[10.5px] text-dim">{on}/3</span> <span className="text-[9px] text-faint">▾</span>
+        Socials <span className="tabular text-[10.5px] text-dim">{on}/4</span> <span className="text-[9px] text-faint">▾</span>
       </button>
       {open && (
         <div className="absolute left-0 top-full z-30 pt-1">
@@ -355,7 +356,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               <span className="text-faint">·</span>
               <span><span className="rounded-sm bg-amber px-0.5 text-[8.5px] font-black text-black">DEV</span> Dev</span>
               <span><span className="font-black text-violet">●</span> KOL</span>
-              <span><span className="text-amber">⚡</span> Boost</span>
+              <span>🚀 Boost</span>
             </span>
           </div>
           <div className="min-h-[260px] flex-[2] border-t border-line bg-panel">

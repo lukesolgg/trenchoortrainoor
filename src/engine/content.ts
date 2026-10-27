@@ -2,12 +2,12 @@ import type { Author, Pair } from "./types";
 
 /** Accounts whose tweets can start a round. */
 export const AUTHORITIES: Record<string, Author> = {
-  elon: { name: "Elon Musk", handle: "elonmusk", followers: "241.5M", verified: true, hue: 210, authority: true },
-  toly: { name: "toly", handle: "toly", followers: "2.8M", verified: true, hue: 160, authority: true },
-  alon: { name: "Alon", handle: "a1lon9", followers: "427.8K", verified: true, hue: 30, authority: true },
-  truthterminal: { name: "terminal of truths", handle: "truth_terminal", followers: "240.5K", verified: true, hue: 280, authority: true },
-  ansem: { name: "Ansem", handle: "blknoiz06", followers: "590K", verified: true, hue: 15, authority: true },
-  solana: { name: "Solana", handle: "solana", followers: "3.1M", verified: true, hue: 170, authority: true },
+  elon: { name: "Elon Musk", handle: "elonmusk", followers: "241.5M", verified: true, hue: 210, authority: true, avatar: "/avatars/elonmusk.jpg" },
+  toly: { name: "toly", handle: "toly", followers: "2.8M", verified: true, hue: 160, authority: true, avatar: "/avatars/toly.jpg" },
+  alon: { name: "Alon", handle: "a1lon9", followers: "427.8K", verified: true, hue: 30, authority: true, avatar: "/avatars/a1lon9.jpg" },
+  truthterminal: { name: "terminal of truths", handle: "truth_terminal", followers: "240.5K", verified: true, hue: 280, authority: true, avatar: "/avatars/truth_terminal.jpg" },
+  ansem: { name: "Ansem", handle: "blknoiz06", followers: "590K", verified: true, hue: 15, authority: true, avatar: "/avatars/blknoiz06.jpg" },
+  solana: { name: "Solana", handle: "solana", followers: "3.1M", verified: true, hue: 170, authority: true, avatar: "/avatars/solana.jpg" },
   pumpfun: { name: "pump.fun", handle: "pumpdotfun", followers: "1.1M", verified: true, hue: 145, authority: true },
   // Fictional trench accounts that can still start a round.
   trenchreport: { name: "Trench Report", handle: "trenchreport", followers: "210K", verified: true, hue: 5, authority: true },

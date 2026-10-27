@@ -24,6 +24,17 @@ export function RoundOverlay({ scored, now }: { scored: ScoredView; now: number 
       </div>
     );
   }
+  const vamp = scored.vamps[scored.vamps.length - 1];
+  if (scored.phase === "live" && vamp && now - vamp.tweetAt < 1400) {
+    return (
+      <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center">
+        <div className="anim-go flex items-center gap-4 text-pink drop-shadow-[0_0_40px_rgba(255,79,166,.6)]">
+          <span className="text-[56px] font-black leading-none">←</span>
+          <span className="text-[56px] font-black leading-none tracking-tighter">NEW NARRATIVE</span>
+        </div>
+      </div>
+    );
+  }
   if (scored.phase === "live" && now - scored.tTweet < 1100 && !scored.hit) {
     return (
       <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center">
@@ -52,6 +63,31 @@ export function RoundStatus({ scored, now }: { scored: ScoredView; now: number }
     case "live": {
       const t = Math.max(0, (now - scored.tTweet) / 1000);
       const fresh = now - scored.tTweet < 2000;
+      const vamp = scored.vamps[scored.vamps.length - 1];
+      if (scored.length === "saga") {
+        const clock = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+        const newNarrative = vamp && now - vamp.tweetAt < 4000;
+        return (
+          <>
+            <span className={`tabular rounded px-2.5 py-0.5 text-[14px] font-black ${fresh ? "bg-up text-black" : "bg-violet/20 text-violet"}`}>
+              {fresh ? "TWEET LANDED" : "SAGA"} {clock}
+            </span>
+            {newNarrative ? (
+              <span className="font-extrabold text-pink">NEW NARRATIVE: {vamp.name} (${vamp.ticker}). Find it.</span>
+            ) : (
+              <span className="text-dim">
+                {scored.hit ? "Trade the story. " : "Buy the right coin. "}Watch the Tracker for catalysts and new narratives.{" "}
+                <kbd className="rounded border border-line-hi px-1 text-[11px]">Space</kbd> ends it when you&apos;re flat.
+              </span>
+            )}
+            {scored.vamps.length > 0 && (
+              <span className="text-[12px] font-bold text-dim">
+                Vamps {scored.vamps.filter((v) => v.reactionMs !== null).length}/{scored.vamps.length}
+              </span>
+            )}
+          </>
+        );
+      }
       return (
         <>
           <span className={`tabular rounded px-2.5 py-0.5 text-[14px] font-black ${fresh ? "bg-up text-black" : "bg-up/15 text-up"}`}>
@@ -84,6 +120,8 @@ export function RoundStatus({ scored, now }: { scored: ScoredView; now: number }
 export function statusStripClass(scored: ScoredView | null, now: number): string {
   if (!scored) return "bg-bg";
   if (scored.phase === "armed") return "bg-amber/[0.08] border-amber/40";
+  const vamp = scored.vamps[scored.vamps.length - 1];
+  if (scored.phase === "live" && vamp && now - vamp.tweetAt < 4000) return "bg-pink/20 border-pink/60";
   if (scored.phase === "live") return now - scored.tTweet < 2000 ? "bg-up/25 border-up/60" : "bg-up/[0.07] border-up/30";
   return "bg-bg";
 }
@@ -161,6 +199,10 @@ const Stat = ({ k, v, tone, sub }: { k: string; v: React.ReactNode; tone?: strin
 /** Score bar: how the 1000 splits between speed, entry and exit. */
 function ScoreBreakdown({ r }: { r: RoundResult }) {
   const p = r.scoreParts;
+  const saga = r.length === "saga";
+  const hasV = r.vamps.length > 0;
+  const speedMax = saga ? (hasV ? 450 : 600) : SCORE.speedMax;
+  const exitMax = saga ? (hasV ? 250 : 300) : SCORE.exitMax;
   const seg = (v: number, color: string) => <span className={`h-full ${color}`} style={{ width: `${(v / 1000) * 100}%` }} />;
   return (
     <div className="mt-4">
@@ -171,21 +213,50 @@ function ScoreBreakdown({ r }: { r: RoundResult }) {
       <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-line">
         {seg(p.speed, "bg-up")}
         {seg(p.entry, "bg-blue")}
+        {hasV && seg(p.vamps, "bg-pink")}
         {seg(p.exit, "bg-amber")}
       </div>
       <div className="tabular mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-dim">
         <span>
-          <span className="font-bold text-up">Speed {p.speed}</span>/{SCORE.speedMax} · full at {SCORE.fastMs} ms, 0 at {SCORE.slowMs / 1000} s
+          <span className="font-bold text-up">Speed {p.speed}</span>/{speedMax} · full at {SCORE.fastMs} ms, 0 at {SCORE.slowMs / 1000} s
         </span>
         <span>
           <span className="font-bold text-blue">Entry {p.entry}</span>/{SCORE.entryMax} · buyer #1-5 full, 0 by #40
         </span>
+        {hasV && (
+          <span>
+            <span className="font-bold text-pink">Vamps {p.vamps}</span>/200 · how fast you got onto each new narrative
+          </span>
+        )}
         <span>
-          <span className="font-bold text-amber">Exit {p.exit}</span>/{SCORE.exitMax} · PnL, full at +200%
+          <span className="font-bold text-amber">Exit {p.exit}</span>/{exitMax} · {saga ? "PnL across the whole story, full at +300%" : "PnL, full at +200%"}
         </span>
-        {p.penalty > 0 && <span className="font-bold text-down">Wrong buys −{p.penalty}</span>}
+        {p.penalty > 0 && <span className="font-bold text-down">Penalties −{p.penalty}</span>}
       </div>
     </div>
+  );
+}
+
+/** Saga: each new narrative, when its coin landed, and how fast you got on it. */
+function VampList({ r }: { r: RoundResult }) {
+  return (
+    <section className="mt-3 rounded-xl border border-pink/30 bg-pink/[0.05] p-3">
+      <h3 className="text-[10px] font-bold uppercase tracking-wider text-pink">New narratives ({r.vamps.length})</h3>
+      <ul className="mt-1.5 space-y-1 text-[12.5px]">
+        {r.vamps.map((v, i) => (
+          <li key={i} className="tabular flex items-center justify-between gap-3">
+            <span>
+              <span className="font-bold text-ink">${v.ticker}</span> <span className="text-dim">{v.name}</span>
+              {v.appearAt !== null && <span className="text-faint"> · landed +{((v.appearAt - v.tweetAt) / 1000).toFixed(1)} s after its tweet</span>}
+            </span>
+            <span className={`font-bold ${v.reactionMs === null ? "text-down" : "text-up"}`}>
+              {v.reactionMs === null ? "missed" : `${Math.round(v.reactionMs)} ms`}
+              {v.wrong > 0 && <span className="ml-2 text-down">{v.wrong} wrong (−{v.wrong * 100})</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -262,6 +333,7 @@ export function ResultsOverlay({
             <div>
               <p className={`text-[11px] font-bold uppercase tracking-[0.2em] ${head.tone}`}>
                 {head.kicker}
+                {r.length === "saga" && <span className="ml-2 rounded bg-violet/20 px-1.5 py-px text-[10px] text-violet">SAGA</span>}
                 {r.training && <span className="ml-2 rounded bg-card-hi px-1.5 py-px text-[10px] text-dim">TRAINING</span>}
               </p>
               <div className="mt-1 flex items-baseline gap-3">
@@ -313,7 +385,8 @@ export function ResultsOverlay({
             )}
           </div>
 
-          {r.wrongBuys.length > 0 && <WrongList list={r.wrongBuys} />}
+          {r.vamps.length > 0 && <VampList r={r} />}
+          {r.wrongBuys.filter((w) => !w.vamp).length > 0 && <WrongList list={r.wrongBuys.filter((w) => !w.vamp)} />}
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <section className="rounded-xl border border-line bg-card p-3">

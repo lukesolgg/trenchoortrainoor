@@ -2,8 +2,9 @@ import * as curveLib from "./curve";
 import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
-import { BOOSTS, KOLS } from "./content";
-import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound } from "./scoring";
+import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
+import { BOOSTS, KOLS, AUTHORITIES } from "./content";
+import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound, scoreSaga } from "./scoring";
 import {
   MEME_PACK,
   fillerSource,
@@ -40,6 +41,8 @@ import type {
   Hit,
   WrongBuy,
   SocialEvent,
+  RoundLength,
+  VampView,
 } from "./types";
 
 export interface EngineOptions {
@@ -53,6 +56,8 @@ export interface EngineOptions {
   clock?: () => number;
   /** Training style: a wrong buy costs points but does not end the round. */
   training?: boolean;
+  /** Blitz: the run is done inside ~a minute. Saga: a 5-10 minute story with revivals and vamps. */
+  length?: RoundLength;
 }
 
 /**
@@ -137,6 +142,10 @@ interface Coin {
   devSold: boolean;
   /** The dev sells just before migration (true) or just after it (false). */
   devSellPre: boolean;
+  /** Share of supply the dev still holds (%), for the hover card. */
+  devPct: number;
+  /** Saga: which chapter of the story this coin plays. Null outside saga. */
+  sagaChapter: number | null;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -159,6 +168,7 @@ interface ScoredState {
   tEnd: number | null;
   firstBuy: { trade: PlayerTrade; coinId: string; isTarget: boolean; flaw: Flaw | "unrelated" | null } | null;
   misses: WrongBuy[];
+  vamps: VampView[];
   result: RoundResult | null;
   view: ScoredView;
 }
@@ -360,6 +370,8 @@ export class Engine {
       kolsIn: [],
       devSold: false,
       devSellPre: false,
+      devPct: 0,
+      sagaChapter: null,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -436,6 +448,200 @@ export class Engine {
     c.rev++;
     this.dirty = true;
     if (this.openOrders > 0 && !this.filling) this.fillOrders(c);
+  }
+
+  // ------------------------------------------------------------------ saga
+
+  private saga: SagaPlan | null = null;
+  private sagaMeme: Meme | null = null;
+  /** Sim ms the saga's last scripted beat ends. Rounds do not auto-end on a sell-out before this. */
+  private sagaEndAt = -Infinity;
+  /** Coins the story is about (original and vamps): never pruned while the round runs. */
+  private sagaCoins = new Set<string>();
+
+  private get length(): RoundLength {
+    return this.opts.length ?? "blitz";
+  }
+
+  /** The dev sells: a partial or the whole bag. Shown on the chart with the share of supply. */
+  private devSell(c: Coin, at: number, sol: number, mc: number, all: boolean): void {
+    const pct = all ? c.devPct : c.devPct * this.rng.range(0.3, 0.6);
+    c.devPct = Math.max(0, c.devPct - pct);
+    this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, mc, pct, all }, false);
+  }
+
+  private boost(c: Coin, at: number): void {
+    if (!this.coins.has(c.id)) return;
+    const tier = this.rng.pick([...BOOST_TIERS]);
+    this.social(c, at, { kind: "boost", side: null, name: "Boost", hue: 50, sol: 0, label: tier.label, usd: tier.usd, hours: tier.hours }, false);
+  }
+
+  /** Something outside the chart that sends it again: an authority retweet or quote, a KOL tweet, DEX paid, a CTO. */
+  private catalyst(c: Coin, at: number, kind: Catalyst): void {
+    if (!this.coins.has(c.id)) return;
+    const t = c.spec.ticker;
+    const authorities = Object.values(AUTHORITIES).filter((a) => a.handle !== "trenchreport" && a.handle !== "lowcaplarry");
+    const tweet = (author: Author, text: string, label: string) => {
+      const segs: TweetSeg[] = text.split(/(\$[A-Z0-9]+)/).filter(Boolean).map((x) => ({ text: x, hl: x.startsWith("$") }));
+      this.pushTweet(author, segs, false, undefined, at);
+      this.social(c, at, { kind: "tweet", side: null, name: label, handle: author.handle, hue: author.hue, sol: 0, avatar: author.avatar, text });
+    };
+    switch (kind) {
+      case "rt": {
+        const a = this.rng.pick(authorities);
+        const orig = this.roundPlan?.segments.map((x) => x.text).join("") ?? c.spec.name;
+        tweet(a, `🔁 RT: ${orig}`, `${a.name} retweeted`);
+        break;
+      }
+      case "quote": {
+        const a = this.rng.pick(authorities);
+        tweet(a, this.rng.pick([`$${t} 👀`, `this one has legs. $${t}`, `been watching $${t} all day`, `$${t} is the meta`]), `${a.name} posted`);
+        break;
+      }
+      case "kolTweet": {
+        const k = this.rng.pick(KOLS);
+        tweet(this.kolAuthor(k), this.rng.pick([`im so bullish on $${t}`, `$${t} is going way higher`, `sized into $${t}. not selling`, `$${t} chart is a thing of beauty`]), `${k.name} posted`);
+        break;
+      }
+      case "dex":
+        this.social(c, at, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: 299 }, false);
+        break;
+      case "cto":
+        tweet(AUTHORITIES.trenchreport, `CTO: the community just took over $${t}. New TG, new site, dev is gone.`, "Community takeover");
+        this.social(c, at, { kind: "cto", side: null, name: "CTO", hue: 140, sol: 0 }, false);
+        break;
+      case "kolBuy":
+        this.kolTrade(c, at, "buy", this.rng.range(30, 90));
+        break;
+    }
+  }
+
+  private kolAuthor(k: { name: string; handle: string; hue: number }): Author {
+    return { name: k.name, handle: k.handle, followers: `${this.rng.int(80, 900)}K`, verified: true, hue: k.hue, authority: false, avatar: `/kols/${k.handle.toLowerCase()}.jpg` };
+  }
+
+  /**
+   * Turn this coin's chapter of the saga into price legs, and schedule what happens along the way: KOL waves and
+   * boosts on pumps, KOL exits on fades, catalysts on revivals, the vamp tweet, the dev selling everything.
+   */
+  private sagaLegs(c: Coin, start: number): Leg[] {
+    const beats: Beat[] = this.saga!.chapters[c.sagaChapter!] ?? [];
+    const r = this.rng;
+    const sol = (usd: number) => usd / SOL_USD;
+    const legs: Leg[] = [];
+    let t = start;
+    let level = c.postMc;
+    const add = (kind: Leg["kind"], ms: number, to: number, vol: number, noise: number) => {
+      t += ms;
+      legs.push({ kind, end: t, to, vol, noise });
+      level = to;
+    };
+    const at = (when: number, fn: (a: number) => void) => this.at(when, (a) => this.coins.has(c.id) && fn(a));
+    for (const b of beats) {
+      const t0 = t;
+      const P = sol(b.toUsd);
+      switch (b.kind) {
+        case "revival":
+        case "pump": {
+          if (b.kind === "revival" && b.catalyst) {
+            const kind = b.catalyst;
+            at(t0, (a) => this.catalyst(c, a, kind));
+            add("base", r.range(1000, 2000), level * r.range(0.98, 1.03), 0.6, 0.012);
+          }
+          // KOLs pile in early and somebody buys a boost; the run climbs in steps with shakeouts between.
+          for (let i = 0, n = r.int(2, 4); i < n; i++) at(t0 + r.range(0, b.ms * 0.6), (a) => this.kolTrade(c, a, "buy", r.range(3, 25)));
+          if (r.chance(0.65)) at(t0 + r.range(2000, b.ms * 0.5), (a) => this.boost(c, a));
+          const steps = r.int(2, 3);
+          const from = level;
+          const each = (b.ms - (t - t0)) / steps;
+          for (let k = 1; k <= steps; k++) {
+            const to = from * Math.pow(P / from, k / steps);
+            add("push", each * 0.75, to, 1.8, 0.024);
+            if (k < steps) add("dip", each * 0.25, to * r.range(0.85, 0.93), 1.2, 0.024);
+          }
+          break;
+        }
+        case "fade": {
+          // Boosts run out, KOLs take profit, the bid thins out.
+          for (let i = 0, n = r.int(1, 3); i < n; i++) at(t0 + r.range(0, b.ms * 0.4), (a) => this.kolTrade(c, a, "sell", r.range(3, 25)));
+          const mid = Math.sqrt(level * P);
+          add("dip", b.ms * 0.35, mid, 1.2, 0.024);
+          add("base", b.ms * 0.25, mid * r.range(1.0, 1.1), 0.5, 0.016);
+          add("dip", b.ms * 0.4, P, 0.9, 0.02);
+          break;
+        }
+        case "vamp": {
+          // The new narrative lands; this coin's dev dumps everything and it rugs underneath.
+          const wave = c.sagaChapter! + 1;
+          at(t0, (a) => this.vampWave(c, a, wave));
+          add("base", r.range(2500, 5000), level * r.range(0.92, 1.0), 0.8, 0.02);
+          const rugAt = t;
+          at(rugAt, (a) => this.devSell(c, a, c.postMc * r.range(0.03, 0.06), c.postMc, true));
+          add("rug", 1200, level * r.range(0.12, 0.22), 1, 0);
+          add("dip", b.ms - (t - t0), P, 0.6, 0.025);
+          break;
+        }
+        case "rug": {
+          add("base", r.range(3000, 6000), level * r.range(0.9, 1.0), 0.8, 0.02);
+          at(t, (a) => this.devSell(c, a, c.postMc * r.range(0.03, 0.06), c.postMc, true));
+          add("rug", 1200, Math.max(P * 2, level * r.range(0.1, 0.2)), 1, 0);
+          add("dip", b.ms - (t - t0), P, 0.6, 0.025);
+          break;
+        }
+        case "bleed": {
+          add("dip", b.ms * 0.5, Math.sqrt(level * P), 0.9, 0.022);
+          add("base", b.ms * 0.15, level * r.range(1.0, 1.08), 0.5, 0.016);
+          add("dip", b.ms * 0.35, P, 0.8, 0.022);
+          break;
+        }
+      }
+    }
+    if (c.sagaChapter === this.saga!.chapters.length - 1) this.sagaEndAt = t;
+    return legs;
+  }
+
+  /** A new narrative: its tweet, then its right coin and look-alikes. Buying the right one fast is scored. */
+  private vampWave(from: Coin, at: number, wave: number): void {
+    const meme = this.sagaMeme;
+    const def = meme?.vamps?.[wave - 1];
+    if (!meme || !def) return;
+    const vampMeme: Meme = {
+      id: `${meme.id}~${wave}`,
+      name: def.name,
+      tickers: def.tickers,
+      art: { ...meme.art, ...def.art },
+      author: def.author,
+      tweets: def.tweets,
+      highlight: def.highlight,
+      noHighlight: def.noHighlight,
+    };
+    const plan = makeRound(this.rng, vampMeme, this.difficulty);
+    const source: TweetSource = { author: plan.author, segments: plan.segments };
+    this.pushTweet(plan.author, plan.segments, true, vampMeme.art, at);
+    const sc = this.scored;
+    const view: VampView = { ticker: def.tickers[0], name: def.name, tweetAt: at, appearAt: null, coinId: null, reactionMs: null, wrong: 0 };
+    if (sc) {
+      sc.vamps.push(view);
+      sc.view = { ...sc.view, vamps: sc.vamps.map((v) => ({ ...v })) };
+    }
+    plan.spawns.forEach((s, i) => {
+      s.spec.wave = wave;
+      this.at(at + s.at, (a) => {
+        const coin = this.spawn(s.spec, a, source);
+        if (i !== plan.targetIndex) return;
+        coin.sagaChapter = wave;
+        this.sagaCoins.add(coin.id);
+        view.appearAt = a;
+        view.coinId = coin.id;
+        if (sc) sc.view = { ...sc.view, vamps: sc.vamps.map((v) => ({ ...v })) };
+        this.scriptLaunch(coin, a);
+        for (let k = 0; k < plan.snipers; k++) {
+          this.at(a + this.rng.range(plan.sniperReactMs[0], plan.sniperReactMs[1]), (b) => this.applyBuy(coin, Math.min(8, this.rng.lognormal(1.4, 0.6)), b, "bot"));
+        }
+      });
+    });
+    void from;
+    this.emitNow();
   }
 
   // ------------------------------------------------------------------ socials
@@ -543,8 +749,11 @@ export class Engine {
     if (c.spec.role === "target" || c.spec.profile === "run") {
       c.moonUntil = at + this.rng.range(18000, 30000);
     }
-    // A coin with an ATH target runs there in pushes with pullbacks and consolidation between them.
-    if (c.big) {
+    // Saga coins play their chapter of the story; others run their outcome script.
+    if (c.sagaChapter !== null && this.saga) {
+      c.legs = this.sagaLegs(c, c.lockUntil);
+      c.moonUntil = c.legs[c.legs.length - 1].end;
+    } else if (c.big) {
       c.legs = this.planBigRun(c.big, c.lockUntil);
       c.moonUntil = c.legs[c.legs.length - 1].end;
     } else if (c.athSol && c.athSol > c.postMc) {
@@ -566,16 +775,18 @@ export class Engine {
         c.sells++;
         c.txCount++;
         this.pushTape(c, a, "bot", "sell", sol, "DEV");
-        this.social(c, a, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol, mc }, false);
+        // Blitz devs sometimes dump the whole bag here; in a saga they keep some for later.
+        this.devSell(c, a, sol, mc, c.sagaChapter === null && this.rng.chance(0.3));
       });
     }
     // Somebody always pays for a boost once it is on the DEX.
-    if (c.big || c.legs.length) {
+    if ((c.big || c.legs.length) && c.sagaChapter === null) {
       for (let i = 0, n = this.rng.int(1, 3); i < n; i++) {
-        this.at(at + MIGRATION_LOCK_MS + this.rng.range(1000, 40000), (a) => {
-          if (!this.coins.has(c.id)) return;
-          this.social(c, a, { kind: "boost", side: null, name: "Boost", hue: 50, sol: 0, label: this.rng.pick(BOOSTS) }, false);
-        });
+        this.at(at + MIGRATION_LOCK_MS + this.rng.range(1000, 40000), (a) => this.boost(c, a));
+      }
+      // Half the time the dev (or the community) pays for the DEX profile too.
+      if (this.rng.chance(0.5)) {
+        this.at(at + MIGRATION_LOCK_MS + this.rng.range(2000, 30000), (a) => this.coins.has(c.id) && this.social(c, a, { kind: "dex", side: null, name: "DEX paid", hue: 200, sol: 0, usd: 299 }, false));
       }
     }
   }
@@ -652,7 +863,10 @@ export class Engine {
     c.preLegs = legs;
     this.at(at, (a) => this.driveStep(c, a));
     // The dev's own buy at launch shows on the chart.
-    this.at(legs[0].end, (a) => this.social(c, a, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: this.rng.range(0.5, 4) }));
+    this.at(legs[0].end, (a) => {
+      c.devPct = this.rng.range(2, 6);
+      this.social(c, a, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: this.rng.range(0.5, 4), pct: c.devPct });
+    });
     c.devSellPre = this.rng.chance(0.5);
   }
 
@@ -734,7 +948,7 @@ export class Engine {
       const mc = this.mc(c);
       const got = this.applySell(c, tokens, at, "bot");
       c.tape[0].trader = "DEV";
-      this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: got, mc }, false);
+      this.devSell(c, at, got, mc, c.sagaChapter === null && this.rng.chance(0.3));
     }
     // KOLs aping the launch.
     if (c.spec.role === "target" && this.rng.chance(0.02)) this.kolTrade(c, at, "buy", this.rng.range(1, 8));
@@ -1220,6 +1434,7 @@ export class Engine {
       if (this.positions.has(c.id)) return;
       if (this.focusId === c.id) return;
       if (this.roundView?.targetCoinId === c.id) return;
+      if (this.sagaCoins.has(c.id)) return;
       this.coins.delete(c.id);
       this.dirty = true;
     };
@@ -1256,6 +1471,12 @@ export class Engine {
       : this.rng.pick(this.pack);
     const plan = makeRound(this.rng, meme, this.difficulty);
     const tTweet = this.simNow + (opts.leadMs ?? 0);
+    if (this.length === "saga") {
+      this.saga = planSaga(this.rng, meme.vamps?.length ?? 0);
+      this.sagaMeme = meme;
+      this.sagaEndAt = tTweet + this.saga.totalMs + 60_000;
+      this.sagaCoins.clear();
+    }
     this.roundPlan = plan;
     this.roundView = {
       memeId: meme.id,
@@ -1299,7 +1520,10 @@ export class Engine {
     }
     if (plan.athMcUsd) coin.athSol = plan.athMcUsd / SOL_USD;
     this.scriptLaunch(coin, at);
-    if (plan.meme.big) this.scriptBigCoin(coin, at, plan.meme.big);
+    if (this.saga && this.length === "saga") {
+      coin.sagaChapter = 0;
+      this.sagaCoins.add(coin.id);
+    } else if (plan.meme.big) this.scriptBigCoin(coin, at, plan.meme.big);
     // Snipers: each lands once, at its own reaction time after the coin appears.
     const times = Array.from({ length: plan.snipers }, () =>
       this.rng.range(plan.sniperReactMs[0], plan.sniperReactMs[1]),
@@ -1348,6 +1572,23 @@ export class Engine {
     const trade: PlayerTrade = { coinId, side: "buy", at, execAt: this.simNow, sol: spent, tokens, rank };
     this.trades.push(trade);
 
+    // Saga vamps: getting onto the new narrative is timed; its look-alikes cost points but never end the round.
+    if (sc && sc.phase === "live" && (c.spec.wave ?? 0) > 0) {
+      const v = sc.vamps[(c.spec.wave ?? 1) - 1];
+      if (v) {
+        if (c.spec.role === "target" && v.reactionMs === null && v.appearAt !== null) {
+          v.reactionMs = Math.max(0, at - v.appearAt);
+          sc.view = { ...sc.view, hit: { reactionMs: v.reactionMs, rating: ratingFor(v.reactionMs), buyNumber: rank + 1, ticker: c.spec.ticker } };
+        } else if (c.spec.role === "decoy") {
+          v.wrong++;
+          sc.misses.push({ ticker: c.spec.ticker, flaw: c.spec.flaw ?? "unrelated", atMs: at - sc.tTweet, vamp: true });
+          sc.view = { ...sc.view, misses: [...sc.misses] };
+        }
+        sc.view = { ...sc.view, vamps: sc.vamps.map((x) => ({ ...x })) };
+      }
+      this.emitNow();
+      return trade;
+    }
     if (sc && sc.phase === "live" && !sc.firstBuy) {
       const isTarget = c.spec.role === "target";
       const flaw = isTarget ? null : (c.spec.flaw ?? "unrelated");
@@ -1389,7 +1630,8 @@ export class Engine {
 
     // Selling out of the right coin finishes a successful round.
     const sc = this.scored;
-    if (sc?.phase === "live" && sc.firstBuy?.isTarget && this.allClosed()) this.endScored("success");
+    // (A saga keeps going until its story is told; selling out between chapters is allowed.)
+    if (sc?.phase === "live" && sc.firstBuy?.isTarget && this.allClosed() && this.simNow >= this.sagaEndAt) this.endScored("success");
     this.emitNow();
     return trade;
   }
@@ -1439,8 +1681,9 @@ export class Engine {
       tEnd: null,
       firstBuy: null,
       misses: [],
+      vamps: [],
       result: null,
-      view: { phase: "countdown", tStart, tArm, tTweet, tEnd: null, result: null, hit: null, misses: [], training: !!this.opts.training },
+      view: { phase: "countdown", tStart, tArm, tTweet, tEnd: null, result: null, hit: null, misses: [], training: !!this.opts.training, length: this.length, vamps: [] },
     };
     this.scored = sc;
     this.emitEvery = EMIT_SCORED_MS;
@@ -1459,8 +1702,17 @@ export class Engine {
     });
     // Past the soft limit the round ends as soon as you are flat. While you hold, it runs until you sell out (or Space).
     this.at(tTweet + MAX_ROUND_MS, () => {
-      if (sc.phase === "live" && this.allClosed()) this.finishLive();
+      if (sc.phase === "live" && this.allClosed() && this.simNow >= this.sagaEndAt) this.finishLive();
     });
+    // Saga: once the story is over, end as soon as you are flat.
+    if (this.length === "saga") {
+      const check = (a: number) => {
+        if (sc.phase !== "live") return;
+        if (a >= this.sagaEndAt && this.allClosed()) this.finishLive();
+        else this.at(a + 2000, check);
+      };
+      this.at(tTweet + 60_000, check);
+    }
     this.emitNow();
   }
 
@@ -1533,8 +1785,11 @@ export class Engine {
     const fb = sc.firstBuy;
     const boughtCoin = fb ? this.coins.get(fb.coinId) : undefined;
     const pos = fb ? this.positions.get(fb.coinId) : undefined;
-    const boughtSol = pos?.boughtSol ?? 0;
-    const closedSol = pos?.soldSol ?? 0;
+    // Saga PnL covers the whole story: the original, every vamp and anything else you traded in the round.
+    const saga = this.length === "saga";
+    const all = [...this.positions.values()];
+    const boughtSol = saga ? all.reduce((n, p) => n + p.boughtSol, 0) : (pos?.boughtSol ?? 0);
+    const closedSol = saga ? all.reduce((n, p) => n + p.soldSol, 0) : (pos?.soldSol ?? 0);
     const pnlSol = closedSol - boughtSol;
     const success = outcome === "success" && fb?.isTarget === true;
     const reactionMs = success && view.tTargetAppear !== null ? Math.max(0, fb.trade.at - view.tTargetAppear) : null;
@@ -1560,18 +1815,27 @@ export class Engine {
       pnlPct: boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0,
       rating: reactionMs !== null ? ratingFor(reactionMs) : null,
       ...(() => {
-        const parts = scoreRound({
-          success,
-          reactionMs,
-          buyNumber: fb ? fb.trade.rank + 1 : null,
-          pnlPct: boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0,
-          wrongBuys: sc.misses.length,
-        });
-        const { total, ...rest } = parts;
-        return { score: total, scoreParts: rest };
+        const plain = sc.misses.filter((m) => !m.vamp).length;
+        const pnlPct = boughtSol > 0 ? (pnlSol / boughtSol) * 100 : 0;
+        if (saga) {
+          const { total, ...rest } = scoreSaga({
+            success,
+            reactionMs,
+            buyNumber: fb ? fb.trade.rank + 1 : null,
+            pnlPct,
+            wrongBuys: plain,
+            vampReactions: sc.vamps.map((v) => v.reactionMs),
+            vampWrong: sc.vamps.reduce((n, v) => n + v.wrong, 0),
+          });
+          return { score: total, scoreParts: rest };
+        }
+        const { total, ...rest } = scoreRound({ success, reactionMs, buyNumber: fb ? fb.trade.rank + 1 : null, pnlPct, wrongBuys: plain });
+        return { score: total, scoreParts: { ...rest, vamps: 0 } };
       })(),
-      wrongBuys: this.opts.training ? [...sc.misses] : [],
+      wrongBuys: this.opts.training || saga ? [...sc.misses] : [],
       training: !!this.opts.training,
+      length: this.length,
+      vamps: sc.vamps.map((v) => ({ ...v })),
     };
   }
 
