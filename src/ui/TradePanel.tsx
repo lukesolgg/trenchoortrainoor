@@ -123,6 +123,8 @@ interface Props {
   onPayDex: () => void;
   /** Shown at the top of the panel (Dev mode: your launch's controls). */
   top?: React.ReactNode;
+  /** Dev mode, your own launch: promotion is paid from the dev wallet and works before migration too. */
+  devLaunch?: { devSol: number };
 }
 
 /** Your wallets on this coin: which ones trade, split the bag, pull it back together, and the 5% per-wallet rule. */
@@ -253,14 +255,16 @@ const DEX_USD = 299;
 const SOL_PRICE = 104;
 
 /** Spend your own SOL promoting the coin: a DEX boost (may pump it, may not) or the DEX profile, once. */
-function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayDex }: { coin: CoinView; walletSol: number; locked: boolean; canBoost: boolean; canPayDex: boolean; onBoost: (l: string) => void; onPayDex: () => void }) {
-  const live = coin.stage === "migrated" && !locked;
+function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayDex, devLaunch }: { coin: CoinView; walletSol: number; locked: boolean; canBoost: boolean; canPayDex: boolean; onBoost: (l: string) => void; onPayDex: () => void; devLaunch?: { devSol: number } }) {
+  // Your own launch: promote it any time (curve or pool), paid from the dev wallet.
+  const live = devLaunch ? !locked : coin.stage === "migrated" && !locked;
+  if (devLaunch) walletSol = devLaunch.devSol;
   const dexCost = DEX_USD / SOL_PRICE;
   return (
     <div className="border-b border-line p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-[13px] font-bold">Promote</h3>
-        <span className="text-[10.5px] text-faint">{live ? "Paid from your balance. No guarantees." : "Available after migration"}</span>
+        <span className="text-[10.5px] text-faint">{devLaunch ? "Paid from the dev wallet. Buys attention, not a pump." : live ? "Paid from your balance. No guarantees." : "Available after migration"}</span>
       </div>
       <div className="grid grid-cols-5 gap-1">
         {BOOSTS.map((b) => {
@@ -293,7 +297,7 @@ function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayD
   );
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex, top }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex, top, devLaunch }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -568,7 +572,7 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
       </div>
 
       {kol && <YourCall coin={coin} held={held} kol={kol} onPost={onPostCall} />}
-      <Promote coin={coin} walletSol={walletSol} locked={buyLocked} canBoost={canBoost} canPayDex={canPayDex} onBoost={onBoost} onPayDex={onPayDex} />
+      <Promote coin={coin} walletSol={walletSol} locked={buyLocked} canBoost={canBoost} canPayDex={canPayDex} onBoost={onBoost} onPayDex={onPayDex} devLaunch={devLaunch} />
 
       {/* Token info */}
       <div className="p-3">

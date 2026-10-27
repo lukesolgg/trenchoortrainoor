@@ -65,7 +65,7 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
   launch is (a wrong name or ticker never bonds), your share of the narrative, room under a per-launch ceiling,
   momentum, your selling, and a per-launch narrative-luck roll. Tuned with `dev.harness.test.ts`
   (`HARNESS=1 npx vitest run src/engine/dev.harness.test.ts --silent=false`): right and fast bonds ~80% (median peak
-  ~$100K, 1 in 20 past $1.5M), right but late ~15%, a wrong picture or config ~20%, a wrong ticker never.
+  ~$150K, 1 in 20 near $1M+), right but late ~15%, a wrong picture ~30%, a wrong pair ~15%, a wrong ticker never.
 - **Dev Ops** on your coin's page: deployer and other-wallet holdings with sells of 0.1% / 1% / 3% / MAX of supply
   (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
   creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
@@ -75,6 +75,10 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
 - **Where it went wrong:** hover a launch chip (it carries ✓ or ✗N), the "buyers aren't biting" warning, or the
   ✓/✗ next to Launch report on your coin to see the tweet's name / ticker / picture / config against yours,
   mistakes first.
+- **KOLs and promotion on your launch:** a right coin that runs draws KOL buys (real impact) at $25K / 50K / 100K /
+  200K ... milestones, and sometimes a KOL tweet; they take profit as it bleeds. DEX profile and boosts on your own
+  launch work any time (curve or pool), are paid from the dev wallet, and show up as attention in the demand model.
+  Dividends are out of Dev mode for now.
 - **Launches bar** (dev wallet, every launch, session realised PnL) and a **launch card** when a launch ends:
   outcome, peak MC, realised PnL, still holding, fees, and the tweet's name / ticker / picture / config against yours.
 

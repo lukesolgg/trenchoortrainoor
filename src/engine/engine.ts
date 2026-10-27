@@ -130,6 +130,12 @@ interface DevLaunch {
   peakMcUsd: number;
   ended: boolean;
   endReason: "died" | "closed" | null;
+  /** Attention burst (DEX paid, a boost, KOLs): peak heat, when, and how fast it fades (ms). */
+  promo: { peak: number; at: number; tauMs: number };
+  /** The right name and ticker (KOLs only ever touch those). */
+  rightCoin: boolean;
+  /** Next market cap milestone (index into KOL_MILESTONES) where KOLs may pile in. */
+  kolStage: number;
   /** Market cap (USD) once a second, last 10 s, for momentum. */
   hist: number[];
   lastSample: number;
@@ -263,6 +269,8 @@ interface QueuedEvent {
 const FINAL_AT = 0.35;
 /** What a DEX profile costs, USD. */
 export const DEX_USD = 299;
+/** Dev mode: market caps (USD) where KOLs may pile into a right coin you launched. */
+const KOL_MILESTONES = [25e3, 50e3, 100e3, 200e3, 400e3, 800e3, 1.6e6, 3.2e6, 6.4e6, 12.8e6, Infinity];
 /** Your wallets, and the one limit: a single wallet at 5%+ of supply drags the coin. There is no cap on the total. */
 /** Trader wallets: main plus up to four side wallets. A campaign may allow fewer (opts.walletCount). */
 export const WALLETS = 5;
@@ -916,6 +924,8 @@ export class Engine {
     const cost = DEPLOY_FEE_SOL + devBuy + organic;
     if (cost > this.devSol + 1e-9) return { ok: false, reason: `Not enough SOL in the dev wallet (${cost.toFixed(2)} needed)` };
     const at = this.simNow;
+    // Dividends are out of Dev mode for now: every launch gets the right setting.
+    choice = { ...choice, dividends: sc.plan.rightConfig.dividends };
     const check = checkLaunch(choice, sc.options, sc.plan.rightConfig);
     const corr = correctness(check);
     const rightCoin = check.name && check.ticker;
@@ -934,6 +944,7 @@ export class Engine {
     };
     this.devSol -= DEPLOY_FEE_SOL;
     const c = this.spawn(spec, at, sc.source, true);
+    c.dexPaid = false;
     c.dev = {
       scenarioId,
       check,
@@ -956,6 +967,9 @@ export class Engine {
       peakMcUsd: 0,
       ended: false,
       endReason: null,
+      promo: { peak: 0, at: at, tauMs: 1 },
+      rightCoin,
+      kolStage: 0,
       hist: [],
       lastSample: at,
     };
@@ -1051,7 +1065,16 @@ export class Engine {
       ceilingUsd: d.ceilingUsd,
       momentum,
       migrated: c.migrated,
+      promo: d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs),
     });
+    // A right coin that is running draws KOLs at each milestone: real buys, sometimes a tweet. They take profit
+    // when it bleeds.
+    if (d.rightCoin && mcUsd >= KOL_MILESTONES[d.kolStage]) {
+      d.kolStage++;
+      // KOLs check the details too: a wrong picture or pair puts some of them off.
+      if (this.rng.chance(Math.pow(d.corr, 1.5))) this.kolWave(c, at);
+    }
+    if (c.kolsIn.length && (mcUsd < d.peakMcUsd * 0.55 || momentum < -0.25 || dem.heat < 0.1) && this.rng.chance(0.03)) this.kolTrade(c, at, "sell");
     const fee = c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE;
     if (this.rng.chance(dem.buyP)) {
       const r = this.applyBuy(c, this.rng.lognormal(dem.buySol, 0.7), at, "bot");
@@ -1069,6 +1092,33 @@ export class Engine {
     if (!d.ended && at - d.launchedAt > 45_000 && mcUsd < 4500 && dem.heat < 0.25) this.endLaunch(c, "died");
     const quiet = dem.heat < 0.05 && mcUsd < 6000;
     this.at(at + (quiet ? 1500 : this.rng.range(180, 320)), (a) => this.devFlow(c, a));
+  }
+
+  /** A burst of attention on one of your launches; a stronger one replaces a weaker one still running. */
+  private devPromo(c: Coin, peak: number, tauMs: number, ceilingMult = 1): void {
+    const d = c.dev!;
+    const now = d.promo.peak * Math.exp(-(this.simNow - d.promo.at) / d.promo.tauMs);
+    if (peak > now) d.promo = { peak, at: this.simNow, tauMs };
+    d.ceilingUsd *= ceilingMult;
+  }
+
+  /** KOLs find your coin: one to three buy in over the next few seconds, and sometimes one tweets it. */
+  private kolWave(c: Coin, at: number): void {
+    const r = this.rng;
+    for (let i = 0, n = r.int(1, 3); i < n; i++) {
+      this.at(at + r.range(1000, 8000), (a) => {
+        if (!this.coins.has(c.id)) return;
+        this.kolTrade(c, a, "buy", r.range(3, 25));
+        this.devPromo(c, 0.45, 60_000);
+      });
+    }
+    if (r.chance(0.6)) {
+      this.at(at + r.range(2000, 12_000), (a) => {
+        if (!this.coins.has(c.id)) return;
+        this.catalyst(c, a, r.chance(0.6) ? "kolTweet" : "quote");
+        this.devPromo(c, 0.6, 75_000);
+      });
+    }
   }
 
   private endLaunch(c: Coin, reason: "died" | "closed"): void {
@@ -1293,6 +1343,7 @@ export class Engine {
     const c = this.coins.get(coinId);
     const tier = BOOST_TIERS.find((t) => t.label === label);
     if (!c || !tier) return { ok: false, reason: "No such boost" };
+    if (c.dev) return this.devPromote(c, "boost", tier);
     if (!c.migrated || this.simNow < c.lockUntil) return { ok: false, reason: "Boosts need a DEX pair: wait for migration" };
     const cost = tier.usd / SOL_USD;
     if (cost > this.wallet + 1e-9) return { ok: false, reason: "Not enough SOL" };
@@ -1309,6 +1360,30 @@ export class Engine {
       if (this.bigHolder(c)) mult = 1 + (mult - 1) * 0.25;
       this.overlayPump(c, this.simNow, mult, this.rng.range(6000, 15000), this.rng.range(15000, 35000));
       this.bendCourse(c, Math.log(this.rng.range(1.05, 1.25)));
+    }
+    this.emitNow();
+    return { ok: true };
+  }
+
+  /**
+   * DEX profile or a boost on a coin you launched: paid from the dev wallet, any time (curve or pool), and it shows
+   * up as attention in the demand model, plus a little more room to run.
+   */
+  private devPromote(c: Coin, kind: "dex" | "boost", tier?: (typeof BOOST_TIERS)[number]): { ok: boolean; reason?: string } {
+    const d = c.dev!;
+    const usd = kind === "dex" ? DEX_USD : tier!.usd;
+    const cost = usd / SOL_USD;
+    if (cost > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
+    this.devSol -= cost;
+    d.spentSol += cost;
+    if (kind === "dex") {
+      c.dexPaid = true;
+      this.social(c, this.simNow, { kind: "dex", side: null, name: "DEX paid (you)", hue: 200, sol: cost, usd }, false);
+      this.devPromo(c, 0.7, 90_000, 1.3);
+    } else {
+      const k = BOOST_TIERS.findIndex((t) => t.label === tier!.label);
+      this.social(c, this.simNow, { kind: "boost", side: null, name: "Boost (you)", hue: 50, sol: cost, label: tier!.label, usd, hours: tier!.hours }, false);
+      this.devPromo(c, 0.35 + 0.13 * k, 45_000 + 25_000 * k, 1.05 + 0.1 * k);
     }
     this.emitNow();
     return { ok: true };
@@ -1420,6 +1495,7 @@ export class Engine {
     const c = this.coins.get(coinId);
     if (!c) return { ok: false, reason: "Coin is gone" };
     if (c.dexPaid) return { ok: false, reason: "DEX is already paid" };
+    if (c.dev) return this.devPromote(c, "dex");
     if (!c.migrated) return { ok: false, reason: "Wait for migration" };
     const cost = DEX_USD / SOL_USD;
     if (cost > this.wallet + 1e-9) return { ok: false, reason: "Not enough SOL" };

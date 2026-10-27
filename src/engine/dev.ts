@@ -156,6 +156,8 @@ export interface DemandInput {
   /** Log change in market cap over the last ~10 s. */
   momentum: number;
   migrated: boolean;
+  /** Attention from things you or others did (DEX paid, boosts, KOLs): a heat floor that fades (0-1). */
+  promo: number;
 }
 
 export interface Demand {
@@ -172,8 +174,8 @@ export interface Demand {
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 /**
  * Demand tuning, set with the harness (dev.harness.test.ts, HARNESS=1). At these values a right, fast, organic
- * launch bonds ~80% of the time (median peak ~$100K, 1 in 20 past $1.5M); right but late ~15%; a wrong picture
- * or config ~20%; a wrong ticker never.
+ * launch bonds ~80% of the time (median peak ~$150K with KOL waves, 1 in 20 near $1M+); right but late ~15%; a wrong
+ * picture ~30%, a wrong pair ~15%; a wrong ticker never.
  */
 export const DEV_TUNING = { buy: 0.5, curveSize: 0.5, luckSigma: 0.7, corrExp: 1.5 };
 
@@ -190,7 +192,7 @@ export function devDemand(d: DemandInput): Demand {
   const tau = 80;
   let heat = Math.exp(-d.sinceTweetS / tau);
   // A rising chart and a fresh pool keep it in the conversation.
-  heat = clamp(heat + Math.max(0, d.momentum) * 0.8 + (d.migrated ? 0.15 : 0), 0, 1);
+  heat = clamp(Math.max(heat, d.promo) + Math.max(0, d.momentum) * 0.8 + (d.migrated ? 0.15 : 0), 0, 1);
   const room = d.mcUsd >= d.ceilingUsd ? 0 : clamp(Math.log(d.ceilingUsd / d.mcUsd) / Math.log(d.ceilingUsd / 4000), 0, 1);
   const trust = 1 - 0.85 * clamp(d.devSoldFrac, 0, 1);
   // Mistakes cost more than their face value: a market that smells something off just walks.

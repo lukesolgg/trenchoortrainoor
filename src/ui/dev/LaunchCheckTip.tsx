@@ -9,7 +9,6 @@ const ROWS: { k: keyof LaunchView["check"]; label: string }[] = [
   { k: "ticker", label: "Ticker" },
   { k: "image", label: "Picture" },
   { k: "launchpad", label: "Launchpad" },
-  { k: "dividends", label: "Dividends" },
   { k: "pair", label: "Pair" },
 ];
 

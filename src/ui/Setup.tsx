@@ -20,7 +20,7 @@ const COPY = {
     lead: "Launch the meme from the tweet before the rival devs do, then run it: bond it, push it, and get your SOL out before it dies.",
     steps: [
       ["Hit Dev on a tweet", "Every meme tweet on the Tracker can be launched. Skip the ones you don't rate; launch as many as you like."],
-      ["Get it right", "Pick the right name and ticker and the right picture, then the config: Pump, Dividends on, the author's pair. A wrong ticker never bonds; a wrong picture or config cuts the buyers."],
+      ["Get it right", "Pick the right name and ticker and the right picture, then the config: Pump and the author's pair. A wrong ticker never bonds; a wrong picture or config cuts the buyers."],
       ["Beat the rivals", "Rival devs launch their own versions a few seconds behind. The first right coin gets the narrative; late ones get scraps."],
       ["Run the launch", "Sell from your deployer or your other wallets by % of supply, Nuke it all, claim creator fees. Selling early kills trust. A launch card shows how it went."],
     ],

@@ -1590,6 +1590,49 @@ describe("dev mode", () => {
     expect(e.getSnapshot().devSol!).toBeCloseTo(before + l.rewardsSol, 9);
   });
 
+  it("your own launch: pay the DEX and boost it any time, from the dev wallet; it draws buyers", () => {
+    const { e, id, sc } = make(8);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    expect(e.getCoinView(coinId)!.dexPaid).toBe(false);
+    const dev0 = e.getSnapshot().devSol!;
+    const trade0 = e.getSnapshot().walletSol;
+    expect(e.payDex(coinId).ok).toBe(true);
+    expect(e.payDex(coinId).ok).toBe(false);
+    expect(e.buyBoost(coinId, "x30").ok).toBe(true);
+    expect(dev0 - e.getSnapshot().devSol!).toBeCloseTo((299 + 249) / 104, 6);
+    expect(e.getSnapshot().walletSol).toBe(trade0);
+    expect(e.getSnapshot().launches[0].spentSol).toBeGreaterThan(5);
+    const d = (e as unknown as { coins: Map<string, { dev: { promo: { peak: number } } }> }).coins.get(coinId)!.dev;
+    expect(d.promo.peak).toBeGreaterThan(0.5);
+  });
+
+  it("KOLs buy into a right coin that runs, and some tweet it", () => {
+    let kolBuys = 0;
+    let kolTweets = 0;
+    for (const seed of [11, 12, 13, 14, 15, 16]) {
+      const { e, id, sc } = make(seed);
+      e.advanceTo(sc.tweetAt + 1500);
+      e.devDeploy(id, choice(sc, { mode: "organic", organicSol: 1 }));
+      for (let t = e.now(); t < sc.tweetAt + 150_000; t += 500) e.advanceTo(t);
+      const l = e.getSnapshot().launches[0];
+      const soc = e.getSocial(l.coinId);
+      if (l.peakMcUsd > 30_000) {
+        kolBuys += soc.filter((x) => x.kind === "kol" && x.side === "buy").length;
+        kolTweets += soc.filter((x) => x.kind === "tweet").length;
+      } else expect(soc.some((x) => x.kind === "kol")).toBe(false);
+    }
+    expect(kolBuys).toBeGreaterThan(2);
+    expect(kolTweets).toBeGreaterThan(0);
+  });
+
+  it("dividends are out of Dev mode: whatever you send, the launch gets the right setting", () => {
+    const { e, id, sc } = make(9);
+    e.devDeploy(id, choice(sc, { dividends: false }));
+    expect(e.getSnapshot().launches[0].check.dividends).toBe(true);
+  });
+
   it("quotes the opening market cap and supply share of a launch", () => {
     const { e } = make(7);
     const q = e.quoteLaunch(1, 1);

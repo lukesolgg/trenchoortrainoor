@@ -32,7 +32,6 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
   const [nameIdx, setNameIdx] = useState<number | null>(null);
   const [imageIdx, setImageIdx] = useState<number | null>(null);
   const [launchpad, setLaunchpad] = useState<Launchpad>("pump");
-  const [dividends, setDividends] = useState(false);
   const [pair, setPair] = useState<Pair>("SOL");
   const [mode, setMode] = useState<LaunchMode>("organic");
   const [devBuy, setDevBuy] = useState(1);
@@ -46,7 +45,7 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
 
   const deploy = () => {
     if (!sc || nameIdx === null || imageIdx === null) return;
-    const choice: DevChoice = { nameIdx, imageIdx, launchpad, dividends, pair, mode, devBuySol: devBuy, organicSol, rewards };
+    const choice: DevChoice = { nameIdx, imageIdx, launchpad, dividends: true, pair, mode, devBuySol: devBuy, organicSol, rewards };
     const r = engine.devDeploy(sc.id, choice);
     if (!r.ok) return notify(r.reason ?? "Deploy failed");
     notify(`Deployed $${sc.names[nameIdx].ticker} · ${((now - sc.tweetAt) / 1000).toFixed(1)} s after the tweet`);
@@ -135,15 +134,6 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
                     {l === "pump" ? "Pump" : "Bonk"}
                   </button>
                 ))}
-              </div>
-              <span className="font-semibold text-faint">Dividends</span>
-              <div className="flex gap-1.5">
-                <button type="button" className={chip(dividends)} onClick={() => setDividends(true)}>
-                  On
-                </button>
-                <button type="button" className={chip(!dividends)} onClick={() => setDividends(false)}>
-                  Off
-                </button>
               </div>
               <span className="font-semibold text-faint">Pair</span>
               <div className="flex gap-1.5">

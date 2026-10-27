@@ -423,6 +423,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
             )
           }
           holdingPct={engine.holdingPct(coinId)}
+          devLaunch={launch ? { devSol: snap.devSol ?? 0 } : undefined}
           walletPcts={engine.walletPcts(coinId)}
           walletSel={snap.walletSel}
           walletCount={snap.walletCount}
