@@ -2,6 +2,7 @@
 
 import type { LaunchView } from "@/engine/types";
 import { sol } from "../format";
+import { LaunchCheckTip } from "./LaunchCheckTip";
 import { SolIcon } from "../icons";
 
 const STEPS: (number | "max")[] = [0.1, 1, 3, "max"];
@@ -52,14 +53,18 @@ export function DevOps({ l, now, devSol, onSell, onDevBuy, onNuke, onClaim, onRe
         <h3 className="text-[13px] font-bold">
           Your launch <span className="ml-1 rounded bg-violet/20 px-1.5 py-px text-[10px] font-black text-violet">DEV</span>
         </h3>
-        <button type="button" onClick={onReport} className="text-[11px] font-semibold text-dim hover:text-ink">
-          Launch report →
-        </button>
+        <LaunchCheckTip l={l} align="right">
+          <button type="button" onClick={onReport} className="text-[11px] font-semibold text-dim hover:text-ink">
+            <span className={off ? "text-down" : "text-up"}>{off ? `✗ ${Object.values(l.check).filter((x) => !x).length} wrong` : "✓ all right"}</span> · Launch report →
+          </button>
+        </LaunchCheckTip>
       </div>
       {quiet && (
-        <div className="mb-2 rounded-md border border-amber/50 bg-amber/10 px-2.5 py-1.5 text-[11.5px] leading-snug text-amber">
-          Buyers aren&apos;t biting. Something about this launch is off: check the Tracker.
-        </div>
+        <LaunchCheckTip l={l}>
+          <div className="mb-2 cursor-help rounded-md border border-amber/50 bg-amber/10 px-2.5 py-1.5 text-[11.5px] leading-snug text-amber">
+            Buyers aren&apos;t biting. Something about this launch is off. <span className="font-bold underline decoration-dotted">Hover to see what.</span>
+          </div>
+        </LaunchCheckTip>
       )}
       <div className="space-y-1.5">
         {row("Deployer", "deployer", l.deployerPct)}
