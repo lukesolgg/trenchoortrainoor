@@ -66,7 +66,12 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
   WIF/toly, POPCAT/alon). Author-to-pair: Elon SPACEX (TESLA with `tag: "tesla"`), toly SOL, everyone else PUMP.
   Schema: `Meme` in `src/engine/types.ts`; `tickers[0]` is the right ticker; every tweet template needs `{name}`.
   Optional `info` holds reference facts (launch, ATH, CA) for a later results screen. Tweets are simulated, not real quotes.
-- Placeholder art is a gradient tile plus glyph (`src/ui/Art.tsx`). Set `art.src` on a meme to use a real image.
+- Every coin has a real photo: `public/coins/<meme id>.jpg` for memes (their look-alikes reuse it) and `public/coins/<ticker>.jpg`
+  for filler coins. Sources are Pexels (free licence), listed in `public/coins/CREDITS.md`. The gradient + glyph in `Art.tsx` is
+  only a fallback if an image fails to load.
+- Meme pack: 27 scenarios. The 10 added later (Oracle of Delphi, Silent Observer, Singularity, Out of Hand, Philosophers Stone,
+  Eternal Return, Neural Crown, Bag of Holding, Final Form, Glass Cannon) use the big-coin outcome system. Trench Report and
+  Lowcap Larry are fictional accounts that can start rounds; their pair is /PUMP.
 - Token page: `src/ui/TokenPage.tsx` (header + `ChartPanel` + `TradePanel` + `TradeTape` + `InfoTabs`). The chart aggregates the
   engine's 1 s candles client-side (`chartData.ts`) into 1s-1m bars, in Price or MC, USD or SOL, and updates through `series.update`.
   "Top 10 avg buy" is the volume-weighted MC of the first 30 SOL bought. Holders/Top Traders show modelled stats, not a fake wallet list. Coins you have open are pinned (`engine.focus`) so they never age off the board.

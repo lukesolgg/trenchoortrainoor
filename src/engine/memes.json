@@ -12,7 +12,8 @@
       ],
       "art": {
         "hue": 28,
-        "glyph": "🐿️"
+        "glyph": "🐿️",
+        "src": "/coins/pnut.jpg"
       },
       "author": "elon",
       "tweets": [
@@ -49,7 +50,8 @@
       ],
       "art": {
         "hue": 120,
-        "glyph": "🐐"
+        "glyph": "🐐",
+        "src": "/coins/goat.jpg"
       },
       "author": "truthterminal",
       "tweets": [
@@ -86,7 +88,8 @@
       ],
       "art": {
         "hue": 95,
-        "glyph": "💨"
+        "glyph": "💨",
+        "src": "/coins/fartcoin.jpg"
       },
       "author": "truthterminal",
       "tweets": [
@@ -123,7 +126,8 @@
       ],
       "art": {
         "hue": 330,
-        "glyph": "🐶"
+        "glyph": "🐶",
+        "src": "/coins/wif.jpg"
       },
       "author": "toly",
       "tweets": [
@@ -160,7 +164,8 @@
       ],
       "art": {
         "hue": 210,
-        "glyph": "🐱"
+        "glyph": "🐱",
+        "src": "/coins/popcat.jpg"
       },
       "author": "alon",
       "tweets": [
@@ -197,7 +202,8 @@
       ],
       "art": {
         "hue": 25,
-        "glyph": "🐕"
+        "glyph": "🐕",
+        "src": "/coins/ansem-bag.jpg"
       },
       "author": "ansem",
       "tweets": [
@@ -219,7 +225,8 @@
       ],
       "art": {
         "hue": 205,
-        "glyph": "🐈"
+        "glyph": "🐈",
+        "src": "/coins/ansem-liquidity.jpg"
       },
       "author": "ansem",
       "tweets": [
@@ -241,7 +248,8 @@
       ],
       "art": {
         "hue": 35,
-        "glyph": "🐹"
+        "glyph": "🐹",
+        "src": "/coins/ansem-snipe.jpg"
       },
       "author": "ansem",
       "tweets": [
@@ -263,7 +271,8 @@
       ],
       "art": {
         "hue": 30,
-        "glyph": "🐠"
+        "glyph": "🐠",
+        "src": "/coins/toly-tps.jpg"
       },
       "author": "toly",
       "tweets": [
@@ -285,7 +294,8 @@
       ],
       "art": {
         "hue": 120,
-        "glyph": "🪴"
+        "glyph": "🪴",
+        "src": "/coins/toly-firedancer.jpg"
       },
       "author": "toly",
       "tweets": [
@@ -307,7 +317,8 @@
       ],
       "art": {
         "hue": 265,
-        "glyph": "🐕"
+        "glyph": "🐕",
+        "src": "/coins/toly-solana-dog.jpg"
       },
       "author": "toly",
       "tweets": [
@@ -334,7 +345,8 @@
       ],
       "art": {
         "hue": 145,
-        "glyph": "🐶"
+        "glyph": "🐶",
+        "src": "/coins/pumpfun-bonding-curve.jpg"
       },
       "author": "pumpfun",
       "tweets": [
@@ -356,7 +368,8 @@
       ],
       "art": {
         "hue": 55,
-        "glyph": "🦆"
+        "glyph": "🦆",
+        "src": "/coins/pumpfun-dev-duck.jpg"
       },
       "author": "pumpfun",
       "tweets": [
@@ -383,7 +396,8 @@
       ],
       "art": {
         "hue": 300,
-        "glyph": "🐈"
+        "glyph": "🐈",
+        "src": "/coins/pumpfun-graduation.jpg"
       },
       "author": "pumpfun",
       "tweets": [
@@ -405,7 +419,8 @@
       ],
       "art": {
         "hue": 190,
-        "glyph": "🐕"
+        "glyph": "🐕",
+        "src": "/coins/solana-sealevel.jpg"
       },
       "author": "solana",
       "tweets": [
@@ -427,7 +442,8 @@
       ],
       "art": {
         "hue": 165,
-        "glyph": "🐱"
+        "glyph": "🐱",
+        "src": "/coins/solana-hat-cat.jpg"
       },
       "author": "solana",
       "tweets": [
@@ -454,7 +470,8 @@
       ],
       "art": {
         "hue": 95,
-        "glyph": "🐾"
+        "glyph": "🐾",
+        "src": "/coins/solana-animal-pics.jpg"
       },
       "author": "solana",
       "tweets": [
@@ -468,6 +485,310 @@
       "highlight": [
         "animal pictures"
       ]
+    },
+    {
+      "id": "delphi",
+      "name": "Oracle of Delphi",
+      "tickers": [
+        "DELPHI",
+        "ORACLE",
+        "ODELPHI",
+        "PYTHIA"
+      ],
+      "art": {
+        "hue": 40,
+        "glyph": "🏛️",
+        "src": "/coins/delphi.jpg"
+      },
+      "author": "truthterminal",
+      "tweets": [
+        "I think we should name it {name}"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "silent-observer",
+      "name": "Silent Observer",
+      "tickers": [
+        "OBSERVER",
+        "SILENT",
+        "SILENTOBS",
+        "WATCHER"
+      ],
+      "art": {
+        "hue": 230,
+        "glyph": "🦉",
+        "src": "/coins/silent-observer.jpg"
+      },
+      "author": "trenchreport",
+      "tweets": [
+        "Ansem just followed a brand new wallet. First coin it ever bought is already up 4x. Name is {name}"
+      ],
+      "highlight": [
+        "Ansem"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "singularity",
+      "name": "Singularity",
+      "tickers": [
+        "SINGULARITY",
+        "SING",
+        "SINGU",
+        "MEMEAI"
+      ],
+      "art": {
+        "hue": 270,
+        "glyph": "🌀",
+        "src": "/coins/singularity.jpg"
+      },
+      "author": "elon",
+      "tweets": [
+        "The singularity will be meme-driven"
+      ],
+      "noHighlight": true,
+      "highlight": [
+        "singularity"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "out-of-hand",
+      "name": "Out of Hand",
+      "tickers": [
+        "HAND",
+        "OUTOFHAND",
+        "OOH",
+        "HANDS"
+      ],
+      "art": {
+        "hue": 20,
+        "glyph": "✋",
+        "src": "/coins/out-of-hand.jpg"
+      },
+      "author": "alon",
+      "tweets": [
+        "this is getting out of hand"
+      ],
+      "noHighlight": true,
+      "highlight": [
+        "out of hand"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "philosophers-stone",
+      "name": "Philosophers Stone",
+      "tickers": [
+        "STONE",
+        "PHILOSOPHER",
+        "PSTONE",
+        "PHILSTONE"
+      ],
+      "art": {
+        "hue": 0,
+        "glyph": "💎",
+        "src": "/coins/philosophers-stone.jpg"
+      },
+      "author": "truthterminal",
+      "tweets": [
+        "Calling it now: {name}"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "eternal-return",
+      "name": "Eternal Return",
+      "tickers": [
+        "RETURN",
+        "ETERNAL",
+        "ETERNALRETURN",
+        "ERETURN"
+      ],
+      "art": {
+        "hue": 150,
+        "glyph": "♾️",
+        "src": "/coins/eternal-return.jpg"
+      },
+      "author": "trenchreport",
+      "tweets": [
+        "New meta just dropped. Everyone is deploying versions of {name}. First one to bond wins."
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "neural-crown",
+      "name": "Neural Crown",
+      "tickers": [
+        "CROWN",
+        "NEURAL",
+        "NCROWN",
+        "NEURALCROWN"
+      ],
+      "art": {
+        "hue": 200,
+        "glyph": "🧠",
+        "src": "/coins/neural-crown.jpg"
+      },
+      "author": "elon",
+      "tweets": [
+        "{name}. Interesting."
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "bag-of-holding",
+      "name": "Bag of Holding",
+      "tickers": [
+        "HOLDING",
+        "BOH",
+        "BAGOFHOLDING",
+        "HODLBAG"
+      ],
+      "art": {
+        "hue": 30,
+        "glyph": "👜",
+        "src": "/coins/bag-of-holding.jpg"
+      },
+      "author": "lowcaplarry",
+      "tweets": [
+        "I sold the top of the last one and now I’m watching this new {name} coin go parabolic. Classic."
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "final-form",
+      "name": "Final Form",
+      "tickers": [
+        "FINAL",
+        "FORM",
+        "FINALFORM",
+        "FFORM"
+      ],
+      "art": {
+        "hue": 45,
+        "glyph": "🦋",
+        "src": "/coins/final-form.jpg"
+      },
+      "author": "truthterminal",
+      "tweets": [
+        "What if we just called it {name}"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
+    },
+    {
+      "id": "glass-cannon",
+      "name": "Glass Cannon",
+      "tickers": [
+        "CANNON",
+        "GLASS",
+        "GLASSCANNON",
+        "GCANNON"
+      ],
+      "art": {
+        "hue": 190,
+        "glyph": "💥",
+        "src": "/coins/glass-cannon.jpg"
+      },
+      "author": "trenchreport",
+      "tweets": [
+        "Alon replied “based” under a tweet. The coin mentioned was {name}. It’s already moving."
+      ],
+      "highlight": [
+        "based"
+      ],
+      "big": {
+        "peak": [
+          120000,
+          180000
+        ],
+        "trip": [
+          70000,
+          100000
+        ]
+      }
     }
   ]
 }

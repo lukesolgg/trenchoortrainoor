@@ -4,11 +4,14 @@ import type { Author, Pair } from "./types";
 export const AUTHORITIES: Record<string, Author> = {
   elon: { name: "Elon Musk", handle: "elonmusk", followers: "241.5M", verified: true, hue: 210, authority: true },
   toly: { name: "toly", handle: "toly", followers: "2.8M", verified: true, hue: 160, authority: true },
-  alon: { name: "Alon", handle: "a1lon9", followers: "310K", verified: true, hue: 30, authority: true },
-  truthterminal: { name: "Truth Terminal", handle: "truth_terminal", followers: "250K", verified: false, hue: 280, authority: true },
+  alon: { name: "Alon", handle: "a1lon9", followers: "427.8K", verified: true, hue: 30, authority: true },
+  truthterminal: { name: "terminal of truths", handle: "truth_terminal", followers: "240.5K", verified: true, hue: 280, authority: true },
   ansem: { name: "Ansem", handle: "blknoiz06", followers: "590K", verified: true, hue: 15, authority: true },
   solana: { name: "Solana", handle: "solana", followers: "3.1M", verified: true, hue: 170, authority: true },
   pumpfun: { name: "pump.fun", handle: "pumpdotfun", followers: "1.1M", verified: true, hue: 145, authority: true },
+  // Fictional trench accounts that can still start a round.
+  trenchreport: { name: "Trench Report", handle: "trenchreport", followers: "210K", verified: true, hue: 5, authority: true },
+  lowcaplarry: { name: "Lowcap Larry", handle: "lowcaplarry", followers: "38.2K", verified: false, hue: 95, authority: true },
 };
 
 export const rightPairFor = (author: keyof typeof AUTHORITIES, tag?: "tesla"): Pair => {
@@ -82,6 +85,18 @@ export const NOISE_TWEETS: string[] = [
 
 /** Ordinary tweets from the authority accounts. They never name a meme. */
 export const AUTHORITY_TWEETS: Record<string, string[]> = {
+  trenchreport: [
+    "Volume on new pairs is up 40% today. Something is brewing.",
+    "Three wallets that sniped the last runner are active again.",
+    "Reminder: half of today's top gainers were deployed in the last hour.",
+    "A dev with two migrations under his belt just funded a fresh wallet.",
+  ],
+  lowcaplarry: [
+    "bought high, sold low, still here",
+    "my portfolio is a museum of almosts",
+    "the chart I didn't buy is always the one that runs",
+    "taking profits is for people with discipline. I have conviction",
+  ],
   ansem: [
     "size up when you are right, not when you are bored",
     "this market rewards patience and punishes everyone else",

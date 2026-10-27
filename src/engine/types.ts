@@ -115,7 +115,7 @@ export interface Meme {
   /** Ranked best to worst. Index 0 is the right ticker. */
   tickers: string[];
   art: ArtSpec;
-  author: "elon" | "toly" | "alon" | "pumpfun" | "truthterminal" | "ansem" | "solana";
+  author: "elon" | "toly" | "alon" | "pumpfun" | "truthterminal" | "ansem" | "solana" | "trenchreport" | "lowcaplarry";
   /** Elon tweets about Tesla memes pair with TESLA instead of SPACEX. */
   tag?: "tesla";
   /** Templates must contain {name}. */

@@ -963,3 +963,17 @@ describe("flood and socials", () => {
     }
   });
 });
+
+describe("coin images", () => {
+  it("every meme and every filler coin has a real image on disk", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { FILLER_COINS } = await import("./content");
+    const srcs = [...MEME_PACK.map((m) => m.art.src!), ...FILLER_COINS.map((f) => `/coins/${f.ticker.toLowerCase()}.jpg`)];
+    for (const s of srcs) {
+      expect(s, "missing src").toBeTruthy();
+      expect(fs.existsSync(path.join(process.cwd(), "public", s)), s).toBe(true);
+    }
+    expect(MEME_PACK.length).toBe(27);
+  });
+});

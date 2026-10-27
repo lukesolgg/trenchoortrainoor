@@ -134,7 +134,8 @@ export function makeFillerCoin(rng: Rng, role: CoinRole = "noise", used?: Set<st
   return {
     ticker,
     name: f.name,
-    art: { hue: Math.floor(rng.range(0, 360)), glyph: f.glyph },
+    // Every filler coin has a real photo: public/coins/<ticker>.jpg.
+    art: { hue: Math.floor(rng.range(0, 360)), glyph: f.glyph, src: `/coins/${f.ticker.toLowerCase()}.jpg` },
     config: randomConfig(rng),
     role,
     profile: noiseProfile(rng),
