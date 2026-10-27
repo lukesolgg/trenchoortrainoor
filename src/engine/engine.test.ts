@@ -695,7 +695,7 @@ describe("big coin script", () => {
       for (const seed of [1, 2, 3]) {
         const r = run(id, seed);
         expect(r.burstMc).toBeGreaterThan(28000);
-        expect(r.peakAt).toBeLessThan(60000);
+        expect(r.peakAt).toBeLessThan(75000);
       }
     }
   });
@@ -719,12 +719,12 @@ describe("big coin script", () => {
         case "runner":
           expect(r.peak).toBeGreaterThan(600000);
           expect(r.peak).toBeLessThan(3000000);
-          expect(r.peakAt).toBeLessThan(60000);
+          expect(r.peakAt).toBeLessThan(75000);
           expect(r.last / r.peak).toBeLessThan(0.25);
           break;
         case "moon":
           expect(r.peak).toBeGreaterThan(2500000);
-          expect(r.peakAt).toBeLessThan(60000);
+          expect(r.peakAt).toBeLessThan(75000);
           expect(r.last / r.peak).toBeLessThan(0.65);
           break;
         case "toprug": {
@@ -928,6 +928,38 @@ describe("score, hit feedback and training style", () => {
       expect(e.debugCoins().filter((c) => c.role === "decoy" && c.id !== id)).toHaveLength(0);
       e.advanceTo(landed + 2500);
       expect(e.debugCoins().filter((c) => c.role === "decoy").length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("flood and socials", () => {
+  it("after the tweet, New Pairs only gets the runner and its look-alikes", () => {
+    for (const seed of [1, 2, 3]) {
+      for (const difficulty of ["paper", "trencher", "sniper"] as const) {
+        const e = new Engine({ seed, difficulty, autoRounds: false, clock: () => 0 });
+        e.startRound({ leadMs: 0 });
+        const plan = (e as unknown as { roundPlan: { spawns: { spec: { role: string } }[] } }).roundPlan;
+        expect(plan.spawns.every((x) => x.spec.role === "target" || x.spec.role === "decoy")).toBe(true);
+        expect(plan.spawns.filter((x) => x.spec.role === "target")).toHaveLength(1);
+      }
+    }
+  });
+
+  it("a big runner shows the dev buy, KOL trades and at least one boost", () => {
+    const meme = MEME_PACK.find((m) => m.id === "pnut")!;
+    for (const seed of [1, 2, 3]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [meme] });
+      e.startRound({ memeId: "pnut", leadMs: 0 });
+      let id: string | null = null;
+      for (let t = 0; t < 90000; t += 200) {
+        e.advanceTo(t);
+        id ??= e.getRound()?.targetCoinId ?? null;
+      }
+      const s = e.getSocial(id!);
+      expect(s.some((x) => x.kind === "dev" && x.side === "buy")).toBe(true);
+      expect(s.some((x) => x.kind === "boost")).toBe(true);
+      expect(s.filter((x) => x.kind === "kol").length).toBeGreaterThan(0);
+      expect(s.filter((x) => x.kind === "kol").length).toBeLessThanOrEqual(10);
     }
   });
 });

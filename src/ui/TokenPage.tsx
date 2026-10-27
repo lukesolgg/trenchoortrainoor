@@ -76,6 +76,46 @@ interface Props {
   notify: (text: string) => void;
 }
 
+/** Toggle the chart's social layers: dev trades, KOL trades, boosts. */
+function SocialMenu() {
+  const social = useUi((u) => u.social);
+  const toggle = useUi((u) => u.toggleSocial);
+  const [open, setOpen] = useState(false);
+  const on = Object.values(social).filter(Boolean).length;
+  const rows: { k: "dev" | "kol" | "boost"; label: string; hint: string }[] = [
+    { k: "dev", label: "Dev buys & sells", hint: "DEV" },
+    { k: "kol", label: "KOL buys & sells", hint: "●" },
+    { k: "boost", label: "Boosts", hint: "⚡" },
+  ];
+  return (
+    <div className="relative" onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-bold transition-colors ${
+          on ? "border-line-hi text-ink" : "border-line text-faint"
+        }`}
+      >
+        Socials <span className="tabular text-[10.5px] text-dim">{on}/3</span> <span className="text-[9px] text-faint">▾</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 pt-1">
+          <div className="w-52 rounded-lg border border-line-hi bg-card p-1.5 shadow-2xl">
+            {rows.map((r) => (
+              <label key={r.k} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] hover:bg-card-hi">
+                <input type="checkbox" checked={social[r.k]} onChange={() => toggle(r.k)} className="accent-[var(--color-buy)]" />
+                <span className="w-7 text-center text-[11px] font-black text-amber">{r.hint}</span>
+                {r.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPresets, presetSet, onPresetSet, onBack, onOpen, notify }: Props) {
   const coin = engine.getCoinView(coinId);
   const tape = engine.getTape(coinId);
@@ -83,6 +123,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
   const instant = useUi((u) => u.instantTrade);
   const setInstant = useUi((u) => u.setInstantTrade);
   const chart = useRef<ChartHandle>(null);
+  const social = useUi((u) => u.social);
   const [tf, setTf] = useState(1);
   const [metric, setMetric] = useState<Metric>("mc");
   const [unit, setUnit] = useState<Unit>("usd");
@@ -259,6 +300,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
             <span className="h-4 w-px bg-line-hi" />
             <Seg value={metric} options={[{ v: "price", label: "Price" }, { v: "mc", label: "MC" }]} onChange={setMetric} />
             <Seg value={unit} options={[{ v: "usd", label: "USD" }, { v: "sol", label: "SOL" }]} onChange={setUnit} />
+            <SocialMenu />
             <span className="h-4 w-px bg-line-hi" />
             <Tool onClick={() => chart.current?.firstCandle()} title="Jump to the first candle">First candle</Tool>
             <Tool onClick={() => chart.current?.fit()} title="Fit all candles">Fit</Tool>
@@ -297,6 +339,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               entryMcUsd={entryMcUsd}
               earlyAvgMcUsd={coin.earlyAvgMcUsd}
               ticker={coin.ticker}
+              show={social}
             />
           </div>
           <div className="flex h-7 shrink-0 items-center gap-2 border-t border-line bg-nav px-3">
@@ -309,6 +352,10 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               <span><span className="text-[#8b9099]">┅</span> ATH</span>
               <span><span className="text-amber">─</span> Top 10 avg buy</span>
               <span><span className="text-blue">┅</span> Your entry</span>
+              <span className="text-faint">·</span>
+              <span><span className="rounded-sm bg-amber px-0.5 text-[8.5px] font-black text-black">DEV</span> Dev</span>
+              <span><span className="font-black text-violet">●</span> KOL</span>
+              <span><span className="text-amber">⚡</span> Boost</span>
             </span>
           </div>
           <div className="min-h-[260px] flex-[2] border-t border-line bg-panel">

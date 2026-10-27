@@ -23,14 +23,21 @@ import type { Candle } from "@/engine/types";
 import { aggregate, fmtPrice, tailFrom } from "./chartData";
 import { usd } from "./format";
 
-/** Your trades on the chart: small round B / S badges sitting on the price you got, instead of arrows and text. */
-interface Dot {
+/**
+ * Everything drawn on top of the candles at a price: your trades (B / S), the dev (D), KOLs (their initial) and
+ * paid boosts (a lightning tag above the bar). Ring colour says buy (green) or sell (red).
+ */
+export interface Mark {
   time: Time;
   value: number;
-  side: "buy" | "sell";
+  kind: "you" | "dev" | "kol" | "boost";
+  side: "buy" | "sell" | null;
+  letter: string;
+  hue?: number;
+  label?: string;
 }
-class TradeDots implements ISeriesPrimitive<Time> {
-  private dots: Dot[] = [];
+class ChartMarks implements ISeriesPrimitive<Time> {
+  private marks: Mark[] = [];
   private chart: IChartApi | null = null;
   private series: ISeriesApi<"Candlestick"> | null = null;
   private request: (() => void) | null = null;
@@ -43,8 +50,8 @@ class TradeDots implements ISeriesPrimitive<Time> {
   detached() {
     this.chart = this.series = this.request = null;
   }
-  setDots(d: Dot[]) {
-    this.dots = d;
+  setMarks(m: Mark[]) {
+    this.marks = m;
     this.request?.();
   }
   updateAllViews() {}
@@ -59,37 +66,103 @@ class TradeDots implements ISeriesPrimitive<Time> {
               cb: (s: { context: CanvasRenderingContext2D; horizontalPixelRatio: number; verticalPixelRatio: number }) => void,
             ) => void;
           }) {
-            const { chart, series, dots } = self;
-            if (!chart || !series || dots.length === 0) return;
+            const { chart, series, marks } = self;
+            if (!chart || !series || marks.length === 0) return;
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
-              const r = 7.5 * hr;
               const perBar = new Map<number, number>();
+              const perBoost = new Map<number, number>();
               ctx.save();
-              ctx.font = `800 ${Math.round(9 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
-              for (const d of dots) {
-                const x0 = chart.timeScale().timeToCoordinate(d.time);
-                const y0 = series.priceToCoordinate(d.value);
+              for (const m of marks) {
+                const x0 = chart.timeScale().timeToCoordinate(m.time);
+                const y0 = series.priceToCoordinate(m.value);
                 if (x0 === null || y0 === null) continue;
-                // Several trades in one bar fan out sideways so they never hide each other.
-                const n = perBar.get(x0) ?? 0;
-                perBar.set(x0, n + 1);
-                const x = (x0 + n * 11) * hr;
+                if (m.kind === "boost") {
+                  // Tag floating above the bar, with a drawn bolt (canvas fonts often lack the emoji).
+                  ctx.font = `800 ${Math.round(10 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+                  const text = m.label ?? "";
+                  const bw = 7 * hr;
+                  const w = ctx.measureText(text).width + bw + 14 * hr;
+                  const h = 16 * vr;
+                  const stack = perBoost.get(x0) ?? 0;
+                  perBoost.set(x0, stack + 1);
+                  const x = x0 * hr;
+                  const y = (y0 - 26 - stack * 20) * vr;
+                  ctx.fillStyle = "#f5c542";
+                  ctx.beginPath();
+                  ctx.roundRect(x - w / 2, y - h / 2, w, h, 4 * hr);
+                  ctx.fill();
+                  if (stack === 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(x - 4 * hr, y + h / 2);
+                    ctx.lineTo(x + 4 * hr, y + h / 2);
+                    ctx.lineTo(x, y + h / 2 + 5 * vr);
+                    ctx.fill();
+                  }
+                  const bx = x - w / 2 + 5 * hr;
+                  const by = y - 5.5 * vr;
+                  ctx.fillStyle = "#1a1300";
+                  ctx.beginPath();
+                  ctx.moveTo(bx + 4.5 * hr, by);
+                  ctx.lineTo(bx, by + 6.5 * vr);
+                  ctx.lineTo(bx + 3 * hr, by + 6.5 * vr);
+                  ctx.lineTo(bx + 2 * hr, by + 11 * vr);
+                  ctx.lineTo(bx + 7 * hr, by + 4 * vr);
+                  ctx.lineTo(bx + 4 * hr, by + 4 * vr);
+                  ctx.closePath();
+                  ctx.fill();
+                  ctx.textAlign = "left";
+                  ctx.fillText(text, bx + bw + 2 * hr, y + 0.5 * vr);
+                  ctx.textAlign = "center";
+                  continue;
+                }
+                if (m.kind === "dev") {
+                  // The dev is a square tag, never confused with a KOL's round avatar.
+                  const off = perBar.get(x0) ?? 0;
+                  perBar.set(x0, off + 30);
+                  const x = (x0 + off + (off ? 6 : 0)) * hr;
+                  const y = y0 * vr;
+                  const buy = m.side === "buy";
+                  const w = 26 * hr;
+                  const h = 15 * vr;
+                  ctx.shadowColor = buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
+                  ctx.shadowBlur = 8 * hr;
+                  ctx.fillStyle = "#f5c542";
+                  ctx.beginPath();
+                  ctx.roundRect(x - w / 2, y - h / 2, w, h, 3 * hr);
+                  ctx.fill();
+                  ctx.shadowBlur = 0;
+                  ctx.lineWidth = 2 * hr;
+                  ctx.strokeStyle = buy ? "#35d07f" : "#f0455a";
+                  ctx.stroke();
+                  ctx.font = `900 ${Math.round(8.5 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+                  ctx.fillStyle = "#111";
+                  ctx.fillText("DEV", x, y + 0.5 * vr);
+                  continue;
+                }
+                // Several marks in one bar fan out sideways (by their real width) so none hides another.
+                const off = perBar.get(x0) ?? 0;
+                perBar.set(x0, off + 21);
+                const x = (x0 + off) * hr;
                 const y = y0 * vr;
-                const buy = d.side === "buy";
+                const r = (m.kind === "you" ? 7.5 : 9.5) * hr;
+                const buy = m.side === "buy";
+                const ring = buy ? "#35d07f" : "#f0455a";
+                const fill = m.kind === "you" ? ring : `hsl(${m.hue ?? 200} 55% 42%)`;
                 ctx.shadowColor = buy ? "rgba(53,208,127,.55)" : "rgba(240,69,90,.55)";
                 ctx.shadowBlur = 8 * hr;
                 ctx.beginPath();
                 ctx.arc(x, y, r, 0, Math.PI * 2);
-                ctx.fillStyle = buy ? "#35d07f" : "#f0455a";
+                ctx.fillStyle = fill;
                 ctx.fill();
                 ctx.shadowBlur = 0;
-                ctx.lineWidth = 1.5 * hr;
-                ctx.strokeStyle = "#0e0f12";
+                ctx.lineWidth = (m.kind === "you" ? 1.5 : 2) * hr;
+                ctx.strokeStyle = m.kind === "you" ? "#0e0f12" : ring;
                 ctx.stroke();
-                ctx.fillStyle = buy ? "#06130c" : "#ffffff";
-                ctx.fillText(buy ? "B" : "S", x, y + 0.5 * vr);
+                ctx.font = `800 ${Math.round(m.letter.length > 1 ? 7.5 : 9) * vr}px Inter, ui-sans-serif, system-ui, sans-serif`;
+                ctx.fillStyle = m.kind === "you" && buy ? "#111" : "#fff";
+                ctx.fillText(m.letter, x, y + 0.5 * vr);
               }
               ctx.restore();
             });
@@ -128,6 +201,8 @@ interface Props {
   entryMcUsd: number | null;
   earlyAvgMcUsd: number;
   ticker: string;
+  /** Social layers on the chart. */
+  show: { dev: boolean; kol: boolean; boost: boolean };
 }
 
 const UP = "#35d07f";
@@ -157,13 +232,13 @@ interface Bar {
  * Live data goes through series.update so panning and zoom survive ticks.
  * Mount with key={coinId}: a new coin is a new chart.
  */
-export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metric, unit, scale, entryMcUsd, earlyAvgMcUsd, ticker }: Props) {
+export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metric, unit, scale, entryMcUsd, earlyAvgMcUsd, ticker, show }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const dotsRef = useRef<TradeDots | null>(null);
+  const dotsRef = useRef<ChartMarks | null>(null);
   const lines = useRef<{ ath?: IPriceLine; early?: IPriceLine; entry?: IPriceLine; mig?: IPriceLine }>({});
   const lastT = useRef<number | null>(null);
   const dataKey = useRef("");
@@ -251,7 +326,7 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     chartRef.current = chart;
     candleRef.current = candle;
     volRef.current = vol;
-    dotsRef.current = new TradeDots();
+    dotsRef.current = new ChartMarks();
     candle.attachPrimitive(dotsRef.current);
     return () => {
       chart.remove();
@@ -347,20 +422,36 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     upsert("entry", entryMcUsd ? (entryMcUsd / SOL_USD) * factor : null, "#4db8ff", "Entry", 2);
 
     const trades = engine.getTradesFor(coinId);
-    if (trades.length !== markerCount.current) {
-      dotsRef.current?.setDots(
-        trades
-          .filter((t) => t.tokens > 0)
-          .map((t) => ({
-            time: (Math.floor(Math.floor(t.execAt / 1000) / tf) * tf + timeOffset) as UTCTimestamp,
-            // The market cap you actually traded at, in the chart's metric and unit.
-            value: (t.sol / t.tokens) * SUPPLY * factor,
-            side: t.side,
-          })),
-      );
-      markerCount.current = trades.length;
+    const socials = engine.getSocial(coinId);
+    const markKey = trades.length * 100000 + socials.length * 10 + (show.dev ? 1 : 0) + (show.kol ? 2 : 0) + (show.boost ? 4 : 0);
+    if (markKey !== markerCount.current) {
+      const bar = (atMs: number) => (Math.floor(Math.floor(atMs / 1000) / tf) * tf + timeOffset) as UTCTimestamp;
+      const mine: Mark[] = trades
+        .filter((t) => t.tokens > 0)
+        .map((t) => ({
+          time: bar(t.execAt),
+          // The market cap you actually traded at, in the chart's metric and unit.
+          value: (t.sol / t.tokens) * SUPPLY * factor,
+          kind: "you",
+          side: t.side,
+          letter: t.side === "buy" ? "B" : "S",
+        }));
+      const theirs: Mark[] = socials
+        .filter((e) => (e.kind === "dev" ? show.dev : e.kind === "kol" ? show.kol : show.boost))
+        .map((e) => ({
+          time: bar(e.at),
+          value: e.mc * factor,
+          kind: e.kind,
+          side: e.side,
+          // KOL avatars carry two initials, e.g. "DD" for Degen Dave.
+          letter: e.kind === "dev" ? "DEV" : e.name.split(" ").map((w) => w[0]).join("").slice(0, 2),
+          hue: e.hue,
+          label: e.label,
+        }));
+      dotsRef.current?.setMarks([...theirs, ...mine]);
+      markerCount.current = markKey;
     }
-  }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd]);
+  }, [engine, coinId, version, timeOffset, tf, metric, unit, factor, entryMcUsd, earlyAvgMcUsd, show.dev, show.kol, show.boost]);
 
   // Switching timeframe, metric or unit changes where the badges sit.
   useEffect(() => {

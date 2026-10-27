@@ -296,3 +296,20 @@ export interface ScoredView {
   misses: WrongBuy[];
   training: boolean;
 }
+
+/** Something social happening on a coin, drawn on its chart: the dev trading, a KOL trading, or a paid boost. */
+export interface SocialEvent {
+  id: number;
+  /** Sim ms. */
+  at: number;
+  kind: "dev" | "kol" | "boost";
+  side: "buy" | "sell" | null;
+  /** Market cap in SOL where it happened. */
+  mc: number;
+  name: string;
+  sol: number;
+  /** Avatar colour for KOLs. */
+  hue: number;
+  /** Boost size, e.g. "x30". */
+  label?: string;
+}

@@ -163,3 +163,21 @@ export const FILLER_COINS: { name: string; ticker: string; glyph: string }[] = [
   { name: "Tin Robot", ticker: "TINBOT", glyph: "🤖" },
   { name: "Mushroom", ticker: "SHROOM", glyph: "🍄" },
 ];
+
+/** Made-up KOLs for the chart's social layer. None of these are real accounts. */
+export const KOLS: { name: string; hue: number }[] = [
+  { name: "Trench Wizard", hue: 265 },
+  { name: "Moon Merchant", hue: 45 },
+  { name: "Degen Dave", hue: 10 },
+  { name: "Alpha Annie", hue: 320 },
+  { name: "Chart Monk", hue: 190 },
+  { name: "Bag Builder", hue: 120 },
+  { name: "Exit Eli", hue: 0 },
+  { name: "Sniper Sam", hue: 210 },
+  { name: "Candle Kim", hue: 150 },
+  { name: "Liquidity Lou", hue: 35 },
+  { name: "Pump Priya", hue: 290 },
+  { name: "Wick Wes", hue: 80 },
+];
+
+export const BOOSTS = ["x10", "x30", "x50", "x100", "x500"];

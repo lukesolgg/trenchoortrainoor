@@ -225,16 +225,14 @@ export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
   const flaws: Flaw[] = ["launchpad", "dividends", "pair"];
   if (meme.tickers.length > 1) flaws.push("ticker");
 
-  // Aim for roughly 40% look-alikes, never fewer than one of each flaw type.
-  const lookAlikes = Math.max(flaws.length, Math.round(total * 0.4));
+  // The flood is the runner and its derivatives only: every other coin is a look-alike with one thing wrong.
+  // No random fillers, so New Pairs is not spammed when the tweet drops.
   const nthByFlaw: Record<Flaw, number> = { ticker: 0, launchpad: 0, dividends: 0, pair: 0 };
   const specs: CoinSpec[] = [];
-  for (let i = 0; i < lookAlikes && specs.length < total - 1; i++) {
+  for (let i = 0; specs.length < total - 1; i++) {
     const flaw = i < flaws.length ? flaws[i] : rng.pick(flaws);
     specs.push(makeDecoy(rng, meme, rightConfig, flaw, nthByFlaw[flaw]++));
   }
-  const used = new Set<string>();
-  while (specs.length < total - 1) specs.push(makeFillerCoin(rng, "noise", used));
 
   const target: CoinSpec = {
     ticker: meme.tickers[0],

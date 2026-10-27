@@ -87,6 +87,12 @@ A round is: 3 s countdown, an armed wait of 4 to 55 s, then the tweet and the fl
 - Styles: Strict (a wrong buy ends the round, counts for PBs) and Training (−150 per wrong buy, keep going, no PBs).
 - Progression (`store/runs.ts`, localStorage `gngm.runs.v1`): PB reaction and best score per difficulty, average reaction,
   accuracy, streaks, last 10 runs on the setup screen; results compare against your PB and show this session's stats.
+- The flood after the tweet is only the runner and its look-alikes (no random fillers); the slow background trickle carries on.
+- Social layer (`SocialEvent`, `engine.getSocial`): the dev's buy at launch and sell (on the rug or the first dump), made-up KOLs
+  (`KOLS` in content.ts, max 10 events a coin) buying pumps and selling dips, and 1-3 paid boosts after migration. Drawn by the
+  `ChartMarks` primitive: DEV tag, KOL initials, lightning boost tags; toggle each from Socials in the chart toolbar.
+- Runs are choppier: panic sells into pumps and FOMO buys into dips print counter-candles, the volume bot fires 4-7 micro fills a
+  step (about 20 tx/s) and volume scales with market cap.
 - Look-alikes land 0.3-0.8 s (+ stagger) after the right coin on Paper Hands and Trencher, on top of it on Sniper (`decoyDelayMs`).
   Pair and DIV chips are large and colour-filled; no DIV shows as a struck-through chip.
 - `?debug` in the URL exposes the engine as `window.__engine` (used by browser tests).

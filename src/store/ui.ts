@@ -20,6 +20,8 @@ interface UiState {
   /** Strict: a wrong buy ends the round and runs count for PBs. Training: wrong buys cost points, the round goes on. */
   style: "strict" | "training";
   muted: boolean;
+  /** Chart social layers. */
+  social: { dev: boolean; kol: boolean; boost: boolean };
   /** Tweet feed column expanded. */
   feedOpen: boolean;
   /** Token page: preset buttons fire immediately instead of arming an amount. */
@@ -37,6 +39,7 @@ interface UiState {
   setQuickAmount: (n: number) => void;
   setStyle: (s: "strict" | "training") => void;
   setMuted: (b: boolean) => void;
+  toggleSocial: (k: "dev" | "kol" | "boost") => void;
   setFeedOpen: (b: boolean) => void;
   setInstantTrade: (b: boolean) => void;
   setQuickEnabled: (b: boolean) => void;
@@ -60,6 +63,7 @@ export const useUi = create<UiState>((set) => ({
   quickEnabled: true,
   style: "strict",
   muted: false,
+  social: { dev: true, kol: true, boost: true },
   buySets: [
     [1, 3, 5, 10, 2, 4, 0.5, 0.1],
     [0.1, 0.2, 0.3, 0.5, 0.15, 0.25, 0.75, 1],
@@ -75,6 +79,7 @@ export const useUi = create<UiState>((set) => ({
   setQuickAmount: (quickAmount) => set({ quickAmount }),
   setStyle: (style) => set({ style }),
   setMuted: (muted) => set({ muted }),
+  toggleSocial: (k) => set((st) => ({ social: { ...st.social, [k]: !st.social[k] } })),
   setFeedOpen: (feedOpen) => set({ feedOpen }),
   setInstantTrade: (instantTrade) => set({ instantTrade }),
   setQuickEnabled: (quickEnabled) => set({ quickEnabled }),

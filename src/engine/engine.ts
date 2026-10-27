@@ -2,6 +2,7 @@ import * as curveLib from "./curve";
 import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type Curve } from "./curve";
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
+import { BOOSTS, KOLS } from "./content";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound } from "./scoring";
 import {
   MEME_PACK,
@@ -38,6 +39,7 @@ import type {
   Order,
   Hit,
   WrongBuy,
+  SocialEvent,
 } from "./types";
 
 export interface EngineOptions {
@@ -128,6 +130,11 @@ interface Coin {
   top10Avg: number;
   /** Volume-bot bounce around the scripted level, in log space. Fast-reverting, so the chart wiggles instead of stepping. */
   osc: number;
+  /** Dev / KOL / boost events for the chart. */
+  social: SocialEvent[];
+  /** KOLs that bought this coin and still hold (index into KOLS). */
+  kolsIn: number[];
+  devSold: boolean;
   volumeSol: number;
   candles: Candle[];
   tape: TapeEntry[];
@@ -347,6 +354,9 @@ export class Engine {
       holders: 0,
       top10Avg: 0,
       osc: 0,
+      social: [],
+      kolsIn: [],
+      devSold: false,
       volumeSol: 0,
       candles: [],
       tape: [],
@@ -405,13 +415,13 @@ export class Engine {
     if (c.candles.length > CANDLE_CAP) c.candles.splice(0, 400);
   }
 
-  private pushTape(c: Coin, at: number, by: "bot" | "player", side: "buy" | "sell", sol: number): void {
+  private pushTape(c: Coin, at: number, by: "bot" | "player", side: "buy" | "sell", sol: number, trader?: string): void {
     const id = this.tapeSeq++;
     c.tape.unshift({
       id,
       at,
       by: by === "player" ? "you" : "bot",
-      trader: by === "player" ? "You" : new Rng(id * 2654435761).addr(4),
+      trader: trader ?? (by === "player" ? "You" : new Rng(id * 2654435761).addr(4)),
       side,
       sol,
       mcUsd: toUsd(this.mc(c)),
@@ -423,6 +433,38 @@ export class Engine {
     c.rev++;
     this.dirty = true;
     if (this.openOrders > 0 && !this.filling) this.fillOrders(c);
+  }
+
+  // ------------------------------------------------------------------ socials
+
+  private socialSeq = 1;
+
+  private social(c: Coin, at: number, e: Omit<SocialEvent, "id" | "at" | "mc"> & { mc?: number }, tape = true): void {
+    const ev: SocialEvent = { id: this.socialSeq++, at, mc: e.mc ?? this.mc(c), ...e };
+    c.social.push(ev);
+    if (c.social.length > 200) c.social.shift();
+    if (tape && e.side && e.sol > 0) this.pushTape(c, at, "bot", e.side, e.sol, e.kind === "dev" ? "DEV" : e.name);
+    this.touch(c);
+  }
+
+  /** A KOL apes in (with a real buy) or takes profit. Buys/sells only make the event; price is moved by the caller. */
+  private kolTrade(c: Coin, at: number, side: "buy" | "sell", sol: number): void {
+    if (c.social.filter((e) => e.kind === "kol").length >= 10) return;
+    if (side === "buy") {
+      const free = KOLS.map((_, i) => i).filter((i) => !c.kolsIn.includes(i));
+      if (!free.length || c.kolsIn.length >= 6) return;
+      const i = this.rng.pick(free);
+      c.kolsIn.push(i);
+      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, hue: KOLS[i].hue, sol });
+    } else {
+      if (!c.kolsIn.length) return;
+      const i = c.kolsIn.splice(this.rng.int(0, c.kolsIn.length - 1), 1)[0];
+      this.social(c, at, { kind: "kol", side, name: KOLS[i].name, hue: KOLS[i].hue, sol });
+    }
+  }
+
+  getSocial(coinId: string): readonly SocialEvent[] {
+    return this.coins.get(coinId)?.social ?? [];
   }
 
   // ------------------------------------------------------------------ orders
@@ -507,6 +549,15 @@ export class Engine {
       c.moonUntil = c.legs[c.legs.length - 1].end;
     }
     this.setStage(c, "migrated", at);
+    // Somebody always pays for a boost once it is on the DEX.
+    if (c.big || c.legs.length) {
+      for (let i = 0, n = this.rng.int(1, 3); i < n; i++) {
+        this.at(at + MIGRATION_LOCK_MS + this.rng.range(1000, 40000), (a) => {
+          if (!this.coins.has(c.id)) return;
+          this.social(c, a, { kind: "boost", side: null, name: "Boost", hue: 50, sol: 0, label: this.rng.pick(BOOSTS) }, false);
+        });
+      }
+    }
   }
 
   /**
@@ -580,6 +631,8 @@ export class Engine {
     c.scriptStart = at;
     c.preLegs = legs;
     this.at(at, (a) => this.driveStep(c, a));
+    // The dev's own buy at launch shows on the chart.
+    this.at(legs[0].end, (a) => this.social(c, a, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: this.rng.range(0.5, 4) }));
   }
 
   /**
@@ -653,6 +706,8 @@ export class Engine {
       const tokens = Math.min(k / vWant - c.curve.vTok, c.curve.realTok);
       if (tokens > 0) this.applySell(c, tokens, at, "bot");
     }
+    // KOLs aping the launch.
+    if (c.spec.role === "target" && this.rng.chance(0.02)) this.kolTrade(c, at, "buy", this.rng.range(1, 8));
     this.at(at + 100, (a) => this.driveStep(c, a));
   }
 
@@ -893,6 +948,10 @@ export class Engine {
       const leg = c.legs.find((l) => at < l.end);
       if (leg?.kind === "rug" && leg.from === undefined) {
         // Dev dump: the whole drop prints in one step.
+        if (!c.devSold) {
+          c.devSold = true;
+          this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: before * this.rng.range(0.04, 0.08), mc: before }, false);
+        }
         c.postMc = leg.to;
         c.osc = 0;
         leg.from = leg.to;
@@ -926,22 +985,52 @@ export class Engine {
       const level = c.postMc / Math.exp(c.osc);
       const gap = Math.log(want / level);
       let move = gap * 0.15;
+      let whaleSide: "buy" | "sell" | null = null;
       if (Math.abs(gap) > 0.008 && this.rng.chance(Math.min(0.5, (leg?.kind === "base" ? 0.08 : 0.2) + Math.abs(gap) * 3))) {
         move = gap * this.rng.range(0.3, 0.6);
         volMul *= 2 + Math.abs(gap) * 20;
+        whaleSide = move > 0 ? "buy" : "sell";
+      } else if (leg && leg.kind !== "rug" && this.rng.chance(leg.kind === "base" ? 0.05 : 0.09)) {
+        // Against the trend: panic sells into a pump, FOMO buys into a dip. The script pulls it back, so these print
+        // as sharp counter-candles that shake out the weak hands.
+        const against = leg.kind === "push" ? -1 : leg.kind === "dip" ? 1 : this.rng.chance(0.5) ? 1 : -1;
+        move = against * this.rng.range(0.025, 0.07);
+        volMul *= 3;
+        whaleSide = move > 0 ? "buy" : "sell";
       }
-      const bounce = leg ? leg.noise * 0.6 : 0.006;
-      c.osc = c.osc * 0.6 + bounce * this.rng.gauss();
+      const bounce = leg ? leg.noise * 0.75 : 0.006;
+      c.osc = c.osc * 0.55 + bounce * this.rng.gauss();
       const next = Math.max(1, level * Math.exp(move + shock + c.osc));
-      // Volume-bot micro trades between steps: small fills both sides of the level, so every candle gets wicks.
-      const microSol = this.rng.lognormal(0.2, 0.5) * Math.max(0.2, toUsd(next) / 200000);
-      for (let k = 0; k < 2; k++) {
-        const px = Math.exp(Math.log(before) + (Math.log(next) - Math.log(before)) * this.rng.range(0.2, 0.9) + bounce * 1.2 * this.rng.gauss());
-        this.pushCandle(c, at, px, microSol, true);
-        c.volumeSol += microSol;
+      // Volume-bot micro trades between steps: lots of small fills both sides of the level, so every candle has
+      // wicks and the tape never stops.
+      const ticks = this.rng.int(4, 7);
+      const microSol = this.rng.lognormal(0.2, 0.6) * Math.max(0.3, toUsd(next) / 40000);
+      for (let k = 0; k < ticks; k++) {
+        const px = Math.exp(Math.log(before) + (Math.log(next) - Math.log(before)) * this.rng.range(0.1, 0.95) + bounce * 1.3 * this.rng.gauss());
+        const sz = microSol * this.rng.range(0.3, 1.7);
+        this.pushCandle(c, at, px, sz, true);
+        c.volumeSol += sz;
         c.txCount++;
-        if (this.rng.chance(0.5)) c.buys++;
-        else c.sells++;
+        const buy = this.rng.chance(0.5);
+        if (buy) {
+          c.buys++;
+          c.buyVolSol += sz;
+        } else {
+          c.sells++;
+          c.sellVolSol += sz;
+        }
+        if (k < 2) this.pushTape(c, at, "bot", buy ? "buy" : "sell", sz);
+      }
+      c.postMc = next;
+      // Big moves are sometimes a KOL; the first real dump after migration is sometimes the dev.
+      if (whaleSide) {
+        const size = Math.max(1, toUsd(next) / 20000) * this.rng.range(0.5, 2);
+        if (whaleSide === "sell" && !c.devSold && leg?.kind === "dip" && this.rng.chance(0.25)) {
+          c.devSold = true;
+          this.social(c, at, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: size * 2, mc: next });
+        } else if (this.rng.chance(0.18)) {
+          this.kolTrade(c, at, whaleSide, size);
+        }
       }
       c.postMc = next;
     } else {
