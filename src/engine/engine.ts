@@ -150,6 +150,14 @@ interface Coin {
   pausedMs: number;
   /** A pump laid over the script (a boost or DEX payment that worked): glide up to `peak`, then back to the script. */
   overlay: { start: number; peakAt: number; end: number; from: number; peak: number } | null;
+  /**
+   * Lasting shift (log) laid on the script: paying the DEX, a boost that worked, and part of your own buys and sells
+   * bend where the coin goes from then on. `course` glides towards `courseTarget`.
+   */
+  course: number;
+  courseTarget: number;
+  /** Anonymous top wallets (% of supply), biggest first. Normal coins: none over ~3%. Coins set to rug: 1-2 whales. */
+  anon: number[];
   /** KOLs holding this coin: share of supply (%) and what they paid (SOL). */
   kolHold: Map<number, { pct: number; sol: number }>;
   volumeSol: number;
@@ -382,6 +390,9 @@ export class Engine {
       sagaChapter: null,
       pausedMs: 0,
       overlay: null,
+      course: 0,
+      courseTarget: 0,
+      anon: [],
       kolHold: new Map(),
       volumeSol: 0,
       candles: [],
@@ -391,8 +402,9 @@ export class Engine {
       mint: `${this.rng.addr(3)}...pump`,
       creator: `${this.rng.addr(3)}...${this.rng.addr(3)}`,
       stats: {
-        top10: Math.round(this.rng.range(5, 40)),
-        dev: this.rng.chance(0.6) ? 0 : Math.round(this.rng.range(1, 12)),
+        // Filled from the holder list at view time. (The draw keeps the random stream as it was.)
+        top10: this.rng.range(5, 40) * 0,
+        dev: this.rng.chance(0.6) ? 0 : Math.round(this.rng.range(1, 5)),
         snipers: this.rng.chance(0.5) ? 0 : Math.round(this.rng.range(1, 14)),
         insiders: this.rng.chance(0.7) ? 0 : Math.round(this.rng.range(1, 8)),
       },
@@ -401,6 +413,9 @@ export class Engine {
       view: null,
       viewRev: -1,
     };
+    // Holder spread comes from its own stream so it never shifts the market's randomness.
+    const hr = new Rng([...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7));
+    coin.anon = this.makeAnon(hr.chance(0.15) ? hr.int(1, 2) : 0, hr);
     this.coins.set(id, coin);
     // Dev buy on launch, like the real thing.
     this.applyBuy(coin, this.rng.range(0.2, 2.5), at, "bot");
@@ -708,6 +723,25 @@ export class Engine {
 
   // ------------------------------------------------------------------ player extras
 
+  /**
+   * The top anonymous wallets. Healthy coins are spread out: nobody over ~3%. A coin that is going to be rugged
+   * carries one or two whales (5-9%) at the top: the ones who dump it.
+   */
+  private makeAnon(whales: number, r: Rng = this.rng): number[] {
+    const out = Array.from({ length: 10 }, (_, i) => Math.min(3.2, r.range(1.6, 3.1) * Math.pow(0.88, i)));
+    for (let k = 0; k < whales; k++) out[k] = r.range(5, 9);
+    return out.sort((a, b) => b - a);
+  }
+
+  /** Top 10 holders' share of supply (pool excluded): you, the dev, KOLs and the anonymous wallets. */
+  private top10(c: Coin): number {
+    const all = [...c.anon, c.devPct || c.stats.dev, ...[...c.kolHold.values()].map((h) => h.pct), this.holdingPct(c.id)]
+      .filter((x) => x > 0)
+      .sort((a, b) => b - a)
+      .slice(0, 10);
+    return Math.round(all.reduce((n, x) => n + x, 0) * 10) / 10;
+  }
+
   /** You hold 4%+ of supply: nobody apes a coin with a wallet that size. */
   private bigHolder(c: Coin): boolean {
     const p = this.positions.get(c.id);
@@ -721,10 +755,11 @@ export class Engine {
   }
 
   /** Who holds what: you, the dev, and any KOLs in it (% of supply). */
-  getHolders(coinId: string): { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[] } {
+  getHolders(coinId: string): { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[]; anon: number[] } {
     const c = this.coins.get(coinId);
-    if (!c) return { youPct: 0, devPct: 0, kols: [] };
+    if (!c) return { youPct: 0, devPct: 0, kols: [], anon: [] };
     return {
+      anon: c.anon,
       youPct: this.holdingPct(coinId),
       devPct: c.stats.dev,
       kols: [...c.kolHold.entries()].map(([i, h]) => ({ name: KOLS[i].name, handle: KOLS[i].handle, pct: h.pct })),
@@ -759,9 +794,15 @@ export class Engine {
       const level = c.postMc;
       const mult = Math.min(4, Math.max(1.3, (ath / level) * this.rng.range(0.85, 1.1)));
       this.overlayPump(c, this.simNow, mult, this.rng.range(6000, 15000), this.rng.range(15000, 35000));
+      this.bendCourse(c, Math.log(this.rng.range(1.05, 1.25)));
     }
     this.emitNow();
     return { ok: true };
+  }
+
+  /** Shift the coin's course (log units), within limits. */
+  private bendCourse(c: Coin, by: number): void {
+    c.courseTarget = Math.max(-1.5, Math.min(1.5, c.courseTarget + by));
   }
 
   /** Boosts and DEX payments come out of the wallet and count against that coin's PnL. */
@@ -783,8 +824,11 @@ export class Engine {
     this.chargePromo(coinId, cost);
     c.dexPaid = true;
     this.social(c, this.simNow, { kind: "dex", side: null, name: "DEX paid (you)", hue: 200, sol: cost, usd: DEX_USD }, false);
-    if (c.legs.length && toUsd(c.postMc) > 12_000 && !this.bigHolder(c) && this.rng.chance(0.35)) {
-      this.overlayPump(c, this.simNow, this.rng.range(1.2, 1.7), this.rng.range(4000, 9000), this.rng.range(10000, 25000));
+    // Paying the DEX almost always turns it: a fresh leg up, and the story carries on from a higher level.
+    if (c.legs.length && !this.bigHolder(c) && this.rng.chance(0.85)) {
+      const lift = this.rng.range(1.2, 1.5);
+      this.bendCourse(c, Math.log(lift));
+      this.overlayPump(c, this.simNow, lift * this.rng.range(1.25, 1.8), this.rng.range(12000, 25000), this.rng.range(30000, 60000));
     }
     this.emitNow();
     return { ok: true };
@@ -929,6 +973,8 @@ export class Engine {
       c.legs = this.planRun(c.postMc, c.athSol, c.lockUntil);
       c.moonUntil = c.legs[c.legs.length - 1].end;
     }
+    // A script that ends in a rug has its rugger in the top holders.
+    if (c.legs.some((l) => l.kind === "rug") && !c.anon.some((x) => x >= 5)) c.anon = this.makeAnon(this.rng.int(1, 2));
     this.setStage(c, "migrated", at);
     // Otherwise the dev sells within a few seconds of the pool opening: a sharp red candle the script then absorbs.
     if (c.preLegs.length && !c.devSold) {
@@ -1240,7 +1286,10 @@ export class Engine {
       const net = sol * (1 - FEE);
       tokens = (f * SUPPLY * net) / (S + net);
       spent = sol;
-      c.postMc *= ((S + net) / S) ** 2;
+      const ratio = ((S + net) / S) ** 2;
+      c.postMc *= ratio;
+      // Your size is not just faded back: about half of what it moved sticks.
+      if (by === "player" && c.legs.length) this.bendCourse(c, Math.log(ratio) * 0.5);
     } else {
       const r = curveLib.buy(c.curve, sol);
       c.curve = r.curve;
@@ -1279,7 +1328,9 @@ export class Engine {
       const T = f * SUPPLY;
       const gross = (f * c.postMc * tokens) / (T + tokens);
       sol = gross * (1 - FEE);
-      c.postMc *= (T / (T + tokens)) ** 2;
+      const ratio = (T / (T + tokens)) ** 2;
+      c.postMc *= ratio;
+      if (by === "player" && c.legs.length && !force) this.bendCourse(c, Math.log(ratio) * 0.5);
     } else {
       const r = curveLib.sell(c.curve, tokens);
       c.curve = r.curve;
@@ -1384,7 +1435,7 @@ export class Engine {
       if ((leg?.kind === "rug" || leg?.kind === "spike") && leg.from === undefined) {
         // The whole move prints in one step: an insider dump, or a catalyst's giga candle.
         const up = leg.kind === "spike";
-        c.postMc = leg.to;
+        c.postMc = leg.to * Math.exp(c.course);
         c.osc = 0;
         leg.from = leg.to;
         const size = Math.max(before, leg.to) * this.rng.range(0.04, 0.08);
@@ -1418,6 +1469,9 @@ export class Engine {
         const last = c.legs[c.legs.length - 1];
         want = Math.max(Math.min(last.to, 4500 / SOL_USD), last.to * Math.exp((-(st - last.end) * Math.LN2) / 90000));
       }
+      // Your DEX payment, boosts and trades bend the course: the script now plays out from a different level.
+      c.course += (c.courseTarget - c.course) * 0.05;
+      want *= Math.exp(c.course);
       // A boost or DEX payment that worked lays a pump over the script, then hands back to it.
       const o = c.overlay;
       if (o && at < o.end) {
@@ -2132,7 +2186,7 @@ export class Engine {
       pair: c.pair,
       mint: c.mint,
       creator: c.creator,
-      stats: c.stats,
+      stats: { ...c.stats, top10: this.top10(c) },
       held: (this.positions.get(c.id)?.tokens ?? 0) > 0,
     };
     c.viewRev = c.rev;

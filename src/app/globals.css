@@ -86,6 +86,18 @@ body {
 .anim-flash {
   animation: buy-flash 500ms ease-out;
 }
+/* Trade pop over the chart: punches in, floats up, fades. */
+@keyframes trade-pop {
+  0% { opacity: 0; transform: translate(-50%, 6px) scale(0.7); }
+  12% { opacity: 1; transform: translate(-50%, -4px) scale(1.12); }
+  24% { transform: translate(-50%, -8px) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -54px) scale(0.96); }
+}
+.trade-pop {
+  animation: trade-pop 1600ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9);
+}
 
 .tabular {
   font-variant-numeric: tabular-nums;
@@ -94,6 +106,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .anim-card,
   .anim-tweet,
+  .trade-pop,
   .anim-flash {
     animation: none;
   }

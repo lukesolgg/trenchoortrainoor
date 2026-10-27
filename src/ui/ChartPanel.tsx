@@ -48,6 +48,8 @@ export interface Mark {
   cost?: number;
   avatar?: string;
   text?: string;
+  /** Your trades merged into one badge per candle: how many fills. */
+  count?: number;
 }
 
 /** Profile pictures drawn inside KOL markers, loaded once and shared by every chart. */
@@ -106,8 +108,19 @@ class ChartMarks implements ISeriesPrimitive<Time> {
             const { chart, series, marks } = self;
             if (!chart || !series || marks.length === 0) return;
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
-              const perBar = new Map<number, number>();
+              const taken = new Map<number, number[]>();
               const perBoost = new Map<number, number>();
+              // Vertical slot for a mark in its candle: at its price, or the nearest free spot above (buys) or
+              // below (sells) so nothing in the same candle covers anything else.
+              const slot = (x0: number, side: "buy" | "sell" | null, y0: number) => {
+                const used = taken.get(x0) ?? [];
+                const dir = side === "sell" ? 1 : -1;
+                let y = y0;
+                for (let k = 0; k < 12 && used.some((u) => Math.abs(u - y) < 19); k++) y += dir * 20;
+                used.push(y);
+                taken.set(x0, used);
+                return y;
+              };
               self.drawn = [];
               ctx.save();
               ctx.textAlign = "center";
@@ -182,10 +195,9 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                 }
                 if (m.kind === "dev") {
                   // The dev is a square tag, never confused with a KOL's round avatar.
-                  const off = perBar.get(x0) ?? 0;
-                  perBar.set(x0, off + (m.all ? 70 : 30));
-                  const x = (x0 + off + (off ? (m.all ? 26 : 6) : 0)) * hr;
-                  const y = y0 * vr;
+                  const yc = slot(x0, m.side, y0);
+                  const x = x0 * hr;
+                  const y = yc * vr;
                   const buy = m.side === "buy";
                   const label = m.all ? "DEV SOLD ALL" : "DEV";
                   ctx.font = `900 ${Math.round(8.5 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
@@ -203,14 +215,13 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.stroke();
                   ctx.fillStyle = m.all ? "#fff" : "#111";
                   ctx.fillText(label, x, y + 0.5 * vr);
-                  self.drawn.push({ x: x / hr, y: y0, r: Math.max(14, w / hr / 2), m });
+                  self.drawn.push({ x: x0, y: yc, r: Math.max(14, w / hr / 2), m });
                   continue;
                 }
-                // Several marks in one bar fan out sideways (by their real width) so none hides another.
-                const off = perBar.get(x0) ?? 0;
-                perBar.set(x0, off + 21);
-                const x = (x0 + off) * hr;
-                const y = y0 * vr;
+                // Always centred on the candle they traded in; several in one candle stack up (buys) or down (sells).
+                const yc = slot(x0, m.side, y0);
+                const x = x0 * hr;
+                const y = yc * vr;
                 const r = (m.kind === "you" ? 7.5 : 9.5) * hr;
                 const buy = m.side === "buy";
                 const ring = buy ? "#35d07f" : "#f0455a";
@@ -240,7 +251,19 @@ class ChartMarks implements ISeriesPrimitive<Time> {
                   ctx.fillStyle = m.kind === "you" && buy ? "#111" : "#fff";
                   ctx.fillText(m.letter, x, y + 0.5 * vr);
                 }
-                self.drawn.push({ x: x / hr, y: y0, r: r / hr + 2, m });
+                if (m.count && m.count > 1) {
+                  // Merged fills: a small count bubble on the badge.
+                  const bx = x + r * 0.85;
+                  const by = y - r * 0.85;
+                  ctx.font = `800 ${Math.round(7 * vr)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+                  ctx.beginPath();
+                  ctx.arc(bx, by, 5.5 * hr, 0, Math.PI * 2);
+                  ctx.fillStyle = "#0e0f12";
+                  ctx.fill();
+                  ctx.fillStyle = "#fff";
+                  ctx.fillText(String(m.count), bx, by + 0.5 * vr);
+                }
+                self.drawn.push({ x: x0, y: yc, r: r / hr + 2, m });
               }
               ctx.restore();
             });
@@ -249,6 +272,44 @@ class ChartMarks implements ISeriesPrimitive<Time> {
       },
     ];
   }
+}
+
+/** A fill popping over the chart. */
+interface Pop {
+  id: number;
+  x: number;
+  y: number;
+  side: "buy" | "sell";
+  sol: number;
+  /** Sells: share of what you held, and SOL made over that slice's cost. */
+  pct: number;
+  profit: number;
+  at: number;
+  /** Market cap (SOL) it filled at. */
+  mc: number;
+  /** performance.now() when it (last) popped. */
+  born: number;
+}
+let popSeq = 1;
+
+/** Walk your fills in order to work out each sell's share of the bag and its profit over average cost. */
+function tradePops(trades: readonly { side: "buy" | "sell"; sol: number; tokens: number; execAt: number }[]) {
+  let held = 0;
+  let cost = 0;
+  return trades.map((t) => {
+    const mc = t.tokens > 0 ? (t.sol / t.tokens) * SUPPLY : 0;
+    if (t.side === "buy") {
+      held += t.tokens;
+      cost += t.sol;
+      return { side: "buy" as const, sol: t.sol, pct: 0, profit: 0, at: t.execAt, mc };
+    }
+    const frac = held > 0 ? Math.min(1, t.tokens / held) : 1;
+    const basis = cost * frac;
+    held -= t.tokens;
+    cost -= basis;
+    const pct = frac > 0.995 ? 100 : Math.max(1, Math.round(frac * 100));
+    return { side: "sell" as const, sol: t.sol, pct, profit: t.sol - basis, at: t.execAt, mc };
+  });
 }
 
 export type Metric = "mc" | "price";
@@ -324,6 +385,9 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
   const lastBar = useRef<Bar | null>(null);
   const [hover, setHover] = useState<Bar | null>(null);
   const [markHover, setMarkHover] = useState<{ x: number; y: number; m: Mark } | null>(null);
+  const [pops, setPops] = useState<Pop[]>([]);
+  /** How many of your trades on this coin have already popped (null until the chart has seen the history). */
+  const popped = useRef<number | null>(null);
 
   const factor = factorFor(metric, unit);
 
@@ -505,23 +569,70 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
 
     const trades = engine.getTradesFor(coinId);
     const socials = engine.getSocial(coinId);
+    // New fills pop over the chart where they printed: SOLD 25% · +1.34 SOL.
+    if (popped.current === null) popped.current = trades.length;
+    else if (trades.length > popped.current) {
+      const fresh = tradePops(trades).slice(popped.current);
+      popped.current = trades.length;
+      const chart = chartRef.current;
+      const series = candleRef.current;
+      const w = wrap.current?.clientWidth ?? 600;
+      const h = wrap.current?.clientHeight ?? 400;
+      const made: Pop[] = fresh.map((p, k) => {
+        const time = (Math.floor(Math.floor(p.at / 1000) / tf) * tf + timeOffset) as UTCTimestamp;
+        const x = chart?.timeScale().timeToCoordinate(time) ?? null;
+        const y = series?.priceToCoordinate(p.mc * factor) ?? null;
+        return {
+          ...p,
+          id: popSeq++,
+          x: Math.min(w - 70, Math.max(70, x ?? w * 0.75)),
+          y: Math.min(h - 40, Math.max(56, (y ?? h * 0.4) - 34 - k * 16)),
+          born: 0,
+        };
+      });
+      // Spammed sells roll into one pop that keeps counting (SOLD 59% · +2.19 SOL) instead of piling up.
+      setPops((cur) => {
+        const out = [...cur];
+        const now = performance.now();
+        for (const m of made) {
+          const last = out[out.length - 1];
+          if (last && last.side === "sell" && m.side === "sell" && now - last.born < 900) {
+            const keep = (1 - last.pct / 100) * (1 - m.pct / 100);
+            out[out.length - 1] = { ...m, id: popSeq++, pct: Math.min(100, Math.round((1 - keep) * 100)), sol: last.sol + m.sol, profit: last.profit + m.profit, born: now, x: last.x, y: last.y };
+          } else out.push({ ...m, born: now });
+        }
+        return out.slice(-4);
+      });
+      window.setTimeout(() => setPops((cur) => cur.filter((x) => performance.now() - x.born < 1650)), 1700);
+    }
     const markKey = trades.length * 100000 + socials.length * 10 + (show.dev ? 1 : 0) + (show.kol ? 2 : 0) + (show.boost ? 4 : 0) + (show.news ? 8 : 0);
     if (markKey !== markerCount.current) {
       const bar = (atMs: number) => (Math.floor(Math.floor(atMs / 1000) / tf) * tf + timeOffset) as UTCTimestamp;
-      const mine: Mark[] = trades
-        .filter((t) => t.tokens > 0)
-        .map((t) => ({
-          time: bar(t.execAt),
-          // The market cap you actually traded at, in the chart's metric and unit.
-          value: (t.sol / t.tokens) * SUPPLY * factor,
-          kind: "you",
-          side: t.side,
-          letter: t.side === "buy" ? "B" : "S",
-          name: "You",
-          sol: t.sol,
-          mcUsd: (t.sol / t.tokens) * SUPPLY * SOL_USD,
-          at: t.execAt,
-        }));
+      // Your fills in the same candle and direction merge into one badge at their average price.
+      const merged = new Map<string, { time: UTCTimestamp; side: "buy" | "sell"; sol: number; tokens: number; at: number; count: number }>();
+      for (const t of trades) {
+        if (t.tokens <= 0) continue;
+        const time = bar(t.execAt);
+        const key = `${time}:${t.side}`;
+        const g = merged.get(key) ?? { time, side: t.side, sol: 0, tokens: 0, at: t.execAt, count: 0 };
+        g.sol += t.sol;
+        g.tokens += t.tokens;
+        g.count++;
+        merged.set(key, g);
+      }
+      const mine: Mark[] = [...merged.values()].map((g) => ({
+        time: g.time,
+        // The market cap you actually traded at, in the chart's metric and unit.
+        value: (g.sol / g.tokens) * SUPPLY * factor,
+        kind: "you",
+        side: g.side,
+        letter: g.side === "buy" ? "B" : "S",
+        name: "You",
+        sol: g.sol,
+        mcUsd: (g.sol / g.tokens) * SUPPLY * SOL_USD,
+        at: g.at,
+        count: g.count,
+      }));
       const theirs: Mark[] = socials
         .filter((e) => (e.kind === "dev" ? show.dev : e.kind === "kol" ? show.kol : e.kind === "boost" ? show.boost : show.news))
         .map((e) => ({
@@ -565,6 +676,25 @@ export function ChartPanel({ ref, engine, coinId, version, timeOffset, tf, metri
     <div ref={wrap} className="relative h-full w-full bg-[#0e0f12]">
       <div ref={host} className="h-full w-full" />
       {markHover && <MarkCard {...markHover} width={wrap.current?.clientWidth ?? 800} />}
+      {pops.map((p) => (
+        <div key={p.id} className="trade-pop tabular pointer-events-none absolute z-30 text-center leading-none" style={{ left: p.x, top: p.y }}>
+          {p.side === "sell" ? (
+            <>
+              <div className={`text-[17px] font-black tracking-wide ${p.profit >= 0 ? "text-up" : "text-down"}`}>SOLD {p.pct}%</div>
+              <div className="mt-1 text-[14px] font-extrabold text-ink">+{p.sol.toFixed(p.sol < 10 ? 2 : 1)} SOL</div>
+              <div className={`mt-0.5 text-[11px] font-bold ${p.profit >= 0 ? "text-up" : "text-down"}`}>
+                {p.profit >= 0 ? "+" : "−"}
+                {Math.abs(p.profit).toFixed(2)} {p.profit >= 0 ? "profit" : "loss"}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-[17px] font-black tracking-wide text-up">BOUGHT</div>
+              <div className="mt-1 text-[14px] font-extrabold text-ink">{p.sol.toFixed(p.sol < 10 ? 2 : 1)} SOL</div>
+            </>
+          )}
+        </div>
+      ))}
       {shown && (
         <div className="tabular pointer-events-none absolute left-2 top-1.5 z-10 flex flex-wrap items-center gap-x-3 text-[11px]">
           <span className="font-bold text-ink">{ticker}</span>
@@ -631,6 +761,7 @@ function MarkCard({ x, y, m, width }: { x: number; y: number; m: Mark; width: nu
         <div className="tabular mt-2 flex items-baseline justify-between">
           <span className={`font-bold ${buy ? "text-up" : "text-down"}`}>
             {m.kind === "dev" && m.all ? "Sold all" : buy ? "Bought" : "Sold"} {amount} SOL
+            {m.count && m.count > 1 ? <span className="font-semibold text-dim"> · {m.count} fills</span> : null}
           </span>
           <span className="text-dim">
             at <span className="font-bold text-ink">{usd(m.mcUsd ?? 0)}</span> MC

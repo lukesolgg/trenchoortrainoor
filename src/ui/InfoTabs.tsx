@@ -41,7 +41,7 @@ interface Props {
   onCancelOrder: (id: number) => void;
   currentId: string;
   /** Known holders: you, the dev and KOLs (% of supply). */
-  holders: { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[] };
+  holders: { youPct: number; devPct: number; kols: { name: string; handle: string; pct: number }[]; anon: number[] };
 }
 
 /** The one panel under the chart. Holders, top holders and dev tokens are modelled, not real wallets. */
@@ -280,13 +280,17 @@ function topHolders(coin: CoinView, known: Props["holders"]): HolderRow[] {
   if (known.youPct > 0.001) named.push({ key: "you", label: "You", pct: known.youPct, tag: "YOU" });
   if (known.devPct > 0.001) named.push({ key: "dev", label: "Dev wallet", pct: known.devPct, tag: "DEV" });
   for (const k of known.kols) named.push({ key: `kol-${k.handle}`, label: k.name, pct: k.pct, tag: "KOL", pic: `/kols/${k.handle.toLowerCase()}.jpg` });
-  const fill = Math.max(0, 10 - named.length);
-  const weights = Array.from({ length: fill }, (_, i) => Math.pow(0.78, i) * r.range(0.8, 1.2)).sort((a, b) => b - a);
-  const sum = weights.reduce((a, b) => a + b, 0) || 1;
-  const rest = Math.max(1, coin.stats.top10 - named.reduce((n, h) => n + h.pct, 0));
-  const anon = weights.map((w) => ({ key: r.addr(4), label: "", pct: (w / sum) * rest, tag: "" as const }));
-  for (const a of anon) a.label = a.key;
-  return [...rows, ...[...named, ...anon].sort((a, b) => b.pct - a.pct)];
+  // Anonymous wallets come from the sim too (stable per coin), so the Top 10 % adds up.
+  const anon = known.anon.map((pct) => {
+    const key = r.addr(4);
+    return { key, label: key, pct, tag: "" as const };
+  });
+  const sorted = [...named, ...anon].sort((a, b) => b.pct - a.pct);
+  const top = sorted.slice(0, 10);
+  // You always see your own row, even outside the top 10.
+  const you = sorted.find((h) => h.key === "you");
+  if (you && !top.includes(you)) top.push(you);
+  return [...rows, ...top];
 }
 
 const TAG_STYLE: Record<HolderRow["tag"], string> = {

@@ -51,6 +51,12 @@ Rules worth knowing:
 - The DEX profile is paid once per coin; a later "DEX" catalyst becomes an x100 boost instead.
 - A CTO is two or three (fictional) takeover crews tweeting it.
 - Boosts and DEX payments you buy count against your PnL.
+- **Course changes:** paying the DEX starts a leg up ~85% of the time and lifts the coin's course for good; a boost
+  that works lifts it a little; about half of your own buy/sell impact sticks instead of being faded back.
+- Holder spread: no anonymous wallet over ~3%, except coins scripted to rug (one or two 5-9% whales). Top 10 % is
+  the real sum of the list.
+- Chart: marks sit centred on the candle they traded in and stack vertically; your fills in one candle merge into a
+  badge with a count. Every fill pops over the chart (SOLD 25% · +1.34 SOL · profit), rapid sells roll into one pop.
 - Saga rounds end a few seconds after the last coin reaches its final stage; anything you still hold is market-sold.
 - The first tweet lands 4-30 s after the countdown.
 

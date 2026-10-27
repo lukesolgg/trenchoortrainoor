@@ -1318,3 +1318,61 @@ describe("market realism: KOLs, dev, DEX, promo PnL, saga end", () => {
     }
   });
 });
+
+describe("course changes and holder spread", () => {
+  const pnut = MEME_PACK.find((m) => m.id === "pnut")!;
+  const migrated = (seed: number, buy = 0.3) => {
+    const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0, pack: [pnut] });
+    e.startRound({ memeId: "pnut", leadMs: 0 });
+    const id = landTarget(e);
+    if (buy) e.quickBuy(id, buy);
+    for (let t = e.now(); e.getCoinView(id)!.migratedAt === null || e.now() < (e.getCoinView(id)!.migratingUntil ?? 0) + 2000; t += 250) e.advanceTo(t);
+    return { e, id };
+  };
+  const coin = (e: Engine, id: string) => (e as unknown as { coins: Map<string, { courseTarget: number; anon: number[]; legs: { kind: string }[] }> }).coins.get(id)!;
+
+  it("paying the DEX almost always turns it into a leg up and lifts its course", () => {
+    let up = 0;
+    const seeds = [1, 2, 3, 4, 5, 6, 7, 8];
+    for (const seed of seeds) {
+      const { e, id } = migrated(seed);
+      const mc0 = e.getCoinView(id)!.mcUsd;
+      expect(e.payDex(id).ok).toBe(true);
+      let peak = 0;
+      for (let t = e.now(), end = e.now() + 25000; t < end; t += 250) {
+        e.advanceTo(t);
+        peak = Math.max(peak, e.getCoinView(id)?.mcUsd ?? 0);
+      }
+      if (peak > mc0 * 1.2) up++;
+      expect(coin(e, id).courseTarget).toBeGreaterThanOrEqual(0);
+    }
+    expect(up).toBeGreaterThanOrEqual(seeds.length - 2);
+  });
+
+  it("your own buys and sells after migration bend the course, not just the next candle", () => {
+    const { e, id } = migrated(3, 0);
+    e.quickBuy(id, 2);
+    const afterBuy = coin(e, id).courseTarget;
+    expect(afterBuy).toBeGreaterThan(0);
+    e.advanceTo(e.now() + 1000);
+    e.sell(id, 1);
+    expect(coin(e, id).courseTarget).toBeLessThan(afterBuy);
+  });
+
+  it("no anonymous wallet holds more than ~3% unless the coin is scripted to rug (then at most two)", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const e = new Engine({ seed, difficulty: "sniper", autoRounds: false, clock: () => 0 });
+      e.startRound({ leadMs: 0 });
+      for (let t = 0; t < 60000; t += 500) e.advanceTo(t);
+      for (const c of (e as unknown as { coins: Map<string, { anon: number[]; legs: { kind: string }[] }> }).coins.values()) {
+        const big = c.anon.filter((x) => x > 3.2).length;
+        expect(big).toBeLessThanOrEqual(2);
+        if (c.legs.length && !c.legs.some((l) => l.kind === "rug")) expect(big).toBe(0);
+      }
+      const id = e.getRound()!.targetCoinId!;
+      const v = e.getCoinView(id)!;
+      expect(v.stats.top10).toBeGreaterThan(5);
+      expect(v.stats.top10).toBeLessThan(45);
+    }
+  });
+});
