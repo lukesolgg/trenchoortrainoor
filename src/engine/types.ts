@@ -274,6 +274,8 @@ export interface LaunchView {
   /** Share of supply in your deployer wallet and in your other launch wallets (%), and what it is all worth (SOL). */
   deployerPct: number;
   holdersPct: number;
+  /** Each launch wallet's share of supply (%). */
+  launchWalletPcts: number[];
   holdingsSol: number;
   /** Everything you put in (deploy fee, dev buy, organic buys, buys after), what your sells returned, rewards. */
   spentSol: number;

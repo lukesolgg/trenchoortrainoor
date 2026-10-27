@@ -43,20 +43,24 @@ export function WalletColumn({ engine, coin, launch, devSol, walletSol, walletCo
 
   const rows: Row[] = [];
   if (launch) {
-    for (const from of ["deployer", "holders"] as const) {
-      const pct = from === "deployer" ? launch.deployerPct : launch.holdersPct;
+    // The deployer (public: DEV on the chart) and launch wallets 1-10 (they look like anyone).
+    const devRows: { from: "deployer" | number; name: string; pct: number }[] = [
+      { from: "deployer", name: "Deployer", pct: launch.deployerPct },
+      ...launch.launchWalletPcts.map((pct, k) => ({ from: k, name: `Launch wallet ${k + 1}`, pct })),
+    ];
+    for (const { from, name, pct } of devRows) {
       rows.push({
-        key: from,
-        name: from === "deployer" ? "Deployer" : "Launch wallets",
+        key: `dev-${from}`,
+        name,
         tag: "DEV",
         pct,
         buy: (v) => {
           const r = engine.devBuy(id, v, from);
-          notify(r.ok ? `${from === "deployer" ? "Dev" : "Launch wallets"} bought ${v} SOL` : (r.reason ?? "Buy failed"));
+          notify(r.ok ? `${name} bought ${v} SOL` : (r.reason ?? "Buy failed"));
         },
         sell: (f) => {
           const r = engine.devSellFrom(id, from, f >= 1 ? "max" : pct * f);
-          notify(r.ok ? `Sold ${Math.round(f * 100)}% of the ${from === "deployer" ? "deployer" : "launch wallets"} for ${sol(r.sol ?? 0)} SOL` : (r.reason ?? "Sell failed"));
+          notify(r.ok ? `${name} sold ${Math.round(f * 100)}% for ${sol(r.sol ?? 0)} SOL` : (r.reason ?? "Sell failed"));
         },
       });
     }
@@ -114,7 +118,7 @@ export function WalletColumn({ engine, coin, launch, devSol, walletSol, walletCo
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-[12px] font-bold">
                     {r.name}
-                    {r.tag === "DEV" && <span className="ml-1 rounded bg-violet/20 px-1 text-[9px] font-black text-violet">DEV</span>}
+                    {r.key === "dev-deployer" && <span className="ml-1 rounded bg-violet/20 px-1 text-[9px] font-black text-violet">DEV</span>}
                   </span>
                   <span className="tabular shrink-0 text-[10.5px] text-dim">
                     {r.pct > 0.0001 ? (

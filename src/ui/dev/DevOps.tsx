@@ -68,7 +68,7 @@ export function DevOps({ l, now, devSol, onSell, onDevBuy, onNuke, onClaim, onRe
       )}
       <div className="space-y-1.5">
         {row("Deployer", "deployer", l.deployerPct)}
-        {l.holdersPct > 0.0001 && row("Your other wallets", "holders", l.holdersPct)}
+        {l.holdersPct > 0.0001 && row(`Launch wallets (${l.launchWalletPcts.filter((p) => p > 0.0001).length} in)`, "holders", l.holdersPct)}
       </div>
       <div className="mt-2 flex items-center gap-1.5">
         <span className="text-[11px] font-semibold text-faint">Dev buy</span>

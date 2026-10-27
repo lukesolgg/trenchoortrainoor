@@ -115,9 +115,9 @@ interface DevLaunch {
   ceilingUsd: number;
   launchedAt: number;
   deployMs: number;
-  /** Tokens in your deployer wallet and in your other launch wallets. */
+  /** Tokens in your deployer wallet and in each of your launch wallets (LAUNCH_WALLETS of them). */
   deployer: number;
-  holders: number;
+  lw: number[];
   /** Most you have held across them (for how much you have sold). */
   initialTokens: number;
   /** Tokens held by the organic market (what it can sell back). */
@@ -269,6 +269,11 @@ interface QueuedEvent {
 const FINAL_AT = 0.35;
 /** What a DEX profile costs, USD. */
 export const DEX_USD = 299;
+/** Dev mode: launch wallets besides the deployer. */
+export const LAUNCH_WALLETS = 10;
+/** A dev-side wallet: the deployer, one launch wallet (0-9), or "holders" for all launch wallets together. */
+export type DevWallet = "deployer" | "holders" | number;
+const lwSum = (d: { lw: number[] }) => d.lw.reduce((n, x) => n + x, 0);
 /** Dev mode: market caps (USD) where KOLs may pile into a right coin you launched. */
 const KOL_MILESTONES = [25e3, 50e3, 100e3, 200e3, 400e3, 800e3, 1.6e6, 3.2e6, 6.4e6, 12.8e6, Infinity];
 /** Your wallets, and the one limit: a single wallet at 5%+ of supply drags the coin. There is no cap on the total. */
@@ -956,7 +961,7 @@ export class Engine {
       launchedAt: at,
       deployMs: at - sc.tweetAt,
       deployer: 0,
-      holders: 0,
+      lw: Array(LAUNCH_WALLETS).fill(0),
       initialTokens: 0,
       marketTokens: 0,
       spentSol: DEPLOY_FEE_SOL,
@@ -986,7 +991,7 @@ export class Engine {
       const n = this.rng.int(3, 6);
       for (let i = 0; i < n; i++) {
         this.at(at + this.rng.range(300, 3000), (a) => {
-          if (this.coins.has(c.id)) this.devWalletBuy(c, organic / n, a, "holders");
+          if (this.coins.has(c.id)) this.devWalletBuy(c, organic / n, a, i % LAUNCH_WALLETS);
         });
       }
     }
@@ -997,7 +1002,7 @@ export class Engine {
   }
 
   /** Buy your own coin from the dev wallet into one of your launch wallets. Returns tokens bought. */
-  private devWalletBuy(c: Coin, sol: number, at: number, into: "deployer" | "holders"): number {
+  private devWalletBuy(c: Coin, sol: number, at: number, into: "deployer" | number): number {
     const d = c.dev!;
     const spend = Math.min(sol, this.devSol);
     if (spend <= 0) return 0;
@@ -1006,8 +1011,9 @@ export class Engine {
     if (into === "deployer" && c.tape[0]) c.tape[0].trader = "DEV";
     this.devSol -= r.spent;
     d.spentSol += r.spent;
-    d[into] += r.tokens;
-    d.initialTokens = Math.max(d.initialTokens, d.deployer + d.holders);
+    if (into === "deployer") d.deployer += r.tokens;
+    else d.lw[into] += r.tokens;
+    d.initialTokens = Math.max(d.initialTokens, d.deployer + lwSum(d));
     return r.tokens;
   }
 
@@ -1059,7 +1065,7 @@ export class Engine {
       corr: d.corr,
       share: d.share,
       rep: this.opts.dev?.rep ?? 1,
-      devSoldFrac: d.initialTokens > 0 ? 1 - (d.deployer + d.holders) / d.initialTokens : 0,
+      devSoldFrac: d.initialTokens > 0 ? 1 - (d.deployer + lwSum(d)) / d.initialTokens : 0,
       cashback: d.rewards === "cashback",
       mcUsd,
       ceilingUsd: d.ceilingUsd,
@@ -1129,18 +1135,23 @@ export class Engine {
     this.emitNow();
   }
 
-  /** Sell from your deployer wallet or your other launch wallets: a % of total supply, or everything ("max"). */
-  devSellFrom(coinId: string, from: "deployer" | "holders", pctOfSupply: number | "max"): { ok: boolean; reason?: string; sol?: number } {
+  /**
+   * Sell from the deployer, one launch wallet, or all launch wallets together ("holders", taken pro rata): a % of
+   * total supply, or everything ("max").
+   */
+  devSellFrom(coinId: string, from: DevWallet, pctOfSupply: number | "max"): { ok: boolean; reason?: string; sol?: number } {
     const c = this.coins.get(coinId);
     const d = c?.dev;
     if (!c || !d) return { ok: false, reason: "Not your launch" };
     if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: wait a moment" };
-    const held = d[from];
+    const held = from === "deployer" ? d.deployer : from === "holders" ? lwSum(d) : (d.lw[from] ?? 0);
     const tokens = pctOfSupply === "max" ? held : Math.min(held, (SUPPLY * pctOfSupply) / 100);
     if (tokens <= 1) return { ok: false, reason: "Nothing left in that wallet" };
-    // Deployer sells are public (DEV on the tape and chart); your other wallets look like anyone else.
+    // Deployer sells are public (DEV on the tape and chart); launch wallets look like anyone else.
     const sol = this.marketSell(c, this.simNow, tokens, from === "deployer" ? "DEV" : undefined);
-    d[from] -= tokens;
+    if (from === "deployer") d.deployer -= tokens;
+    else if (from === "holders") d.lw = d.lw.map((x) => x * (1 - tokens / held));
+    else d.lw[from] -= tokens;
     this.devSol += sol;
     d.gotSol += sol;
     if (from === "deployer") {
@@ -1154,7 +1165,7 @@ export class Engine {
   }
 
   /** Buy more of your own coin from the dev wallet (it goes to the deployer wallet). Forcing a bond works; it won't make it run. */
-  devBuy(coinId: string, sol: number, into: "deployer" | "holders" = "deployer"): { ok: boolean; reason?: string } {
+  devBuy(coinId: string, sol: number, into: "deployer" | number = "deployer"): { ok: boolean; reason?: string } {
     const c = this.coins.get(coinId);
     if (!c?.dev) return { ok: false, reason: "Not your launch" };
     if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: wait a moment" };
@@ -1218,8 +1229,9 @@ export class Engine {
         ended: d.ended,
         endReason: d.endReason,
         deployerPct: (d.deployer / SUPPLY) * 100,
-        holdersPct: (d.holders / SUPPLY) * 100,
-        holdingsSol: (d.deployer + d.holders) * price,
+        holdersPct: (lwSum(d) / SUPPLY) * 100,
+        launchWalletPcts: d.lw.map((x) => (x / SUPPLY) * 100),
+        holdingsSol: (d.deployer + lwSum(d)) * price,
         spentSol: d.spentSol,
         gotSol: d.gotSol,
         rewardsMode: d.rewards,

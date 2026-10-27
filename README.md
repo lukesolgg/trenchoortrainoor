@@ -69,8 +69,8 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
 - **Dev Ops** on your coin's page: deployer and other-wallet holdings with sells of 0.1% / 1% / 3% / MAX of supply
   (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
   creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
-- **Wallet column** (Dev mode, right of the trade panel): one row per wallet, your launch wallets (deployer, other
-  launch wallets) and your trading wallets, each with its own buttons; flip the column between BUY (SOL per wallet)
+- **Wallet column** (Dev mode, right of the trade panel): one row per wallet: the deployer, launch wallets 1-10
+  (organic buys land in them; they look like anyone) and your trading wallets, each with its own buttons; flip the column between BUY (SOL per wallet)
   and SELL (10/25/50/100% of that wallet's bag).
 - **Where it went wrong:** hover a launch chip (it carries ✓ or ✗N), the "buyers aren't biting" warning, or the
   ✓/✗ next to Launch report on your coin to see the tweet's name / ticker / picture / config against yours,

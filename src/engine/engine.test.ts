@@ -1627,6 +1627,30 @@ describe("dev mode", () => {
     expect(kolTweets).toBeGreaterThan(0);
   });
 
+  it("ten launch wallets: organic buys land in them, each buys and sells on its own", () => {
+    const { e, id, sc } = make(10);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc, { mode: "organic", organicSol: 1 }));
+    e.advanceTo(e.now() + 4000);
+    let l = e.getSnapshot().launches[0];
+    expect(l.launchWalletPcts).toHaveLength(10);
+    const filled = l.launchWalletPcts.filter((p) => p > 0).length;
+    expect(filled).toBeGreaterThanOrEqual(3);
+    expect(e.devBuy(l.coinId, 0.5, 9).ok).toBe(true);
+    l = e.getSnapshot().launches[0];
+    expect(l.launchWalletPcts[9]).toBeGreaterThan(0);
+    // Launch wallet buys are not public: no DEV mark for them.
+    const devMarks = e.getSocial(l.coinId).filter((x) => x.kind === "dev").length;
+    expect(e.devSellFrom(l.coinId, 9, "max").ok).toBe(true);
+    l = e.getSnapshot().launches[0];
+    expect(l.launchWalletPcts[9]).toBe(0);
+    expect(l.launchWalletPcts.filter((p) => p > 0).length).toBe(filled);
+    expect(e.getSocial(l.coinId).filter((x) => x.kind === "dev").length).toBe(devMarks);
+    // "All launch wallets" sells pro rata.
+    expect(e.devSellFrom(l.coinId, "holders", "max").ok).toBe(true);
+    expect(e.getSnapshot().launches[0].holdersPct).toBeCloseTo(0, 9);
+  });
+
   it("dividends are out of Dev mode: whatever you send, the launch gets the right setting", () => {
     const { e, id, sc } = make(9);
     e.devDeploy(id, choice(sc, { dividends: false }));
