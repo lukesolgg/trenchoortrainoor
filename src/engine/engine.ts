@@ -159,6 +159,15 @@ interface DevLaunch {
   nextCheck: number;
   checks: number;
   bundled: { pct: number; at: number } | null;
+  /** Organic holders' tokens: they sit through dips (traders hold `marketTokens`). */
+  holdTokens: number;
+  /** Most the deployer, and the rest of your wallets, have held (for how much of each you have sold). */
+  peakDeployer: number;
+  peakOther: number;
+  /** Market cap (USD) once a second for the last minute (for the dip buyers). */
+  hist60: number[];
+  /** Next holder wave (index into HOLDER_WAVES_USD). */
+  waveStage: number;
   /** Outside snipers on your launch: what each holds, when it dumps, and the market cap it takes profit at (SOL). */
   snipers: { tokens: number; exitAt: number; targetMc: number }[];
 }
@@ -298,10 +307,13 @@ export type WalletRef = { g: "deployer" } | { g: "launch"; i: number } | { g: "b
 /** Where launch tokens sit. */
 type Slot = "deployer" | "holders" | { g: "launch" | "bot"; i: number };
 const sum = (xs: number[]) => xs.reduce((n, x) => n + x, 0);
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const lwSum = (d: { lw: number[] }) => sum(d.lw);
 /** Everything you hold in a launch, every group. */
 const devHeld = (d: { deployer: number; lw: number[]; bw: number[]; hw: { tokens: number } }) => d.deployer + sum(d.lw) + sum(d.bw) + d.hw.tokens;
 /** Dev mode: market caps (USD) where KOLs may pile into a right coin you launched. */
+/** Dev mode: market caps (USD) where a wave of new holders finds a right coin (the first is bonding). */
+const HOLDER_WAVES_USD = [MIGRATION_MC_USD, 100e3, 200e3, 400e3, 800e3, 1.6e6, 3.2e6, 6.4e6, Infinity];
 const KOL_MILESTONES = [25e3, 50e3, 100e3, 200e3, 400e3, 800e3, 1.6e6, 3.2e6, 6.4e6, 12.8e6, Infinity];
 /** Your wallets, and the one limit: a single wallet at 5%+ of supply drags the coin. There is no cap on the total. */
 /** Trader wallets: main plus up to four side wallets. A campaign may allow fewer (opts.walletCount). */
@@ -659,11 +671,14 @@ export class Engine {
 
   /**
    * Share of supply sitting in the DEX pool. Constant product: about 20% at migration, and it thins as the price
-   * climbs (x4 the market cap, half the tokens), so the same sell hits a big coin harder than people expect.
+   * climbs (x4 the market cap, half the tokens), so the same sell hits a big coin harder than people expect. Sold
+   * back under migration it thickens again, so each sell moves it less.
    */
   private poolShare(c: Coin): number {
     const mig = MIGRATION_MC_USD / SOL_USD;
-    return Math.min(0.3, Math.max(0.004, 0.2 * Math.sqrt(mig / Math.max(1, c.postMc))));
+    // No upper cap, so buys and sells stay one constant-product pool all the way down: dumped back to the pool,
+    // a coin ends near ~$1.7K, never at zero, and never bounces off a fake floor.
+    return Math.max(0.004, 0.2 * Math.sqrt(mig / Math.max(1e-6, c.postMc)));
   }
 
   private boost(c: Coin, at: number): void {
@@ -1077,6 +1092,11 @@ export class Engine {
       checks: 0,
       bundled: null,
       snipers: [],
+      holdTokens: 0,
+      peakDeployer: 0,
+      peakOther: 0,
+      hist60: [],
+      waveStage: 0,
     };
     sc.launched = c.id;
     this.launchIds.push(c.id);
@@ -1159,6 +1179,8 @@ export class Engine {
     else if (typeof into === "number") d.lw[into] += r.tokens;
     else (into.g === "launch" ? d.lw : d.bw)[into.i] += r.tokens;
     d.initialTokens = Math.max(d.initialTokens, devHeld(d));
+    d.peakDeployer = Math.max(d.peakDeployer, d.deployer);
+    d.peakOther = Math.max(d.peakOther, devHeld(d) - d.deployer);
     return r.tokens;
   }
 
@@ -1200,17 +1222,30 @@ export class Engine {
     if (at - d.lastSample >= 1000) {
       d.hist.push(mcUsd);
       if (d.hist.length > 10) d.hist.shift();
+      d.hist60.push(mcUsd);
+      if (d.hist60.length > 60) d.hist60.shift();
       d.lastSample = at;
     }
     const momentum = d.hist.length >= 3 ? Math.log(mcUsd / d.hist[0]) : 0;
     const sc = this.scenarios.get(d.scenarioId)!;
+    // Organic holders build with the market cap (a few hundred by $50K, ~1,000 at $200K) and only trickle out.
+    const organic = Math.max(1, c.holders - d.hw.count);
+    const want = 12 * Math.pow(Math.max(1, mcUsd) / 1000, 0.85) * (d.bundled ? 0.6 : 1) * Math.min(1, d.corr * 1.5);
+    if (want > organic) c.holders += Math.round((want - organic) * 0.02 * this.rng.range(0.5, 1.5));
+    else if (organic > want * 1.6 && this.rng.chance(0.3)) c.holders = Math.max(1, c.holders - 1);
+    const support = clamp01(Math.log(organic / 40) / Math.log(25));
+    const drawdown = d.hist60.length ? 1 - mcUsd / Math.max(...d.hist60, mcUsd) : 0;
+    // Trust reads what's visible: deployer sells count in full, your other wallets a third (in full once a bubble
+    // map has tied them to you).
+    const depSold = d.peakDeployer > 0 ? 1 - d.deployer / d.peakDeployer : 0;
+    const othSold = d.peakOther > 0 ? 1 - (devHeld(d) - d.deployer) / d.peakOther : 0;
     const dem = devDemand({
       sinceTweetS: (at - sc.tweetAt) / 1000,
       heat0: d.heat0,
       corr: d.corr,
       share: d.share,
       rep: this.opts.dev?.rep ?? 1,
-      devSoldFrac: d.initialTokens > 0 ? 1 - devHeld(d) / d.initialTokens : 0,
+      devSoldFrac: Math.max(depSold, othSold * (d.bundled ? 1 : 0.35)),
       cashback: d.rewards === "cashback",
       mcUsd,
       ceilingUsd: d.ceilingUsd,
@@ -1220,8 +1255,22 @@ export class Engine {
       promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0),
       proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? 0.1 : 0),
       bundled: !!d.bundled,
+      support,
+      drawdown,
     });
     this.sniperExits(c, at);
+    // A right coin that bonds, then each new level, brings a wave of holders who buy and sit.
+    if (d.corr >= 0.5 && (d.waveStage === 0 ? c.migrated : mcUsd >= HOLDER_WAVES_USD[d.waveStage])) {
+      d.waveStage++;
+      // Past the narrative's ceiling the wave is thin.
+      this.holderWave(c, at, mcUsd < d.ceilingUsd ? 1 : 0.3);
+    }
+    // Holders drift into trader mode as it goes quiet, and run when it looks like a rug.
+    if (d.holdTokens > 0) {
+      const leave = drawdown > 0.75 && dem.sellP > 0.6 ? 0.006 : dem.heat < 0.12 ? 0.003 : 0;
+      d.holdTokens -= d.holdTokens * leave;
+      d.marketTokens += d.holdTokens * leave;
+    }
     if (!d.bundled && at >= d.nextCheck) this.bundleCheck(c, at);
     // A right coin that is running draws KOLs at each milestone: real buys, sometimes a tweet. They take profit
     // when it bleeds.
@@ -1235,10 +1284,13 @@ export class Engine {
     const fee = c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE;
     if (this.rng.chance(dem.buyP)) {
       const r = this.applyBuy(c, this.rng.lognormal(dem.buySol, 0.7), at, "bot");
-      d.marketTokens += r.tokens;
+      d.holdTokens += r.tokens * dem.holdFrac;
+      d.marketTokens += r.tokens * (1 - dem.holdFrac);
       if (d.rewards === "creator") d.rewardsSol += r.spent * fee;
     }
-    if (this.rng.chance(dem.sellP) && d.marketTokens > 0) {
+    // Deep under the high, sellers turn into bag holders: the further down, the fewer still selling.
+    const bag = c.migrated ? Math.max(0.08, Math.min(1, mcUsd / d.peakMcUsd / 0.3)) : 1;
+    if (this.rng.chance(dem.sellP * bag) && d.marketTokens > 0) {
       const price = this.mc(c) / SUPPLY;
       const tokens = Math.min(d.marketTokens * 0.3, this.rng.lognormal(dem.sellSol, 0.7) / price);
       const got = this.applySell(c, tokens, at, "bot");
@@ -1249,6 +1301,23 @@ export class Engine {
     if (!d.ended && at - d.launchedAt > 45_000 && mcUsd < 4500 && dem.heat < 0.25) this.endLaunch(c, "died");
     const quiet = dem.heat < 0.05 && mcUsd < 6000;
     this.at(at + (quiet ? 1500 : this.rng.range(180, 320)), (a) => this.devFlow(c, a));
+  }
+
+  /** New holders find a running coin: a burst of buys over ~15 s that go to holders, and the count jumps. */
+  private holderWave(c: Coin, at: number, size = 1): void {
+    const d = c.dev!;
+    const n = Math.round(this.rng.range(12, 30) * (d.bundled ? 0.5 : 1) * d.corr * size);
+    for (let k = 0; k < n; k++) {
+      this.at(at + this.rng.range(500, 15_000), (a) => {
+        if (!this.coins.has(c.id) || d.ended) return;
+        const size = c.migrated ? this.poolShare(c) * this.mc(c) * 0.01 : 0.6;
+        const r = this.applyBuy(c, this.rng.lognormal(Math.max(0.3, size), 0.6), a, "bot");
+        d.holdTokens += r.tokens;
+        c.holders += this.rng.int(2, 6);
+        if (d.rewards === "creator") d.rewardsSol += r.spent * (c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE);
+      });
+    }
+    this.devPromo(c, 0.35, 45_000);
   }
 
   /** Snipers on your launch dump on their timer, or take profit at their 2x. */
@@ -1398,8 +1467,13 @@ export class Engine {
   nuke(coinId: string): { ok: boolean; reason?: string; sol?: number } {
     const d = this.coins.get(coinId)?.dev;
     if (!d) return { ok: false, reason: "Not your launch" };
+    // Everything stops first, or the bots buy straight back in.
+    this.stopVolumeBot(coinId);
+    d.bots.trend = null;
+    d.bots.holders = null;
     const refs: WalletRef[] = [
       { g: "deployer" },
+      ...Array.from({ length: WALLETS }, (_, i) => ({ g: "trade" as const, i })),
       ...d.lw.map((_, i) => ({ g: "launch" as const, i })),
       ...d.bw.map((_, i) => ({ g: "bot" as const, i })),
       { g: "holder" },
@@ -1818,7 +1892,7 @@ export class Engine {
     const d = c.dev;
     if (!d) return c.anon;
     const pct = (t: number) => (t / SUPPLY) * 100;
-    const market = pct(d.marketTokens);
+    const market = pct(d.marketTokens + d.holdTokens);
     const spread = [0.14, 0.11, 0.09, 0.075, 0.065, 0.055, 0.048, 0.042, 0.036, 0.03];
     return [...d.lw.map(pct), ...d.bw.map(pct), ...d.snipers.map((x) => pct(x.tokens)), ...spread.map((w) => market * w)]
       .filter((x) => x > 0.01)

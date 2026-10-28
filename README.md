@@ -69,6 +69,13 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
   the build (only the block-0 tokens get its stealth; anything piled in later is traceable) and the MEV setting
   (`bundleRisk` in `dev.ts`). Caught: a BUNDLED x% tag on the coin, board and launch chip, a callout on the
   Tracker, buyers at ~40% interest and fewer buys, KOLs sell out and no new ones come.
+- **Holders and exits:** organic holders build with the market cap (a few hundred by $50K, ~1,000 around $200K)
+  and a wave of new holders arrives at bonding, $100K, $200K, $400K and so on (thin past the narrative's ceiling).
+  Holders buy dips past bonding and don't panic like traders; deep under the high, sellers turn into bag holders.
+  Trust reads visible selling: deployer sells count in full, other wallets a third (in full once flagged). The pool
+  is one constant-product pool all the way down, so a full dump ends near ~$1.7K, never at zero. Selling in steps
+  beats a Nuke (`dev.exit.harness.test.ts`: from $150-200K, Nuke lands ~$22K, 12% every 3 s ends $8-130K for
+  ~1.5-2x the SOL). Nuke stops every bot first and sells every wallet, trading wallets included.
 - **Snipers** hit every launch in the first 0.3-2.5 s (fewer for a front-run bundle): most dump 10-45 s later, about
   a third hold for a 2x or ~1-2 min. Your launch wallets, the snipers and the market's bag show in Holders and Top 10.
 - **Rivals** deploy the right coin and its look-alikes 4-22 s after the tweet (faster on harder levels). First right

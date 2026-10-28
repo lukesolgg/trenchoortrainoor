@@ -1,4 +1,4 @@
-import { SOL_USD } from "./curve";
+import { MIGRATION_MC_USD, SOL_USD } from "./curve";
 import type { Rng } from "./rng";
 import type { ArtSpec, CoinConfig, DifficultyId, Launchpad, Meme, Pair } from "./types";
 
@@ -284,6 +284,10 @@ export interface DemandInput {
   proof: number;
   /** Bundle checkers flagged it. */
   bundled?: boolean;
+  /** Holder base (0-1): from ~40 organic holders (0) to ~1,000 (1). A real base buys dips and doesn't panic. */
+  support?: number;
+  /** Drop from the last minute's high (0-1). */
+  drawdown?: number;
 }
 
 export interface Demand {
@@ -295,6 +299,8 @@ export interface Demand {
   sellSol: number;
   /** 0-1: how much life is left in it (for the engine to slow its loop). */
   heat: number;
+  /** Share of a buy that goes to holders (who sit through dips) rather than traders. */
+  holdFrac: number;
 }
 
 /**
@@ -302,7 +308,7 @@ export interface Demand {
  * launch bonds ~80% of the time (median peak ~$150K with KOL waves, 1 in 20 near $1M+); right but late ~15%; a wrong
  * picture ~30%, a wrong pair ~15%; a wrong ticker never.
  */
-export const DEV_TUNING = { buy: 0.5, curveSize: 0.5, luckSigma: 0.7, corrExp: 1.5 };
+export const DEV_TUNING = { buy: 0.5, curveSize: 0.5, poolSize: 0.006, luckSigma: 0.7, corrExp: 1.5 };
 
 /** Some narratives just don't catch: a per-launch multiplier on the tweet's pull (median 1). */
 export const narrativeLuck = (rng: Rng) => rng.lognormal(1, DEV_TUNING.luckSigma);
@@ -319,16 +325,37 @@ export function devDemand(d: DemandInput): Demand {
   // A rising chart and a fresh pool keep it in the conversation.
   heat = clamp(Math.max(heat, d.promo) + Math.max(0, d.momentum) * 0.8 + (d.migrated ? 0.15 : 0), 0, 1);
   const room = d.mcUsd >= d.ceilingUsd ? 0 : clamp(Math.log(d.ceilingUsd / d.mcUsd) / Math.log(d.ceilingUsd / 4000), 0, 1);
-  const trust = 1 - 0.85 * clamp(d.devSoldFrac, 0, 1);
+  // Selling your bag costs you buyers, but a holder base cushions it: they've seen devs take profit before.
+  const trust = 1 - (0.85 - 0.35 * clamp(d.support ?? 0, 0, 1)) * clamp(d.devSoldFrac, 0, 1);
   // Mistakes cost more than their face value: a market that smells something off just walks.
   const interest = d.heat0 * heat * Math.pow(d.corr, DEV_TUNING.corrExp) * Math.pow(d.share, 1.3) * d.rep * trust * (d.cashback ? 1.15 : 1) * (1 + d.proof) * (d.bundled ? BUNDLED_INTEREST : 1);
   const fomo = 1 + 4 * Math.max(0, d.momentum);
   // A flagged bundle loses buyers even when the chart is hot: the crowd reads the callout.
-  const buyP = clamp(0.04 + DEV_TUNING.buy * interest * Math.sqrt(room) * fomo, 0, 0.92) * (d.bundled ? 0.6 : 1);
+  const support = clamp(d.support ?? 0, 0, 1);
+  // A holder base buys the dip: past bonding, a 8-75% pullback from the last minute's high brings buyers in, more
+  // the bigger the base and the deeper the dip (until it looks like a rug). Visible dev selling scares them off.
+  const dd = d.drawdown ?? 0;
+  const dip = d.migrated && dd > 0.08 && dd < 0.75 ? 0.5 * support * Math.min(1, dd / 0.3) * trust * (d.bundled ? 0.5 : 1) * (0.3 + 0.7 * Math.sqrt(room)) : 0;
+  const buyP = clamp(clamp(0.04 + DEV_TUNING.buy * interest * Math.sqrt(room) * fomo, 0, 0.92) * (d.bundled ? 0.6 : 1) + dip, 0, 0.92);
   const over = d.mcUsd > d.ceilingUsd ? 0.35 : 0;
-  const sellP = clamp(0.1 + 0.4 * (1 - heat) + over + 2.5 * Math.max(0, -d.momentum) + 0.35 * (1 - trust) + (d.bundled ? 0.12 : 0), 0, 0.92);
-  // Size follows the coin: small on the curve, scaling with market cap on the pool.
+  // Holders don't panic like traders: a big base damps the sell-off cascade.
+  const calm = 1 - 0.6 * support;
+  const sellP = clamp(
+    0.1 + 0.4 * (1 - heat) * calm + over + 2.5 * Math.max(0, -d.momentum) * calm + 0.35 * (1 - trust) + (d.bundled ? 0.12 : 0),
+    0,
+    0.92,
+  );
+  // Size follows liquidity: small on the curve; on the pool, a share of the SOL side (which grows with the square
+  // root of market cap), so one buy moves a big coin about as much as a small one rather than more and more.
   const mcSol = d.mcUsd / SOL_USD;
-  const base = d.migrated ? Math.max(0.4, mcSol * 0.0025) : 0.2 + DEV_TUNING.curveSize * interest;
-  return { buyP, sellP, buySol: base * (0.7 + interest), sellSol: base * 0.9, heat };
+  const poolSol = 0.2 * Math.sqrt((MIGRATION_MC_USD / SOL_USD) * mcSol);
+  const base = d.migrated ? Math.max(0.3, poolSol * DEV_TUNING.poolSize) : 0.2 + DEV_TUNING.curveSize * interest;
+  return {
+    buyP,
+    sellP,
+    buySol: base * (0.7 + interest) * (dip > 0 ? 1 + support : 1),
+    sellSol: base * 0.9,
+    heat,
+    holdFrac: d.migrated ? 0.2 + 0.45 * support : 0.15,
+  };
 }

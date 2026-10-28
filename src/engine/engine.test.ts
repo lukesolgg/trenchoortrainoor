@@ -1663,6 +1663,54 @@ describe("dev mode", () => {
     expect(e.getSnapshot().devSol!).toBeCloseTo(before + l.rewardsSol, 9);
   });
 
+  it("Nuke stops every bot and sells every wallet: deployer, launch, trading, trend-bot and holder wallets", () => {
+    const { e, id, sc } = make(41, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc, { mode: "organic", organicSol: 1 }));
+    e.advanceTo(e.now() + 3000);
+    const coinId = e.getSnapshot().launches[0].coinId;
+    expect(e.quickBuy(coinId, 0.5, e.now(), [0, 1])).not.toBeNull();
+    expect(e.startTrendBot(coinId, "x2").ok).toBe(true);
+    expect(e.startHolderBot(coinId, 25).ok).toBe(true);
+    const end = e.now() + 8000;
+    for (let t = e.now(); t < end; t += 250) e.advanceTo(t);
+    const l0 = e.getSnapshot().launches[0];
+    expect(l0.botWalletPcts.some((x) => x > 0)).toBe(true);
+    expect(l0.holderWallets.pct).toBeGreaterThan(0);
+    while (e.now() < (e.getCoinView(coinId)!.migratingUntil ?? 0)) e.advanceTo(e.now() + 250);
+    expect(e.nuke(coinId).ok).toBe(true);
+    e.advanceTo(e.now() + 10_000);
+    const l = e.getSnapshot().launches[0];
+    expect(l.totalPct).toBe(0);
+    expect(l.bots.trend).toBeNull();
+    expect(l.bots.holders).toBeNull();
+    expect(e.walletPcts(coinId).every((x) => x === 0)).toBe(true);
+  });
+
+  it("organic holders build with the market cap, and a full dump ends near the pool floor, not at zero", () => {
+    let checked = 0;
+    for (const seed of [2, 3, 5, 7]) {
+      const { e, id, sc } = make(seed, "trencher", 200);
+      e.advanceTo(sc.tweetAt + 2500);
+      e.devDeploy(id, choice(sc, { mode: "block0", bundle: { supplyPct: 15, wallets: 20, build: "clean", mev: 0.5 } }));
+      const coinId = e.getSnapshot().launches[0].coinId;
+      const end = e.now() + 240_000;
+      for (let t = e.now(); t < end && e.getSnapshot().launches[0].mcUsd < 100_000; t += 500) e.advanceTo(t);
+      if (e.getSnapshot().launches[0].mcUsd < 100_000) continue;
+      checked++;
+      expect(e.getCoinView(coinId)!.holders).toBeGreaterThan(150);
+      while (e.now() < (e.getCoinView(coinId)!.migratingUntil ?? 0)) e.advanceTo(e.now() + 250);
+      e.nuke(coinId);
+      expect(e.getSnapshot().launches[0].mcUsd).toBeGreaterThan(10_000);
+      const later = e.now() + 120_000;
+      for (let t = e.now(); t < later; t += 1000) {
+        e.advanceTo(t);
+        expect(e.getSnapshot().launches[0].mcUsd).toBeGreaterThan(1500);
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
   it("your own launch: pay the DEX and boost it any time, from the dev wallet; it draws buyers", () => {
     const { e, id, sc } = make(8);
     e.advanceTo(sc.tweetAt + 1500);
