@@ -101,7 +101,7 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
         </div>
         <div className="flex items-center gap-1">
           <Chip className={PAIR_STYLE[config.pair]}>/{config.pair}</Chip>
-          {config.dividends ? (
+          {!coin.showDiv ? null : config.dividends ? (
             <Chip className="border-amber bg-amber text-black">DIV</Chip>
           ) : (
             <Chip className="border-line-hi text-faint line-through decoration-1">DIV</Chip>

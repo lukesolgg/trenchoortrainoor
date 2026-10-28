@@ -1,8 +1,20 @@
 "use client";
 
+import { useState, type ReactNode } from "react";
+import {
+  HOLDER_RANGE,
+  MM_BANDS,
+  MM_BUDGETS,
+  MM_PACES,
+  MM_STRATEGIES,
+  TREND_MIN_RANGE,
+  TREND_PRESETS_USD,
+  TREND_USD_RANGE,
+  VOLUME_MIN_RANGE,
+  VOLUME_USD_RANGE,
+  type MmStrategy,
+} from "@/engine/dev";
 import type { Engine } from "@/engine/engine";
-import { useState } from "react";
-import { HOLDER_PACKAGES, MM_BANDS, MM_BUDGETS, MM_PACES, MM_STRATEGIES, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type MmStrategy } from "@/engine/dev";
 import type { LaunchView } from "@/engine/types";
 import { sol, usd } from "../format";
 
@@ -13,112 +25,272 @@ interface Props {
   notify: (text: string) => void;
 }
 
-const btn = "tabular flex flex-col items-center rounded-md border py-1 leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-35";
-const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
+type Tab = "volume" | "trend" | "holders" | "mm";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "volume", label: "Volume" },
+  { id: "trend", label: "Trend" },
+  { id: "holders", label: "Holders" },
+  { id: "mm", label: "Market maker" },
+];
 
-/** Bots for your launch, paid from the dev wallet: volume packages, a trend bot towards a target, holders. */
+const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
+const mins = (m: number) => (m < 1 ? `${Math.round(m * 60)}s` : `${+m.toFixed(1)} min`);
+
+/**
+ * Bots for your launch, as one menu: Volume, Trend, Holders and Market maker tabs, each set with sliders and a live
+ * cost before you start it. A dot on a tab means that bot is running.
+ */
 export function Bots({ engine, l, devSol, notify }: Props) {
-  const id = l.coinId;
+  const [tab, setTab] = useState<Tab>("volume");
   const b = l.bots;
-  const run = (r: { ok: boolean; reason?: string }, ok: string) => notify(r.ok ? ok : (r.reason ?? "Couldn't start it"));
+  const on: Record<Tab, boolean> = { volume: !!b.volume, trend: !!b.trend, holders: !!b.holders, mm: !!l.mm };
   return (
     <div className="border-b border-line p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-[13px] font-bold">Bots</h3>
         <span className="text-[10.5px] text-faint">Paid from your balance</span>
       </div>
-
-      {/* Volume */}
-      <div className="text-[11px] font-semibold text-faint">Volume · wash trades, keeps it trending</div>
-      {b.volume ? (
-        <Running
-          label={`${b.volume.label} volume · ${Math.round(b.volume.done * 100)}% · ${mmss(b.volume.endsInMs)} left`}
-          pct={b.volume.done}
-          onStop={() => notify(`Volume bot stopped: ${sol(engine.stopVolumeBot(id))} SOL back`)}
-        />
-      ) : (
-        <div className="mt-1 grid grid-cols-3 gap-1">
-          {VOLUME_PACKAGES.map((p) => {
-            const cost = volumeCostSol(p.usd);
-            return (
-              <button
-                key={p.id}
-                type="button"
-                disabled={cost > devSol}
-                onClick={() => run(engine.startVolumeBot(id, p.id), `Volume bot on: $${p.usd / 1000}K over ${p.minutes} min`)}
-                className={`${btn} border-blue/40 text-blue enabled:hover:bg-blue/10`}
-              >
-                <span className="text-[11.5px] font-extrabold">
-                  ${p.usd / 1000}K · {p.minutes}m
-                </span>
-                <span className="text-[9.5px] text-dim">{sol(cost)} SOL</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Trend */}
-      <div className="mt-2.5 text-[11px] font-semibold text-faint">Trend · buys into its own wallets up to a target</div>
-      {b.trend ? (
-        <Running
-          label={`→ ${usd(b.trend.targetUsd)} · ${sol(b.trend.spentSol)} / ${sol(b.trend.budgetSol)} SOL`}
-          pct={Math.min(1, b.trend.spentSol / b.trend.budgetSol)}
-          onStop={() => {
-            engine.stopTrendBot(id);
-            notify("Trend bot stopped");
-          }}
-        />
-      ) : (
-        <div className="mt-1 grid grid-cols-4 gap-1">
-          {TREND_TARGETS.map((t) => {
-            const q = engine.quoteTrend(id, t.id);
-            const past = !q || q.sol <= 0;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                disabled={past || q!.sol > devSol}
-                title={q ? `To ${usd(q.targetUsd)} MC: about ${sol(q.sol)} SOL (an estimate: sellers push back)` : ""}
-                onClick={() => run(engine.startTrendBot(id, t.id), `Trend bot on: pushing to ${usd(q!.targetUsd)}`)}
-                className={`${btn} border-up/40 text-up enabled:hover:bg-up/10`}
-              >
-                <span className="text-[11.5px] font-extrabold">{t.label}</span>
-                <span className="text-[9.5px] text-dim">{past ? "past it" : `~${sol(q!.sol, q!.sol < 10 ? 2 : 0)}`}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Holders */}
-      <div className="mt-2.5 text-[11px] font-semibold text-faint">
-        Holders · each buys ~0.03% of supply{b.botHolders > 0 && <span className="text-dim"> · {b.botHolders} holding</span>}
+      <div className="grid grid-cols-4 gap-0.5 rounded-lg border border-line bg-black/20 p-0.5" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`relative rounded-md py-1.5 text-[11px] font-bold transition-colors ${tab === t.id ? "bg-violet/20 text-ink" : "text-dim hover:text-ink"}`}
+          >
+            {t.label}
+            {on[t.id] && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-up" />}
+          </button>
+        ))}
       </div>
-      {b.holders ? (
-        <Running label={`${b.holders.added} / ${b.holders.total} holders`} pct={b.holders.added / b.holders.total} />
-      ) : (
-        <div className="mt-1 grid grid-cols-4 gap-1">
-          {HOLDER_PACKAGES.map((n) => {
-            const est = engine.quoteHolders(id, n);
-            return (
-            <button
-              key={n}
-              type="button"
-              disabled={est > devSol}
-              onClick={() => run(engine.startHolderBot(id, n), `Holder bot on: ${n} holders`)}
-              className={`${btn} border-violet/40 text-violet enabled:hover:bg-violet/10`}
-            >
-              <span className="text-[11.5px] font-extrabold">{n}</span>
-              <span className="text-[9.5px] text-dim">~{sol(est)}</span>
-            </button>
-            );
-          })}
-        </div>
-      )}
-      <MarketMaker engine={engine} l={l} devSol={devSol} notify={notify} />
-
+      <div className="pt-2.5">
+        {tab === "volume" && <VolumeTab engine={engine} l={l} devSol={devSol} notify={notify} />}
+        {tab === "trend" && <TrendTab engine={engine} l={l} devSol={devSol} notify={notify} />}
+        {tab === "holders" && <HoldersTab engine={engine} l={l} devSol={devSol} notify={notify} />}
+        {tab === "mm" && <MarketMaker engine={engine} l={l} devSol={devSol} notify={notify} />}
+      </div>
       {b.lastBot && <p className="mt-2 text-[11px] text-dim">{b.lastBot}</p>}
+    </div>
+  );
+}
+
+/** A slider over a log scale (for money and market caps) or a linear one. */
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  log,
+  step,
+  format,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  log?: boolean;
+  step?: number;
+  format: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  const toPos = (v: number) => (log ? (Math.log(v) - Math.log(min)) / (Math.log(max) - Math.log(min)) : (v - min) / (max - min));
+  const fromPos = (p: number) => {
+    const v = log ? Math.exp(Math.log(min) + p * (Math.log(max) - Math.log(min))) : min + p * (max - min);
+    return roundNice(v, step);
+  };
+  return (
+    <label className="block">
+      <div className="mb-0.5 flex items-baseline justify-between text-[11px]">
+        <span className="font-semibold text-faint">{label}</span>
+        <span className="tabular font-extrabold text-ink">{format(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={1000}
+        value={Math.round(Math.max(0, Math.min(1, toPos(value))) * 1000)}
+        onChange={(e) => onChange(fromPos(Number(e.target.value) / 1000))}
+        className="w-full accent-violet"
+        aria-label={label}
+      />
+    </label>
+  );
+}
+
+/** Round to a tidy figure: 2 significant digits, or to `step`. */
+function roundNice(v: number, step?: number): number {
+  if (step) return Math.round(v / step) * step;
+  const p = Math.pow(10, Math.floor(Math.log10(v)) - 1);
+  return Math.round(v / p) * p;
+}
+
+function Summary({ rows }: { rows: [string, ReactNode, string?][] }) {
+  return (
+    <div className="tabular mt-2 grid grid-cols-2 gap-y-1 rounded-md bg-black/20 px-2.5 py-2 text-[11.5px]">
+      {rows.map(([k, v, tone]) => (
+        <div key={k} className="contents">
+          <span className="text-dim">{k}</span>
+          <span className={`text-right font-bold ${tone ?? ""}`}>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StartBtn({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="mt-2 w-full rounded-md border border-violet/60 bg-violet/15 py-1.5 text-[12px] font-black text-violet transition-colors enabled:hover:bg-violet/25 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {label}
+    </button>
+  );
+}
+
+function VolumeTab({ engine, l, devSol, notify }: Props) {
+  const [vol, setVol] = useState(50_000);
+  const [m, setM] = useState(10);
+  const v = l.bots.volume;
+  if (v)
+    return (
+      <Running
+        label={`${v.label} volume · ${Math.round(v.done * 100)}% · ${mmss(v.endsInMs)} left`}
+        pct={v.done}
+        onStop={() => notify(`Volume bot stopped: ${sol(engine.stopVolumeBot(l.coinId))} SOL back`)}
+      />
+    );
+  const q = engine.quoteVolume(l.coinId, vol, m);
+  if (!q) return null;
+  const lift = q.lift[0] >= 0.4 ? ["Top of trending", "text-up"] : q.lift[0] >= 0.25 ? ["Trending", "text-up"] : q.lift[0] >= 0.17 ? ["Noticed", "text-amber"] : ["Barely registers", "text-dim"];
+  const thin = vol > q.capacityUsd;
+  return (
+    <div>
+      <p className="mb-2 text-[11px] leading-snug text-dim">Wash trades from separate wallets: a buy, then the same tokens sold back. Keeps it on the trending lists.</p>
+      <div className="space-y-1.5">
+        <Slider label="Volume" value={vol} min={VOLUME_USD_RANGE[0]} max={VOLUME_USD_RANGE[1]} log format={usd} onChange={setVol} />
+        <Slider label="Over" value={m} min={VOLUME_MIN_RANGE[0]} max={VOLUME_MIN_RANGE[1]} step={1} format={mins} onChange={setM} />
+      </div>
+      <Summary
+        rows={[
+          ["Rate", `${usd(vol / m)} / min`],
+          ["Attention", lift[0], lift[1]],
+          ["Cost (1.25%)", `${sol(q.costSol)} SOL`, q.costSol > devSol ? "text-down" : ""],
+        ]}
+      />
+      {thin && (
+        <p className="mt-1.5 text-[10.5px] leading-snug text-amber">
+          This coin can only take about {usd(q.capacityUsd)} in that time without the wash moving the chart. The rest comes back to you.
+        </p>
+      )}
+      <StartBtn
+        label={q.costSol > devSol ? "Not enough SOL" : `Start · ${usd(vol)} over ${mins(m)}`}
+        disabled={q.costSol > devSol || l.ended}
+        onClick={() => {
+          const r = engine.startVolumeBot(l.coinId, { usd: vol, minutes: m });
+          notify(r.ok ? `Volume bot on: ${usd(vol)} over ${mins(m)}` : (r.reason ?? "Couldn't start it"));
+        }}
+      />
+    </div>
+  );
+}
+
+function TrendTab({ engine, l, devSol, notify }: Props) {
+  const lo = Math.max(TREND_USD_RANGE[0], l.mcUsd * 1.1);
+  const [target, setTarget] = useState(() => Math.max(lo, 100_000));
+  const [m, setM] = useState(2);
+  const t = l.bots.trend;
+  if (t)
+    return (
+      <Running
+        label={`→ ${usd(t.targetUsd)} · ${sol(t.spentSol)} / ${sol(t.budgetSol)} SOL · ${mmss(t.endsInMs)}`}
+        pct={Math.min(1, t.spentSol / t.budgetSol)}
+        onStop={() => {
+          engine.stopTrendBot(l.coinId);
+          notify("Trend bot stopped");
+        }}
+      />
+    );
+  const tgt = Math.max(target, lo);
+  const q = engine.quoteTrend(l.coinId, tgt);
+  const all: [string, number][] = [
+    ["2×", l.mcUsd * 2],
+    ["3×", l.mcUsd * 3],
+    ...(l.bonded ? [] : ([["Bond", 44_000]] as [string, number][])),
+    ...TREND_PRESETS_USD.map((v): [string, number] => [v >= 1e6 ? `$${v / 1e6}M` : `$${v / 1000}K`, v]),
+  ];
+  const presets = all.filter(([, v]) => v > lo * 0.99 && v <= TREND_USD_RANGE[1]);
+  return (
+    <div>
+      <p className="mb-2 text-[11px] leading-snug text-dim">Steady buys into its own 5 wallets until it gets there or runs out of budget. Sellers push back, so it is an estimate.</p>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {presets.map(([k, v]) => (
+          <button key={k} type="button" className={chipCls(Math.abs(tgt - v) / v < 0.02)} onClick={() => setTarget(roundNice(v))}>
+            {k}
+          </button>
+        ))}
+      </div>
+      <div className="space-y-1.5">
+        <Slider label="Target MC" value={tgt} min={lo} max={TREND_USD_RANGE[1]} log format={usd} onChange={setTarget} />
+        <Slider label="Get there in" value={m} min={TREND_MIN_RANGE[0]} max={TREND_MIN_RANGE[1]} step={0.5} format={mins} onChange={setM} />
+      </div>
+      <Summary
+        rows={[
+          ["From", usd(l.mcUsd)],
+          ["Est. cost", q ? `~${sol(q.sol)} SOL` : "-", q && q.sol > devSol ? "text-down" : ""],
+          ["Budget cap (+30%)", q ? `${sol(Math.min(devSol, q.sol * 1.3))} SOL` : "-"],
+        ]}
+      />
+      <StartBtn
+        label={!q || q.sol <= 0 ? "Already past it" : q.sol > devSol ? "Not enough SOL" : `Start · to ${usd(tgt)}`}
+        disabled={!q || q.sol <= 0 || q.sol > devSol || l.ended}
+        onClick={() => {
+          const r = engine.startTrendBot(l.coinId, tgt, m);
+          notify(r.ok ? `Trend bot on: pushing to ${usd(tgt)} over ${mins(m)}` : (r.reason ?? "Couldn't start it"));
+        }}
+      />
+    </div>
+  );
+}
+
+function HoldersTab({ engine, l, devSol, notify }: Props) {
+  const [n, setN] = useState(100);
+  const h = l.bots.holders;
+  if (h) return <Running label={`Adding holders · ${h.added} / ${h.total}`} pct={h.added / h.total} />;
+  const est = engine.quoteHolders(l.coinId, n);
+  return (
+    <div>
+      <p className="mb-2 text-[11px] leading-snug text-dim">
+        Fresh wallets, each buying ~0.03% of supply. They land fast (a few seconds) and show as Holder wallets you can sell.
+        {l.bots.botHolders > 0 && <span className="text-ink"> {l.bots.botHolders} holding now.</span>}
+      </p>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {[25, 50, 100, 200, 500].map((v) => (
+          <button key={v} type="button" className={chipCls(n === v)} onClick={() => setN(v)}>
+            {v}
+          </button>
+        ))}
+      </div>
+      <Slider label="Holders" value={n} min={HOLDER_RANGE[0]} max={HOLDER_RANGE[1]} step={5} format={(v) => String(v)} onChange={setN} />
+      <Summary
+        rows={[
+          ["Supply they take", `~${(n * 0.03).toFixed(1)}%`],
+          ["Est. cost (rent + buys)", `~${sol(est)} SOL`, est > devSol ? "text-down" : ""],
+        ]}
+      />
+      <StartBtn
+        label={est > devSol ? "Not enough SOL" : `Add ${n} holders`}
+        disabled={est > devSol || l.ended}
+        onClick={() => {
+          const r = engine.startHolderBot(l.coinId, n);
+          notify(r.ok ? `Holder bot on: ${n} holders landing` : (r.reason ?? "Couldn't start it"));
+        }}
+      />
     </div>
   );
 }
@@ -141,9 +313,9 @@ function MarketMaker({ engine, l, devSol, notify }: Props) {
     notify(r.ok ? `Market maker ${m ? "updated" : "on"}: ${MM_STRATEGIES[strategy].label}` : (r.reason ?? "Couldn't start it"));
   };
   return (
-    <div className="mt-2.5 rounded-md border border-line p-2">
+    <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] font-semibold text-faint">Market maker · trades your launch wallets</span>
+        <span className="text-[11px] leading-snug text-dim">Trades your launch wallets around a moving average.</span>
         {m && (
           <button
             type="button"

@@ -26,12 +26,26 @@ export const VOLUME_PACKAGES = [
   { id: "v200", usd: 200_000, minutes: 20 },
 ] as const;
 export const volumeCostSol = (usd: number) => (usd / SOL_USD) * 0.0125;
+/** Volume bot limits: $5K-$2M of volume over 1-60 minutes. */
+export const VOLUME_USD_RANGE = [5_000, 2_000_000] as const;
+export const VOLUME_MIN_RANGE = [1, 60] as const;
+/**
+ * How much a volume bot lifts attention, from its rate ($ per minute): $1K/min barely registers, $20K/min+ keeps it
+ * near the top of the trending lists. Returns [attention floor, social proof].
+ */
+export function volumeLift(usd: number, minutes: number): [number, number] {
+  const perMin = usd / Math.max(1, minutes);
+  const x = Math.log2(1 + perMin / 2000);
+  return [clamp(0.12 + 0.1 * x, 0, 0.55), clamp(0.03 + 0.025 * x, 0, 0.15)];
+}
 
 /**
  * Holder bot: each fake holder is a fresh wallet with a token account (rent, paid up front) that buys about 0.03% of
  * supply at the price of the moment. On a fresh coin 200 of them come to ~3 SOL and ~6% of supply.
  */
 export const HOLDER_PACKAGES = [25, 50, 100, 200] as const;
+/** Holder bot: any count in this range. They land fast, a few seconds for a couple of hundred. */
+export const HOLDER_RANGE = [10, 500] as const;
 export const HOLDER_RENT_SOL = 0.004;
 export const HOLDER_SUPPLY_PCT = 0.03;
 /** Estimated cost of `n` holders at a market cap (SOL), with a margin for the price rising as they buy. */
@@ -49,6 +63,11 @@ export const TREND_TARGETS = [
   { id: "100k", label: "$100K", usd: 100_000 },
 ] as const;
 export type TrendTargetId = (typeof TREND_TARGETS)[number]["id"];
+/** Market-cap targets offered as quick picks next to the slider (USD). */
+export const TREND_PRESETS_USD = [100_000, 250_000, 500_000, 1_000_000, 2_000_000, 5_000_000] as const;
+/** Trend bot target slider (USD) and how long it takes to get there (minutes). */
+export const TREND_USD_RANGE = [10_000, 20_000_000] as const;
+export const TREND_MIN_RANGE = [0.5, 30] as const;
 
 export const OPTION_COUNT: Record<DifficultyId, number> = { paper: 3, trencher: 4, sniper: 5 };
 /** How long after the tweet rival devs land their coins (s). */

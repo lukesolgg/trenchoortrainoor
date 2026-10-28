@@ -75,6 +75,8 @@ export interface CoinView {
   bundlers: number;
   /** Bundle checkers called it out (Dev mode launches). */
   bundled: boolean;
+  /** Show the DIV chip at all (not in Dev mode, where dividends aren't a thing). */
+  showDiv: boolean;
   dexPaid: boolean;
   /** KOL Rep: you posted a call on this coin; how many of your followers tailed you in, and with how much. */
   called: boolean;
@@ -286,7 +288,7 @@ export interface LaunchView {
   /** Bots running on this launch. */
   bots: {
     volume: { label: string; done: number; endsInMs: number } | null;
-    trend: { targetUsd: number; spentSol: number; budgetSol: number } | null;
+    trend: { targetUsd: number; spentSol: number; budgetSol: number; endsInMs: number } | null;
     holders: { total: number; added: number } | null;
     botHolders: number;
     lastBot: string | null;

@@ -79,7 +79,7 @@ export function Setup() {
               <div>
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-faint">Dev wallet</div>
                 <div className="flex gap-2" role="radiogroup" aria-label="Dev wallet">
-                  {([10, 50, 200] as const).map((n) => (
+                  {([10, 50, 200, 1000] as const).map((n) => (
                     <button
                       key={n}
                       type="button"

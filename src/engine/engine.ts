@@ -3,7 +3,8 @@ import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type 
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
-import { BOT_WALLETS, HOLDER_PACKAGES, HOLDER_RENT_SOL, HOLDER_SUPPLY_PCT, holderCostSol, LAUNCH_WALLETS_MAX, LAUNCH_WALLETS_START, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
+import { BOT_WALLETS, HOLDER_RENT_SOL, HOLDER_SUPPLY_PCT, LAUNCH_WALLETS_MAX, LAUNCH_WALLETS_START, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
+import { HOLDER_RANGE, TREND_MIN_RANGE, TREND_USD_RANGE, VOLUME_MIN_RANGE, VOLUME_USD_RANGE, volumeLift } from "./dev";
 import { BUNDLE_MAX_PCT, MM_CEILING_MAX, type MmConfig, type MmStrategy } from "./dev";
 import { BUNDLE_BUILDS, BUNDLE_CHECKS_MS, BUNDLE_RECHECK_MS, bubbleRead, bundleRisk, earlyDetection, type BundleConfig, type LaunchMode, type LaunchQuote } from "./dev";
 import { checkLaunch, correctness, CREATOR_FEE_CURVE, CREATOR_FEE_POOL, DEPLOY_FEE_SOL, devCeilingUsd, devDemand, makeLaunchOptions, narrativeLuck, OPTION_COUNT, RIVAL_LAG_S, type DevChoice, type LaunchCheck, type LaunchOptions } from "./dev";
@@ -143,8 +144,8 @@ interface DevLaunch {
   kolStage: number;
   /** Bots you have running on this launch. */
   bots: {
-    volume: { label: string; totalSol: number; doneSol: number; startAt: number; endAt: number; costSol: number } | null;
-    trend: { targetUsd: number; budgetSol: number; spentSol: number; estSol: number } | null;
+    volume: { label: string; totalSol: number; doneSol: number; startAt: number; endAt: number; costSol: number; lift: [number, number] } | null;
+    trend: { targetUsd: number; budgetSol: number; spentSol: number; estSol: number; endsAt: number } | null;
     holders: { total: number; added: number; budgetSol: number; spentSol: number } | null;
   };
   /** What the last bot to finish did, for a toast. */
@@ -901,7 +902,7 @@ export class Engine {
    */
   private startDevScenario(): void {
     const meme = this.rng.pick(this.pack);
-    const plan = makeRound(this.rng, meme, this.difficulty);
+    const plan = makeRound(this.rng, meme, this.difficulty, { noDividends: true });
     const id = `s${this.scenarioSeq++}`;
     const at = this.simNow;
     const options = makeLaunchOptions(new Rng(this.scenarioSeq * 7919 + 13), meme, this.pack, OPTION_COUNT[this.opts.difficulty]);
@@ -1268,8 +1269,8 @@ export class Engine {
       momentum,
       migrated: c.migrated,
       // A running volume bot keeps it on the trending lists; volume and holders are social proof.
-      promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0, d.mm ? 0.3 : 0),
-      proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? 0.1 : 0) + (d.mm ? 0.1 : 0),
+      promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? d.bots.volume.lift[0] : 0, d.mm ? 0.3 : 0),
+      proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? d.bots.volume.lift[1] : 0) + (d.mm ? 0.1 : 0),
       bundled: !!d.bundled,
       support,
       drawdown,
@@ -1639,18 +1640,32 @@ export class Engine {
   }
 
   /** Buy a volume package for your launch: wash trades over its window, paid up front from the dev wallet. */
-  startVolumeBot(coinId: string, pkgId: string): { ok: boolean; reason?: string } {
+  /** What a volume bot would cost, how much of it this coin can actually take in that time, and its lift. */
+  quoteVolume(coinId: string, usdV: number, minutes: number): { costSol: number; capacityUsd: number; lift: [number, number] } | null {
+    const c = this.coins.get(coinId);
+    if (!c?.dev) return null;
+    const cap = c.migrated ? this.poolShare(c) * this.mc(c) * 0.02 : Math.max(0.5, c.curve.realSol * 0.05);
+    // 8 legs a step, buy + sell, a step every ~2.2 s. Liquidity grows if it runs, so this is the floor.
+    const capacityUsd = toUsd(cap * 8 * 2 * ((minutes * 60) / 2.2));
+    return { costSol: volumeCostSol(usdV), capacityUsd, lift: volumeLift(usdV, minutes) };
+  }
+
+  /** Start a volume bot: `usd` of wash volume over `minutes` (or one of the old packages by id). */
+  startVolumeBot(coinId: string, pkg: string | { usd: number; minutes: number }): { ok: boolean; reason?: string } {
     const own = this.ownLaunch(coinId);
-    const pkg = VOLUME_PACKAGES.find((p) => p.id === pkgId);
-    if (!own || !pkg) return { ok: false, reason: "Not your launch" };
+    const p = typeof pkg === "string" ? VOLUME_PACKAGES.find((x) => x.id === pkg) : pkg;
+    if (!own || !p) return { ok: false, reason: "Not your launch" };
+    const usdV = Math.max(VOLUME_USD_RANGE[0], Math.min(VOLUME_USD_RANGE[1], p.usd));
+    const minutes = Math.max(VOLUME_MIN_RANGE[0], Math.min(VOLUME_MIN_RANGE[1], p.minutes));
     const { c, d } = own;
     if (d.bots.volume) return { ok: false, reason: "A volume bot is already running" };
-    const cost = volumeCostSol(pkg.usd);
-    if (cost > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
+    const cost = volumeCostSol(usdV);
+    if (cost > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL for that much volume" };
     this.devSol -= cost;
     d.spentSol += cost;
     const now = this.simNow;
-    d.bots.volume = { label: `$${pkg.usd / 1000}K`, totalSol: pkg.usd / SOL_USD, doneSol: 0, startAt: now, endAt: now + pkg.minutes * 60_000, costSol: cost };
+    const label = usdV >= 1e6 ? `$${+(usdV / 1e6).toFixed(2)}M` : `$${Math.round(usdV / 1000)}K`;
+    d.bots.volume = { label, totalSol: usdV / SOL_USD, doneSol: 0, startAt: now, endAt: now + minutes * 60_000, costSol: cost, lift: volumeLift(usdV, minutes) };
     this.at(now + 300, (a) => this.volumeStep(c, a));
     this.emitNow();
     return { ok: true };
@@ -1662,15 +1677,28 @@ export class Engine {
     const v = d?.bots.volume;
     if (!d || !v || !this.coins.has(c.id)) return;
     if (at >= v.endAt || v.doneSol >= v.totalSol) {
+      // A coin too thin for the package couldn't take it all: the untraded share comes back.
+      const refund = v.costSol * Math.max(0, 1 - v.doneSol / v.totalSol);
+      if (refund > 0.001) {
+        this.devSol += refund;
+        d.spentSol -= refund;
+      }
+      d.lastBot = `Volume bot done: ${v.label} target, $${Math.round(toUsd(v.doneSol) / 1000)}K traded${refund > 0.001 ? `, ${refund.toFixed(2)} SOL back` : ""}`;
       d.bots.volume = null;
       this.emitNow();
       return;
     }
     if (at >= c.lockUntil) {
       const stepsLeft = Math.max(1, (v.endAt - at) / 2200);
-      const size = Math.max(0.01, ((v.totalSol - v.doneSol) / stepsLeft / 2) * this.rng.range(0.5, 1.5));
-      const r = this.applyBuy(c, size, at, "bot");
-      if (r.tokens > 0) {
+      // Big packages spread over more wallets at once, each leg capped by liquidity so the wash doesn't swing the
+      // chart: on a thin coin a huge package simply can't all get traded.
+      const want = (v.totalSol - v.doneSol) / stepsLeft / 2;
+      const cap = c.migrated ? this.poolShare(c) * this.mc(c) * 0.02 : Math.max(0.5, c.curve.realSol * 0.05);
+      const legs = Math.min(8, Math.max(1, Math.ceil(want / cap)));
+      for (let k = 0; k < legs; k++) {
+        const size = Math.max(0.01, Math.min(cap, want / legs) * this.rng.range(0.6, 1.4));
+        const r = this.applyBuy(c, size, at, "bot");
+        if (r.tokens <= 0) continue;
         const fee = c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE;
         v.doneSol += r.spent * 2;
         if (d.rewards === "creator") d.rewardsSol += r.spent * 2 * fee;
@@ -1699,13 +1727,13 @@ export class Engine {
    * About how much SOL it takes to push your launch's market cap to a target, from the curve (and the pool past
    * bonding), plus a margin for the sellers who push back. An estimate: the market decides the rest.
    */
-  quoteTrend(coinId: string, targetId: TrendTargetId): { targetUsd: number; sol: number } | null {
+  quoteTrend(coinId: string, target: TrendTargetId | number): { targetUsd: number; sol: number } | null {
     const own = this.ownLaunch(coinId);
-    const t = TREND_TARGETS.find((x) => x.id === targetId);
-    if (!own || !t) return null;
+    const t = typeof target === "number" ? null : TREND_TARGETS.find((x) => x.id === target);
+    if (!own || (typeof target !== "number" && !t)) return null;
     const { c } = own;
     const mc = this.mc(c);
-    const targetUsd = "mult" in t ? toUsd(mc) * t.mult : t.usd;
+    const targetUsd = t ? ("mult" in t ? toUsd(mc) * t.mult : t.usd) : Math.max(TREND_USD_RANGE[0], Math.min(TREND_USD_RANGE[1], target as number));
     const T = targetUsd / SOL_USD;
     if (T <= mc) return { targetUsd, sol: 0 };
     let net = 0;
@@ -1723,15 +1751,16 @@ export class Engine {
   }
 
   /** Start the trend bot: steady buys into your launch wallets until the target or its budget (estimate +30%). */
-  startTrendBot(coinId: string, targetId: TrendTargetId): { ok: boolean; reason?: string } {
+  startTrendBot(coinId: string, target: TrendTargetId | number, minutes = 1): { ok: boolean; reason?: string } {
     const own = this.ownLaunch(coinId);
-    const q = this.quoteTrend(coinId, targetId);
+    const q = this.quoteTrend(coinId, target);
     if (!own || !q) return { ok: false, reason: "Not your launch" };
     const { c, d } = own;
     if (d.bots.trend) return { ok: false, reason: "A trend bot is already running" };
     if (q.sol <= 0) return { ok: false, reason: "It's already past that" };
     if (q.sol > this.devSol + 1e-9) return { ok: false, reason: `About ${q.sol.toFixed(2)} SOL needed: not enough in the dev wallet` };
-    d.bots.trend = { targetUsd: q.targetUsd, budgetSol: Math.min(this.devSol, q.sol * 1.3), spentSol: 0, estSol: q.sol };
+    const mins = Math.max(TREND_MIN_RANGE[0], Math.min(TREND_MIN_RANGE[1], minutes));
+    d.bots.trend = { targetUsd: q.targetUsd, budgetSol: Math.min(this.devSol, q.sol * 1.3), spentSol: 0, estSol: q.sol, endsAt: this.simNow + mins * 60_000 };
     this.at(this.simNow + 200, (a) => this.trendStep(c, a));
     this.emitNow();
     return { ok: true };
@@ -1749,7 +1778,10 @@ export class Engine {
       return;
     }
     if (at >= c.lockUntil) {
-      const chunk = Math.min(t.budgetSol - t.spentSol, Math.max(0.03, (t.estSol / 10) * this.rng.range(0.5, 1.5)));
+      // Paced to land on time: what's left over the steps left (~2 s each), never under a dust buy.
+      const stepsLeft = Math.max(1, (t.endsAt - at) / 2000);
+      const left = Math.max(0, t.estSol - t.spentSol);
+      const chunk = Math.min(t.budgetSol - t.spentSol, Math.max(0.03, (left / stepsLeft) * this.rng.range(0.6, 1.4)));
       const before = this.devSol;
       this.devWalletBuy(c, chunk, at, { g: "bot", i: this.rng.int(0, BOT_WALLETS - 1) });
       t.spentSol += before - this.devSol;
@@ -1891,25 +1923,36 @@ export class Engine {
   /** Rough cost of `n` holders on a launch right now (rent + their buys at today's price). */
   quoteHolders(coinId: string, n: number): number {
     const c = this.coins.get(coinId);
-    return c ? holderCostSol(n, this.mc(c)) : 0;
+    if (!c) return 0;
+    // Their buys walk the price up as they land, so price the whole lot off the curve or pool, plus rent.
+    const tokens = (n * HOLDER_SUPPLY_PCT * SUPPLY) / 100;
+    let buys: number;
+    if (!c.migrated) buys = this.solForTokens(c.curve, tokens);
+    else {
+      const f = this.poolShare(c);
+      const T = f * SUPPLY;
+      buys = (f * this.mc(c) * tokens) / Math.max(1, T - tokens) / (1 - FEE);
+    }
+    return (n * HOLDER_RENT_SOL + buys) * 1.1;
   }
 
   /**
-   * Holder bot: `n` fresh wallets, each buying ~0.03% of supply over the next minute or so. Rent is paid up front;
+   * Holder bot: `n` fresh wallets, each buying ~0.03% of supply, landing within seconds. Rent is paid up front;
    * the buys come out of your balance as they happen. Their bag shows as Holder wallets, which you can sell.
    */
   startHolderBot(coinId: string, n: number): { ok: boolean; reason?: string } {
     const own = this.ownLaunch(coinId);
-    if (!own || !(HOLDER_PACKAGES as readonly number[]).includes(n)) return { ok: false, reason: "Not your launch" };
+    n = Math.round(n);
+    if (!own || n < HOLDER_RANGE[0] || n > HOLDER_RANGE[1]) return { ok: false, reason: "Not your launch" };
     const { c, d } = own;
     if (d.bots.holders) return { ok: false, reason: "A holder bot is already running" };
-    const est = holderCostSol(n, this.mc(c));
+    const est = this.quoteHolders(coinId, n);
     if (est > this.wallet + 1e-9) return { ok: false, reason: `About ${est.toFixed(2)} SOL needed: not enough` };
     const rent = n * HOLDER_RENT_SOL;
     this.wallet -= rent;
     d.spentSol += rent;
-    // Budget: the estimate +30%. If the price runs away, it stops rather than draining your balance.
-    d.bots.holders = { total: n, added: 0, budgetSol: est * 1.3 - rent, spentSol: 0 };
+    // Budget: the estimate +25%. If the price runs away, it stops rather than draining your balance.
+    d.bots.holders = { total: n, added: 0, budgetSol: est * 1.25 - rent, spentSol: 0 };
     this.at(this.simNow + 300, (a) => this.holderStep(c, a));
     this.emitNow();
     return { ok: true };
@@ -1921,16 +1964,19 @@ export class Engine {
     if (!d || !h || !this.coins.has(c.id)) return;
     if (at >= c.lockUntil) {
       const before = c.holders;
-      const sol = ((HOLDER_SUPPLY_PCT / 100) * this.mc(c)) / (1 - FEE);
+      // If the price runs while they land, later holders buy a smaller bag so the budget still covers every one
+      // of them (the count is the point); never under a dust buy.
+      const full = ((HOLDER_SUPPLY_PCT / 100) * this.mc(c)) / (1 - FEE);
+      const fair = (h.budgetSol - h.spentSol) / Math.max(1, h.total - h.added);
+      const sol = Math.max(0.002, Math.min(full, fair));
       const w0 = this.wallet;
-      if (h.spentSol + sol <= h.budgetSol && this.devWalletBuy(c, sol, at, "holders") > 0) {
+      if (this.wallet >= sol && this.devWalletBuy(c, sol, at, "holders") > 0) {
         h.spentSol += w0 - this.wallet;
         c.holders = before + 1;
         h.added++;
         d.hw.count++;
       } else {
-        // Over budget (the price ran) or out of SOL: stop with what it has.
-        d.lastBot = `Holder bot stopped at ${h.added}/${h.total}: the price ran past its budget`;
+        d.lastBot = `Holder bot stopped at ${h.added}/${h.total}: out of SOL`;
         h.total = h.added;
       }
     }
@@ -1940,7 +1986,8 @@ export class Engine {
       this.emitNow();
       return;
     }
-    this.at(at + this.rng.range(250, 1100), (a) => this.holderStep(c, a));
+    // Quick: a couple of hundred land in ~10 s.
+    this.at(at + this.rng.range(25, 90), (a) => this.holderStep(c, a));
   }
 
   /** Stop managing a launch (it stays on the board; what you still hold is counted at its value). */
@@ -1977,7 +2024,9 @@ export class Engine {
         totalPct: (devHeld(d) / SUPPLY) * 100,
         bots: {
           volume: d.bots.volume ? { label: d.bots.volume.label, done: d.bots.volume.doneSol / d.bots.volume.totalSol, endsInMs: Math.max(0, d.bots.volume.endAt - this.simNow) } : null,
-          trend: d.bots.trend ? { targetUsd: d.bots.trend.targetUsd, spentSol: d.bots.trend.spentSol, budgetSol: d.bots.trend.budgetSol } : null,
+          trend: d.bots.trend
+            ? { targetUsd: d.bots.trend.targetUsd, spentSol: d.bots.trend.spentSol, budgetSol: d.bots.trend.budgetSol, endsInMs: Math.max(0, d.bots.trend.endsAt - this.simNow) }
+            : null,
           holders: d.bots.holders ? { total: d.bots.holders.total, added: d.bots.holders.added } : null,
           botHolders: d.hw.count,
           lastBot: d.lastBot,
@@ -3669,7 +3718,8 @@ export class Engine {
       ticker: c.spec.ticker,
       name: c.spec.name,
       art: c.spec.art,
-      config: c.spec.config,
+      // Dividends aren't a thing in Dev mode: no DIV tags anywhere.
+      config: this.opts.dev ? { ...c.spec.config, dividends: false } : c.spec.config,
       createdAt: c.createdAt,
       stage: c.stage,
       mcSol,
@@ -3693,6 +3743,7 @@ export class Engine {
       proTraders: Math.round(c.holders * c.proFrac),
       bundlers: c.bundlers,
       bundled: !!c.dev?.bundled,
+      showDiv: !this.opts.dev,
       dexPaid: c.dexPaid,
       called: c.thesis !== null,
       tailers: c.tailers.length,

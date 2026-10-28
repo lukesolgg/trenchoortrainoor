@@ -221,13 +221,14 @@ export function makeDistractor(rng: Rng, atMs: number): DistractorPlan {
   };
 }
 
-export function makeRound(rng: Rng, meme: Meme, diff: Difficulty): RoundPlan {
+/** `noDividends`: Dev mode, where dividends aren't a thing: every coin has them off and no look-alike differs by them. */
+export function makeRound(rng: Rng, meme: Meme, diff: Difficulty, opts: { noDividends?: boolean } = {}): RoundPlan {
   const author = AUTHORITIES[meme.author];
   const rightPair = rightPairFor(meme.author, meme.tag);
-  const rightConfig: CoinConfig = { launchpad: "pump", dividends: true, pair: rightPair };
+  const rightConfig: CoinConfig = { launchpad: "pump", dividends: !opts.noDividends, pair: rightPair };
 
   const total = rng.int(diff.deploys[0], diff.deploys[1]);
-  const flaws: Flaw[] = ["launchpad", "dividends", "pair"];
+  const flaws: Flaw[] = opts.noDividends ? ["launchpad", "pair"] : ["launchpad", "dividends", "pair"];
   if (meme.tickers.length > 1) flaws.push("ticker");
 
   // The flood is the runner and its derivatives only: every other coin is a look-alike with one thing wrong.

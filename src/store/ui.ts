@@ -59,7 +59,7 @@ interface UiState {
   /** Starting balance size. */
   port: Port;
   /** Dev mode: SOL in the dev wallet at the start of a session. */
-  devBalance: 10 | 50 | 200;
+  devBalance: 10 | 50 | 200 | 1000;
   /** Chart social layers. */
   social: { dev: boolean; kol: boolean; boost: boolean; news: boolean };
   /** Round length: Blitz (done in about a minute) or Saga (a 5-10 minute story). */
@@ -82,7 +82,7 @@ interface UiState {
   setStyle: (s: "strict" | "training") => void;
   setMuted: (b: boolean) => void;
   setPort: (p: Port) => void;
-  setDevBalance: (n: 10 | 50 | 200) => void;
+  setDevBalance: (n: 10 | 50 | 200 | 1000) => void;
   toggleSocial: (k: "dev" | "kol" | "boost" | "news") => void;
   setLength: (l: "blitz" | "saga") => void;
   setFeedOpen: (b: boolean) => void;

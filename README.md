@@ -52,7 +52,7 @@ Campaign (rules in `src/campaign/progression.ts`, state in `src/store/campaign.t
 
 ## Dev mode (phase 1)
 
-Standalone Dev mode (menu `2`): pick difficulty and a dev wallet of 10 / 50 / 200 SOL. A launchable tweet lands on
+Standalone Dev mode (menu `2`): pick difficulty and a dev wallet of 10 / 50 / 200 / 1,000 SOL. Dividends aren't part of Dev mode (no DIV tags, no look-alikes that differ by them). A launchable tweet lands on
 the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mode-spec.md`; rules in
 `src/engine/dev.ts`).
 
@@ -64,6 +64,11 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
   0.03). Back MEV slider: low front-runs the snipers (fewer of them, you top the holder list); high sends up to 40%
   of the wallets in behind them (more early dumping, you hide in the crowd). The summary shows bundle cost, wallet
   funding, the bubble-map read and the chance of being flagged in the first 30 s.
+- **Bots menu** (tabs on your coin's page, a dot on each running one): **Volume** (sliders for $5K-$2M over 1-60
+  min; cost 1.25%; attention scales with $/min; legs capped by liquidity, so a thin coin can't take a huge package and
+  the untraded share comes back), **Trend** (target MC slider to $20M with quick picks 2×, 3×, Bond, $100K-$5M, and a
+  0.5-30 min pace; estimate from the curve/pool, budget +30%), **Holders** (10-500, landing within seconds; later
+  holders buy smaller bags if the price runs so the count always completes), **Market maker**.
 - **Quiet window:** nobody can flag a bundle (of any size, up to 75% of supply) for the first 5-6 min (Quick),
   6-8 (Clean) or 8-10 (Full); launches without a bundle count as Quick. A countdown shows on your launch.
 - **Market maker** (Bots): trades your launch wallets around a ~25 s moving average, sized from pool liquidity.
