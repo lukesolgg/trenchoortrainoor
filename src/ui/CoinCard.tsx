@@ -97,6 +97,7 @@ export const CoinCard = memo(function CoinCard({ coin, ageText, quickSol, quickE
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0 text-[15px] font-extrabold tracking-tight">{coin.ticker}</span>
           <span className="truncate text-[12px] text-dim">{coin.name}</span>
+          {coin.bundled && <span className="shrink-0 rounded bg-down/15 px-1 text-[9.5px] font-black text-down">BUNDLED</span>}
         </div>
         <div className="flex items-center gap-1">
           <Chip className={PAIR_STYLE[config.pair]}>/{config.pair}</Chip>

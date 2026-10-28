@@ -37,6 +37,7 @@ export function LaunchesBar({ devSol, launches, openId, onOpen }: { devSol: numb
                 <span className="font-extrabold">${l.ticker}</span>
                 <span className="tabular text-dim">{usd(l.mcUsd)}</span>
                 <span className={`rounded px-1 text-[9.5px] font-black ${s.c}`}>{s.t}</span>
+                {l.bundle.flagged && <span className="rounded bg-down/15 px-1 text-[9.5px] font-black text-down">BUNDLED</span>}
                 <span className={`text-[10px] font-black ${wrong ? "text-down" : "text-up"}`} title={wrong ? `${wrong} wrong` : "all correct"}>
                   {wrong ? `✗${wrong}` : "✓"}
                 </span>

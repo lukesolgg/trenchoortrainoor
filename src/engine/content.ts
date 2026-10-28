@@ -205,6 +205,14 @@ export const KOLS: { name: string; handle: string; hue: number }[] = [
 export const BOOSTS = ["x10", "x30", "x50", "x100", "x500"];
 
 /** Fictional community-takeover crews. A CTO is two or three of them claiming a coin the dev walked away from. */
+/** Accounts that run bubble maps on fresh launches and call out bundles. */
+export const BUNDLE_CHECKERS: Author[] = [
+  { name: "Cluster Watch", handle: "clusterwatch", followers: "64.3K", verified: true, hue: 0, authority: false },
+  { name: "bundle.scan", handle: "bundlescan", followers: "29.7K", verified: true, hue: 15, authority: false },
+  { name: "Trench Police", handle: "trenchpolice", followers: "48.1K", verified: true, hue: 220, authority: false },
+  { name: "0xSleuth", handle: "0xsleuth", followers: "17.5K", verified: false, hue: 190, authority: false },
+];
+
 export const CTO_LEADERS: Author[] = [
   { name: "CTO Captain", handle: "ctocaptain", followers: "41.2K", verified: true, hue: 140, authority: false },
   { name: "Takeover Tom", handle: "takeovertom", followers: "18.9K", verified: false, hue: 170, authority: false },

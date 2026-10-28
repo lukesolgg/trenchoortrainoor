@@ -9,7 +9,7 @@ if (process.env.TUNE) Object.assign(DEV_TUNING, JSON.parse(process.env.TUNE));
  * Tuning harness for the dev demand model (run with HARNESS=1). Launches one coin per seed off the first Dev
  * mode tweet and prints the spread of outcomes for a few kinds of launch.
  */
-type Kind = "right-fast" | "right-late" | "wrong-image" | "wrong-config" | "wrong-ticker";
+type Kind = "right-fast" | "right-late" | "wrong-image" | "wrong-config" | "wrong-ticker" | "b0-quick-15" | "b0-clean-15" | "b0-full-15" | "b0-quick-35" | "b0-full-35";
 
 function launch(seed: number, kind: Kind) {
   const e = new Engine({ seed, difficulty: "trencher", autoRounds: false, clock: () => 0, dev: { sol: 200 } });
@@ -34,11 +34,17 @@ function launch(seed: number, kind: Kind) {
     organicSol: 1,
     rewards: "creator",
   };
+  if (kind.startsWith("b0-")) {
+    const [, build, pct] = kind.split("-");
+    choice.mode = "block0";
+    choice.organicSol = 0;
+    choice.bundle = { supplyPct: Number(pct), wallets: 20, build: build as "quick", mev: 0.5 };
+  }
   const r = e.devDeploy(id!, choice);
   if (!r.ok) throw new Error(r.reason);
   for (let t = e.now(); t < sc.tweetAt + 6 * 60_000; t += 500) e.advanceTo(t);
   const l = e.getSnapshot().launches[0];
-  return { bonded: l.bonded, peak: l.peakMcUsd, rewards: l.rewardsSol };
+  return { bonded: l.bonded, peak: l.peakMcUsd, rewards: l.rewardsSol, flagged: !!l.bundle.flagged };
 }
 
 const q = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(p * xs.length))];
@@ -48,11 +54,12 @@ it.skipIf(!process.env.HARNESS)(
   "dev launch outcome spread",
   () => {
     const N = Number(process.env.N ?? 60);
-    for (const kind of ["right-fast", "right-late", "wrong-image", "wrong-config", "wrong-ticker"] as Kind[]) {
+    const kinds = (process.env.KINDS?.split(",") ?? ["right-fast", "right-late", "wrong-image", "wrong-config", "wrong-ticker", "b0-quick-15", "b0-clean-15", "b0-full-15", "b0-quick-35", "b0-full-35"]) as Kind[];
+    for (const kind of kinds) {
       const rs = Array.from({ length: N }, (_, i) => launch(i + 1, kind));
       const peaks = rs.map((r) => r.peak);
       console.log(
-        `${kind.padEnd(13)} bonded ${Math.round((rs.filter((r) => r.bonded).length / N) * 100)}% · peak p25 ${k(q(peaks, 0.25))} p50 ${k(q(peaks, 0.5))} p75 ${k(q(peaks, 0.75))} p95 ${k(q(peaks, 0.95))} max ${k(Math.max(...peaks))} · rewards p50 ${q(rs.map((r) => r.rewards), 0.5).toFixed(3)}`,
+        `${kind.padEnd(13)} bonded ${Math.round((rs.filter((r) => r.bonded).length / N) * 100)}% · peak p25 ${k(q(peaks, 0.25))} p50 ${k(q(peaks, 0.5))} p75 ${k(q(peaks, 0.75))} p95 ${k(q(peaks, 0.95))} max ${k(Math.max(...peaks))} · rewards p50 ${q(rs.map((r) => r.rewards), 0.5).toFixed(3)} · flagged ${Math.round((rs.filter((r) => r.flagged).length / N) * 100)}% (p50 ${k(q(rs.filter((r) => r.flagged).map((r) => r.peak), 0.5) ?? 0)} vs ${k(q(rs.filter((r) => !r.flagged).map((r) => r.peak), 0.5) ?? 0)})`,
       );
     }
   },

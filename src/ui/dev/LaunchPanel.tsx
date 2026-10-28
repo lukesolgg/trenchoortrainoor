@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Engine } from "@/engine/engine";
-import type { DevChoice, LaunchMode, RewardsMode } from "@/engine/dev";
-import { DEPLOY_FEE_SOL } from "@/engine/dev";
+import type { BundleBuild, BundleConfig, DevChoice, LaunchMode, RewardsMode } from "@/engine/dev";
+import { BUNDLE_BUILDS, BUNDLE_PCTS, BUNDLE_WALLETS, DEPLOY_FEE_SOL } from "@/engine/dev";
 import type { Launchpad, Pair } from "@/engine/types";
 import { Art } from "../Art";
 import { sol, usd } from "../format";
@@ -37,15 +37,23 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
   const [devBuy, setDevBuy] = useState(1);
   const [organic, setOrganic] = useState(1);
   const [rewards, setRewards] = useState<RewardsMode>("creator");
+  const [bPct, setBPct] = useState(10);
+  const [bWallets, setBWallets] = useState(20);
+  const [build, setBuild] = useState<BundleBuild>("clean");
+  const [mev, setMev] = useState(0.5);
 
   const organicSol = mode === "organic" ? organic : 0;
-  const cost = DEPLOY_FEE_SOL + devBuy + organicSol;
-  const quote = useMemo(() => engine.quoteLaunch(devBuy, organicSol), [engine, devBuy, organicSol]);
+  const bundle: BundleConfig | null = mode === "block0" ? { supplyPct: bPct, wallets: bWallets, build, mev } : null;
+  const quote = useMemo(
+    () => engine.quoteLaunch(devBuy, organicSol, mode === "block0" ? { supplyPct: bPct, wallets: bWallets, build, mev } : null),
+    [engine, devBuy, organicSol, mode, bPct, bWallets, build, mev],
+  );
+  const cost = quote.costSol;
   const ready = nameIdx !== null && imageIdx !== null && cost <= devSol + 1e-9 && !sc?.launchedCoinId;
 
   const deploy = () => {
     if (!sc || nameIdx === null || imageIdx === null) return;
-    const choice: DevChoice = { nameIdx, imageIdx, launchpad, dividends: true, pair, mode, devBuySol: devBuy, organicSol, rewards };
+    const choice: DevChoice = { nameIdx, imageIdx, launchpad, dividends: true, pair, mode, devBuySol: devBuy, organicSol, rewards, bundle: bundle ?? undefined };
     const r = engine.devDeploy(sc.id, choice);
     if (!r.ok) return notify(r.reason ?? "Deploy failed");
     notify(`Deployed $${sc.names[nameIdx].ticker} · ${((now - sc.tweetAt) / 1000).toFixed(1)} s after the tweet`);
@@ -152,7 +160,7 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
             <div className="grid grid-cols-3 gap-1.5">
               <ModeCard on={mode === "manual"} title="Manual" sub="Dev buy only" onPick={() => setMode("manual")} />
               <ModeCard on={mode === "organic"} title="Organic" sub="Dev buy + a few fresh wallets" onPick={() => setMode("organic")} />
-              <ModeCard on={false} title="Block-0" sub="Bundle · coming next" locked />
+              <ModeCard on={mode === "block0"} title="Block-0" sub="Bundle in the create block" onPick={() => setMode("block0")} />
             </div>
             <div className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-[12px]">
               <span className="font-semibold text-faint">Dev buy</span>
@@ -175,6 +183,26 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
                   </div>
                 </>
               )}
+              {mode === "block0" && (
+                <>
+                  <span className="font-semibold text-faint">Bundle</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {BUNDLE_PCTS.map((v) => (
+                      <button key={v} type="button" className={chip(bPct === v, "border-amber/70 bg-amber/10 text-amber")} onClick={() => setBPct(v)}>
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                  <span className="font-semibold text-faint">Wallets</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {BUNDLE_WALLETS.map((v) => (
+                      <button key={v} type="button" className={chip(bWallets === v)} onClick={() => setBWallets(v)}>
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <span className="font-semibold text-faint">Fees</span>
               <div className="flex gap-1.5">
                 <button type="button" className={chip(rewards === "creator", "border-up/70 bg-up/10 text-up")} onClick={() => setRewards("creator")}>
@@ -185,6 +213,46 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
                 </button>
               </div>
             </div>
+            {mode === "block0" && (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(Object.keys(BUNDLE_BUILDS) as BundleBuild[]).map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setBuild(b)}
+                      className={`rounded-lg border px-3 py-2 text-left transition-colors ${build === b ? "border-violet bg-violet/15" : "border-line hover:border-line-hi"}`}
+                    >
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-[13px] font-extrabold">{BUNDLE_BUILDS[b].label}</span>
+                        <span className="tabular text-[10px] text-faint">{BUNDLE_BUILDS[b].perWalletSol}/w</span>
+                      </div>
+                      <div className="text-[11px] leading-tight text-dim">{BUNDLE_BUILDS[b].sub}</div>
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-faint">
+                    <span>Back MEV</span>
+                    <span className="tabular text-dim">{Math.round(bWallets * 0.4 * mev) > 0 ? `${Math.round(bWallets * 0.4 * mev)} of ${bWallets} wallets buy after the snipers` : "Everything in block 0"}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={mev}
+                    onChange={(e) => setMev(Number(e.target.value))}
+                    className="w-full accent-violet"
+                    aria-label="Back MEV"
+                  />
+                  <div className="flex justify-between text-[10.5px] text-faint">
+                    <span>Fewer snipers · you top the holders</span>
+                    <span>More snipers · you hide in them</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <p className="mt-1.5 text-[11px] leading-snug text-faint">
               {rewards === "creator"
                 ? "You earn a cut of every trade (more on the curve, less on the pool). Claim it from the launch."
@@ -200,6 +268,22 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
               <span className="text-right font-bold">{usd(quote.mcUsd)} MC</span>
               <span className="text-dim">Supply you hold</span>
               <span className={`text-right font-bold ${quote.supplyPct >= 10 ? "text-down" : ""}`}>{quote.supplyPct.toFixed(2)}%</span>
+              {mode === "block0" && (
+                <>
+                  <span className="text-dim">Bundle buys + funding</span>
+                  <span className="text-right font-bold">
+                    <SolIcon /> {sol(quote.bundleSol, 2)} + {sol(quote.walletCostSol, 2)}
+                  </span>
+                </>
+              )}
+              {(mode === "block0" || quote.risk > 0) && (
+                <>
+                  <span className="text-dim">Bubble map</span>
+                  <span className={`text-right font-bold ${READ_TONE[quote.read]}`}>{quote.read}</span>
+                  <span className="text-dim">Flagged in the first 30 s</span>
+                  <span className={`text-right font-bold ${READ_TONE[quote.read]}`}>{Math.round(quote.detectPct)}%</span>
+                </>
+              )}
               <span className="text-dim">Cost (fee {DEPLOY_FEE_SOL} + buys)</span>
               <span className="text-right font-bold">
                 <SolIcon /> {sol(cost, 2)}
@@ -209,7 +293,11 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
                 <SolIcon /> {sol(devSol - cost, 2)}
               </span>
             </div>
-            {quote.supplyPct >= 10 && <p className="mt-2 text-[11px] text-down">That much supply in your wallets looks like a bundle to anyone who checks.</p>}
+            {quote.detectPct >= 50 ? (
+              <p className="mt-2 text-[11px] text-down">Bundle checkers will very likely call this out: buyers thin out and KOLs stay away.</p>
+            ) : mode !== "block0" && quote.supplyPct >= 10 ? (
+              <p className="mt-2 text-[11px] text-amber">A big dev bag is public: buyers see the DEV % and wait for you to sell.</p>
+            ) : null}
           </section>
         </div>
 
@@ -228,6 +316,8 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
     </div>
   );
 }
+
+const READ_TONE = { "Likely clean": "text-up", Uncertain: "text-amber", Clustered: "text-down" } as const;
 
 function ModeCard({ on, title, sub, onPick, locked }: { on: boolean; title: string; sub: string; onPick?: () => void; locked?: boolean }) {
   return (

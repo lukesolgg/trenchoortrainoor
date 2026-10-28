@@ -278,6 +278,11 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
               {coin.config.launchpad === "bonk" && (
                 <span className="rounded border border-line-hi bg-white/5 px-1.5 py-px text-[10px] font-bold text-dim">BONK</span>
               )}
+              {coin.bundled && (
+                <span className="rounded border border-down/60 bg-down/15 px-1.5 py-px text-[10px] font-black text-down" title="Bundle checkers called this out">
+                  BUNDLED {coin.bundlers}%
+                </span>
+              )}
             </div>
             <div className="truncate text-[12px] text-dim">{coin.name}</div>
             <div className="mt-0.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-[11px]">

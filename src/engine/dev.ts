@@ -67,7 +67,90 @@ export interface LaunchOptions {
   rightImage: number;
 }
 
-export type LaunchMode = "manual" | "organic";
+const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
+
+export type LaunchMode = "manual" | "organic" | "block0";
+export type BundleBuild = "quick" | "clean" | "full";
+
+/**
+ * Block-0: your launch wallets buy in the same block as the create. `supplyPct` is the share they take (dev buy not
+ * included), spread over `wallets` of them. `mev` is the back-MEV setting: 0 front-runs the snipers (fewer of them,
+ * but your wallets top the holder list), 1 lets them in (more early dumping, but you hide in the crowd).
+ */
+export interface BundleConfig {
+  supplyPct: number;
+  wallets: number;
+  build: BundleBuild;
+  mev: number;
+}
+
+/**
+ * How the bundle is built. Quick funds every wallet from one source with even sizes: cheap and obvious. Clean
+ * funds through hops. Full uses aged wallets, CEX funding and varied sizes: costs the most, hardest to trace.
+ */
+export const BUNDLE_BUILDS: Record<BundleBuild, { label: string; sub: string; perWalletSol: number; stealth: number }> = {
+  quick: { label: "Quick", sub: "One funder, even sizes", perWalletSol: 0.002, stealth: 0 },
+  clean: { label: "Clean", sub: "Hop-funded wallets", perWalletSol: 0.012, stealth: 0.45 },
+  full: { label: "Full", sub: "Aged, CEX-funded, varied", perWalletSol: 0.03, stealth: 0.75 },
+};
+export const BUNDLE_WALLETS = [5, 10, 20, 30, 50] as const;
+export const BUNDLE_PCTS = [5, 10, 20, 30, 40] as const;
+
+export interface BundleRiskInput {
+  /** Supply in your non-deployer wallets (launch, bot, half of holder-bot), %. */
+  clusterPct: number;
+  /** How many wallets it sits in. */
+  wallets: number;
+  /** Your biggest single non-deployer wallet, %. */
+  maxWalletPct: number;
+  /** 0 (Quick) to 0.75 (Full); organic and bot wallets count as Quick. */
+  stealth: number;
+  /** Back-MEV setting (0.5 when not a block-0 launch). */
+  mev: number;
+}
+
+/**
+ * Chance one bundle-checker pass flags the launch. Driven by how much supply sits in your wallets, how few wallets
+ * it's in, how traceable the funding is and how visible you are in the top holders. Under ~6% it's noise.
+ */
+export function bundleRisk(r: BundleRiskInput): number {
+  if (r.clusterPct < 6) return 0;
+  const size = clamp((r.clusterPct - 6) / 30, 0, 1);
+  const avg = r.clusterPct / Math.max(1, r.wallets);
+  const conc = clamp(avg / 3, 0.2, 1);
+  const vis = 1.2 - 0.4 * clamp(r.mev, 0, 1);
+  const whale = r.maxWalletPct >= 5 ? 0.2 : 0;
+  return clamp(size * (0.45 + 0.55 * conc) * (1 - r.stealth) * vis * 0.9 + whale, 0, 0.92);
+}
+
+/** How a bubble map reads at a given per-check risk. */
+export function bubbleRead(risk: number): "Likely clean" | "Uncertain" | "Clustered" {
+  return risk < 0.12 ? "Likely clean" : risk < 0.35 ? "Uncertain" : "Clustered";
+}
+
+/** Bundle checkers look at 6, 15 and 30 s, then every 30 s while you hold enough to matter. */
+export const BUNDLE_CHECKS_MS = [6_000, 15_000, 30_000];
+export const BUNDLE_RECHECK_MS = 30_000;
+/** Chance of getting caught across the first three checks. */
+export const earlyDetection = (risk: number) => 1 - Math.pow(1 - risk, BUNDLE_CHECKS_MS.length);
+/** What the launch panel shows before you deploy. */
+export interface LaunchQuote {
+  mcUsd: number;
+  /** Everything your wallets would hold, %. */
+  supplyPct: number;
+  /** SOL the block-0 buys take, and what funding the wallets costs on top. */
+  bundleSol: number;
+  walletCostSol: number;
+  /** Deploy fee + every buy + wallet funding. */
+  costSol: number;
+  /** Per-check risk, chance of getting flagged in the first 30 s, and the bubble-map read. */
+  risk: number;
+  detectPct: number;
+  read: ReturnType<typeof bubbleRead>;
+}
+
+/** Once flagged, buyers come at this fraction of the interest and sell more. */
+export const BUNDLED_INTEREST = 0.4;
 export type RewardsMode = "creator" | "cashback";
 
 export interface DevChoice {
@@ -82,6 +165,8 @@ export interface DevChoice {
   /** Organic mode: SOL spread over a few fresh wallets of yours right after launch. */
   organicSol: number;
   rewards: RewardsMode;
+  /** Block-0 mode only. */
+  bundle?: BundleConfig;
 }
 
 export interface LaunchCheck {
@@ -197,6 +282,8 @@ export interface DemandInput {
   promo: number;
   /** Social proof from holder count and visible volume (0-0.35): more buyers give it a look. */
   proof: number;
+  /** Bundle checkers flagged it. */
+  bundled?: boolean;
 }
 
 export interface Demand {
@@ -210,7 +297,6 @@ export interface Demand {
   heat: number;
 }
 
-const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 /**
  * Demand tuning, set with the harness (dev.harness.test.ts, HARNESS=1). At these values a right, fast, organic
  * launch bonds ~80% of the time (median peak ~$150K with KOL waves, 1 in 20 near $1M+); right but late ~15%; a wrong
@@ -235,11 +321,12 @@ export function devDemand(d: DemandInput): Demand {
   const room = d.mcUsd >= d.ceilingUsd ? 0 : clamp(Math.log(d.ceilingUsd / d.mcUsd) / Math.log(d.ceilingUsd / 4000), 0, 1);
   const trust = 1 - 0.85 * clamp(d.devSoldFrac, 0, 1);
   // Mistakes cost more than their face value: a market that smells something off just walks.
-  const interest = d.heat0 * heat * Math.pow(d.corr, DEV_TUNING.corrExp) * Math.pow(d.share, 1.3) * d.rep * trust * (d.cashback ? 1.15 : 1) * (1 + d.proof);
+  const interest = d.heat0 * heat * Math.pow(d.corr, DEV_TUNING.corrExp) * Math.pow(d.share, 1.3) * d.rep * trust * (d.cashback ? 1.15 : 1) * (1 + d.proof) * (d.bundled ? BUNDLED_INTEREST : 1);
   const fomo = 1 + 4 * Math.max(0, d.momentum);
-  const buyP = clamp(0.04 + DEV_TUNING.buy * interest * Math.sqrt(room) * fomo, 0, 0.92);
+  // A flagged bundle loses buyers even when the chart is hot: the crowd reads the callout.
+  const buyP = clamp(0.04 + DEV_TUNING.buy * interest * Math.sqrt(room) * fomo, 0, 0.92) * (d.bundled ? 0.6 : 1);
   const over = d.mcUsd > d.ceilingUsd ? 0.35 : 0;
-  const sellP = clamp(0.1 + 0.4 * (1 - heat) + over + 2.5 * Math.max(0, -d.momentum) + 0.35 * (1 - trust), 0, 0.92);
+  const sellP = clamp(0.1 + 0.4 * (1 - heat) + over + 2.5 * Math.max(0, -d.momentum) + 0.35 * (1 - trust) + (d.bundled ? 0.12 : 0), 0, 0.92);
   // Size follows the coin: small on the curve, scaling with market cap on the pool.
   const mcSol = d.mcUsd / SOL_USD;
   const base = d.migrated ? Math.max(0.4, mcSol * 0.0025) : 0.2 + DEV_TUNING.curveSize * interest;

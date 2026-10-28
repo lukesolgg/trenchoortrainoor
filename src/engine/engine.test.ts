@@ -1521,6 +1521,79 @@ describe("dev mode", () => {
     ...over,
   });
 
+  const b0 = (sc: ReturnType<typeof make>["sc"], bundle: Partial<NonNullable<DevChoice["bundle"]>> = {}) =>
+    choice(sc, { mode: "block0", bundle: { supplyPct: 20, wallets: 20, build: "quick", mev: 0.5, ...bundle } });
+
+  it("block-0: the bundle lands in the create block across the launch wallets, costing what the quote said", () => {
+    const { e, id, sc } = make(11, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 2000);
+    const q = e.quoteLaunch(1, 0, { supplyPct: 20, wallets: 20, build: "clean", mev: 0 });
+    const sol0 = e.getSnapshot().devSol!;
+    expect(e.devDeploy(id, b0(sc, { build: "clean", mev: 0 })).ok).toBe(true);
+    const l = e.getSnapshot().launches[0];
+    expect(l.mode).toBe("block0");
+    expect(l.launchWalletPcts).toHaveLength(20);
+    expect(l.launchWalletPcts.every((x) => x > 0)).toBe(true);
+    expect(l.holdersPct).toBeCloseTo(20, 0);
+    expect(sol0 - e.getSnapshot().devSol!).toBeCloseTo(q.costSol, 6);
+    expect(q.walletCostSol).toBeCloseTo(20 * 0.012, 6);
+  });
+
+  it("bundle risk: Full hides better than Clean, Clean better than Quick; more supply and fewer wallets is worse", () => {
+    const { e } = make(12);
+    const r = (o: Partial<NonNullable<DevChoice["bundle"]>>) => e.quoteLaunch(1, 0, { supplyPct: 20, wallets: 20, build: "quick", mev: 0.5, ...o }).risk;
+    expect(r({ build: "full" })).toBeLessThan(r({ build: "clean" }));
+    expect(r({ build: "clean" })).toBeLessThan(r({ build: "quick" }));
+    expect(r({ supplyPct: 35 })).toBeGreaterThan(r({ supplyPct: 10 }));
+    expect(r({ wallets: 5 })).toBeGreaterThan(r({ wallets: 50 }));
+    expect(r({ mev: 1 })).toBeLessThan(r({ mev: 0 }));
+    expect(e.quoteLaunch(1, 1).risk).toBe(0);
+  });
+
+  it("a heavy Quick bundle gets called out: BUNDLED tag, a checker tweet, no KOLs", () => {
+    let caught = 0;
+    for (const seed of [21, 22, 23, 24]) {
+      const { e, id, sc } = make(seed, "trencher", 200);
+      e.advanceTo(sc.tweetAt + 2000);
+      e.devDeploy(id, b0(sc, { supplyPct: 35, wallets: 10, mev: 0 }));
+      const end = e.now() + 40_000;
+      for (let t = e.now(); t < end; t += 500) e.advanceTo(t);
+      const l = e.getSnapshot().launches[0];
+      if (!l.bundle.flagged) continue;
+      caught++;
+      const cv = e.getCoinView(l.coinId)!;
+      expect(cv.bundled).toBe(true);
+      expect(cv.bundlers).toBeGreaterThan(20);
+      expect(e.getSnapshot().feed.some((t) => t.segments.some((s) => s.text.includes(l.ticker)) && t.segments.map((s) => s.text).join("").match(/bundl|cluster/))).toBe(true);
+    }
+    expect(caught).toBeGreaterThanOrEqual(3);
+  });
+
+  it("a plain launch with a small dev buy never gets flagged", () => {
+    const { e, id, sc } = make(13);
+    e.advanceTo(sc.tweetAt + 2000);
+    e.devDeploy(id, choice(sc, { mode: "organic", organicSol: 1 }));
+    const end = e.now() + 120_000;
+    for (let t = e.now(); t < end; t += 1000) e.advanceTo(t);
+    expect(e.getSnapshot().launches[0].bundle.flagged).toBeNull();
+  });
+
+  it("outside snipers hit your launch in the first seconds and most are out within a minute", () => {
+    let seen = 0;
+    for (const seed of [31, 32, 33]) {
+      const { e, id, sc } = make(seed);
+      e.advanceTo(sc.tweetAt + 2000);
+      e.devDeploy(id, choice(sc));
+      e.advanceTo(e.now() + 3000);
+      const n0 = e.getSnapshot().launches[0].snipers.count;
+      seen += n0;
+      const end = e.now() + 130_000;
+      for (let t = e.now(); t < end; t += 1000) e.advanceTo(t);
+      expect(e.getSnapshot().launches[0].snipers.count).toBeLessThanOrEqual(Math.ceil(n0 * 0.5));
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
   it("tweets come with a Dev button and 3, 4 or 5 options by difficulty, without the answers", () => {
     for (const [d, n] of [["paper", 3], ["trencher", 4], ["sniper", 5]] as const) {
       const { e, id } = make(2, d);

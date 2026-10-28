@@ -57,8 +57,20 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
 `src/engine/dev.ts`).
 
 - **Launch panel:** name + ticker and picture picked from 3 / 4 / 5 near-miss options (Easy / Medium / Hard; keys
-  1-5 pick the name), launchpad, dividends, pair; Manual or Organic mode (Block-0 is next); dev buy, organic buys;
+  1-5 pick the name), launchpad, dividends, pair; Manual, Organic or Block-0 mode; dev buy, organic buys;
   creator fees to you or cashback to holders; summary of opening MC, supply held and cost. Deploy fee 0.02 SOL.
+- **Block-0 bundles:** your launch wallets buy 5-40% of supply in the create block, over 5-50 wallets. Build:
+  Quick (one funder, even sizes, 0.002 SOL/wallet), Clean (hop-funded, 0.012), Full (aged, CEX-funded, varied sizes,
+  0.03). Back MEV slider: low front-runs the snipers (fewer of them, you top the holder list); high sends up to 40%
+  of the wallets in behind them (more early dumping, you hide in the crowd). The summary shows bundle cost, wallet
+  funding, the bubble-map read and the chance of being flagged in the first 30 s.
+- **Bundle checkers** run on every launch at 6, 15 and 30 s, then every 30 s. Risk comes from the supply in your
+  non-deployer wallets (launch, trend-bot, half of holder-bot), how few wallets it sits in, the biggest one (5%+),
+  the build (only the block-0 tokens get its stealth; anything piled in later is traceable) and the MEV setting
+  (`bundleRisk` in `dev.ts`). Caught: a BUNDLED x% tag on the coin, board and launch chip, a callout on the
+  Tracker, buyers at ~40% interest and fewer buys, KOLs sell out and no new ones come.
+- **Snipers** hit every launch in the first 0.3-2.5 s (fewer for a front-run bundle): most dump 10-45 s later, about
+  a third hold for a 2x or ~1-2 min. Your launch wallets, the snipers and the market's bag show in Holders and Top 10.
 - **Rivals** deploy the right coin and its look-alikes 4-22 s after the tweet (faster on harder levels). First right
   coin gets the narrative; a rival's right coin that lands after yours only gets scraps.
 - **Demand model:** your coins are not scripted. Organic buys and sells come from the tweet's heat, how right the

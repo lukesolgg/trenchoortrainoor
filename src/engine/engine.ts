@@ -4,8 +4,9 @@ import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
 import { BOT_WALLETS, HOLDER_PACKAGES, HOLDER_RENT_SOL, HOLDER_SUPPLY_PCT, holderCostSol, LAUNCH_WALLETS_MAX, LAUNCH_WALLETS_START, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
+import { BUNDLE_BUILDS, BUNDLE_CHECKS_MS, BUNDLE_RECHECK_MS, bubbleRead, bundleRisk, earlyDetection, type BundleConfig, type LaunchMode, type LaunchQuote } from "./dev";
 import { checkLaunch, correctness, CREATOR_FEE_CURVE, CREATOR_FEE_POOL, DEPLOY_FEE_SOL, devCeilingUsd, devDemand, makeLaunchOptions, narrativeLuck, OPTION_COUNT, RIVAL_LAG_S, type DevChoice, type LaunchCheck, type LaunchOptions } from "./dev";
-import { BOOSTS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES, NOISE_AUTHORS } from "./content";
+import { BOOSTS, BUNDLE_CHECKERS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES, NOISE_AUTHORS } from "./content";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound, scoreSaga } from "./scoring";
 import {
   MEME_PACK,
@@ -150,6 +151,16 @@ interface DevLaunch {
   /** Market cap (USD) once a second, last 10 s, for momentum. */
   hist: number[];
   lastSample: number;
+  mode: LaunchMode;
+  /** Block-0 setup, and the tokens it bought (for how much of your cluster is the well-hidden part). */
+  bundle: BundleConfig | null;
+  bundleTokens: number;
+  /** Bundle checkers: the next pass, how many have run, and the flag once one catches you. */
+  nextCheck: number;
+  checks: number;
+  bundled: { pct: number; at: number } | null;
+  /** Outside snipers on your launch: what each holds, when it dumps, and the market cap it takes profit at (SOL). */
+  snipers: { tokens: number; exitAt: number; targetMc: number }[];
 }
 
 /** A Dev mode tweet and what rides on it. */
@@ -925,17 +936,62 @@ export class Engine {
     };
   }
 
-  /** Market cap and supply share a launch would open at, before anyone else trades it. */
-  quoteLaunch(devBuySol: number, organicSol: number): { mcUsd: number; supplyPct: number } {
+  /** Market cap, supply, cost and bundle risk a launch would open at, before anyone else trades it. */
+  quoteLaunch(devBuySol: number, organicSol: number, bundle?: BundleConfig | null): LaunchQuote {
     let c = curveLib.newCurve();
-    let tokens = 0;
-    for (const s of [devBuySol, organicSol]) {
-      if (s <= 0) continue;
-      const r = curveLib.buy(c, s);
+    let devTokens = 0;
+    if (devBuySol > 0) {
+      const r = curveLib.buy(c, devBuySol);
       c = r.curve;
-      tokens += r.tokens;
+      devTokens = r.tokens;
     }
-    return { mcUsd: toUsd(curveLib.mcSol(c)), supplyPct: (tokens / SUPPLY) * 100 };
+    let clusterTokens = 0;
+    let bundleSol = 0;
+    if (organicSol > 0) {
+      const r = curveLib.buy(c, organicSol);
+      c = r.curve;
+      clusterTokens += r.tokens;
+    }
+    if (bundle && bundle.supplyPct > 0) {
+      bundleSol = this.solForTokens(c, (SUPPLY * bundle.supplyPct) / 100);
+      const r = curveLib.buy(c, bundleSol);
+      c = r.curve;
+      clusterTokens += r.tokens;
+    }
+    const walletCostSol = bundle ? bundle.wallets * BUNDLE_BUILDS[bundle.build].perWalletSol : 0;
+    const clusterPct = (clusterTokens / SUPPLY) * 100;
+    const wallets = bundle ? bundle.wallets : organicSol > 0 ? 4 : 0;
+    // Varied sizes (Full) put the biggest wallet well over the average.
+    const spread = bundle ? { quick: 1, clean: 1.25, full: 1.7 }[bundle.build] : 1.3;
+    const risk = bundleRisk({
+      clusterPct,
+      wallets,
+      maxWalletPct: wallets ? (clusterPct / wallets) * spread : 0,
+      stealth: bundle ? BUNDLE_BUILDS[bundle.build].stealth : 0,
+      mev: bundle ? bundle.mev : 0.5,
+    });
+    return {
+      mcUsd: toUsd(curveLib.mcSol(c)),
+      supplyPct: ((devTokens + clusterTokens) / SUPPLY) * 100,
+      bundleSol,
+      walletCostSol,
+      costSol: DEPLOY_FEE_SOL + devBuySol + organicSol + bundleSol + walletCostSol,
+      risk,
+      detectPct: earlyDetection(risk) * 100,
+      read: bubbleRead(risk),
+    };
+  }
+
+  /** SOL it takes to buy `tokens` off a curve (bisection; the curve is monotonic). */
+  private solForTokens(c: Curve, tokens: number): number {
+    let lo = 0;
+    let hi = 400;
+    for (let k = 0; k < 50; k++) {
+      const mid = (lo + hi) / 2;
+      if (curveLib.buy(c, mid).tokens < tokens) lo = mid;
+      else hi = mid;
+    }
+    return hi;
   }
 
   /**
@@ -949,7 +1005,17 @@ export class Engine {
     if (sc.launched) return { ok: false, reason: "You already launched this one" };
     const devBuy = Math.max(0, choice.devBuySol);
     const organic = choice.mode === "organic" ? Math.max(0, choice.organicSol) : 0;
-    const cost = DEPLOY_FEE_SOL + devBuy + organic;
+    const bundle =
+      choice.mode === "block0" && choice.bundle
+        ? {
+            ...choice.bundle,
+            supplyPct: Math.max(0, Math.min(60, choice.bundle.supplyPct)),
+            wallets: Math.max(1, Math.min(LAUNCH_WALLETS_MAX, Math.round(choice.bundle.wallets))),
+            mev: Math.max(0, Math.min(1, choice.bundle.mev)),
+          }
+        : null;
+    const quote = this.quoteLaunch(devBuy, organic, bundle);
+    const cost = quote.costSol;
     if (cost > this.devSol + 1e-9) return { ok: false, reason: `Not enough SOL in the dev wallet (${cost.toFixed(2)} needed)` };
     const at = this.simNow;
     // Dividends are out of Dev mode for now: every launch gets the right setting.
@@ -1004,6 +1070,13 @@ export class Engine {
       lastBot: null,
       hist: [],
       lastSample: at,
+      mode: choice.mode,
+      bundle,
+      bundleTokens: 0,
+      nextCheck: at + BUNDLE_CHECKS_MS[0],
+      checks: 0,
+      bundled: null,
+      snipers: [],
     };
     sc.launched = c.id;
     this.launchIds.push(c.id);
@@ -1012,6 +1085,49 @@ export class Engine {
       c.devPct = (r / SUPPLY) * 100;
       c.stats.dev = +c.devPct.toFixed(2);
       this.social(c, at, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: devBuy, pct: c.devPct });
+    }
+    // Block-0: the bundle lands in the create block, ahead of every sniper. With back-MEV turned up, part of it
+    // waits and buys in behind them (paying their price, but not sitting on top of the holder list).
+    if (bundle && quote.bundleSol > 0) {
+      const d = c.dev;
+      while (d.lw.length < bundle.wallets) d.lw.push(0);
+      const fund = quote.walletCostSol;
+      this.devSol -= fund;
+      d.spentSol += fund;
+      const w = Array.from({ length: bundle.wallets }, () =>
+        bundle.build === "quick" ? 1 : bundle.build === "clean" ? this.rng.range(0.8, 1.2) : this.rng.lognormal(1, 0.45),
+      );
+      const wSum = sum(w);
+      const back = new Set(this.rng.shuffle(w.map((_, i) => i)).slice(0, Math.round(bundle.wallets * 0.4 * bundle.mev)));
+      w.forEach((wi, i) => {
+        const solI = (quote.bundleSol * wi) / wSum;
+        const buy = (a: number) => {
+          if (this.coins.has(c.id)) d.bundleTokens += this.devWalletBuy(c, solI, a, { g: "launch", i });
+        };
+        if (back.has(i)) this.at(at + this.rng.range(2500, 3200), buy);
+        else buy(at);
+      });
+    }
+    // Outside snipers hit every launch: most dump inside a minute, a few hold for a 2x. Front-running them with a
+    // bundle (back-MEV low) leaves fewer of them.
+    {
+      const sniperMul = bundle ? 0.35 + 0.65 * bundle.mev : 1;
+      const n = Math.round(this.rng.range(2, 7) * Math.min(1.5, c.dev.heat0) * (0.3 + 0.7 * corr) * sniperMul);
+      for (let k = 0; k < n; k++) {
+        this.at(at + this.rng.range(350, 2500), (a) => {
+          const d = c.dev;
+          if (!d || !this.coins.has(c.id)) return;
+          const r = this.applyBuy(c, Math.min(2.5, this.rng.lognormal(0.6, 0.6)), a, "bot");
+          if (r.tokens <= 0) return;
+          const holder = this.rng.chance(0.3);
+          d.snipers.push({
+            tokens: r.tokens,
+            exitAt: a + (holder ? this.rng.range(60_000, 120_000) : this.rng.range(10_000, 45_000)),
+            targetMc: holder ? this.mc(c) * 2 : Infinity,
+          });
+          this.sniperStats(c);
+        });
+      }
     }
     // Organic mode: a handful of fresh wallets of yours buy in over the first few seconds.
     if (organic > 0) {
@@ -1103,13 +1219,17 @@ export class Engine {
       // A running volume bot keeps it on the trending lists; volume and holders are social proof.
       promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0),
       proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? 0.1 : 0),
+      bundled: !!d.bundled,
     });
+    this.sniperExits(c, at);
+    if (!d.bundled && at >= d.nextCheck) this.bundleCheck(c, at);
     // A right coin that is running draws KOLs at each milestone: real buys, sometimes a tweet. They take profit
     // when it bleeds.
     if (d.rightCoin && mcUsd >= KOL_MILESTONES[d.kolStage]) {
       d.kolStage++;
       // KOLs check the details too: a wrong picture or pair puts some of them off.
-      if (this.rng.chance(Math.pow(d.corr, 1.5))) this.kolWave(c, at);
+      // Nobody with a name touches a coin that's been called out as bundled.
+      if (!d.bundled && this.rng.chance(Math.pow(d.corr, 1.5))) this.kolWave(c, at);
     }
     if (c.kolsIn.length && (mcUsd < d.peakMcUsd * 0.55 || momentum < -0.25 || dem.heat < 0.1) && this.rng.chance(0.03)) this.kolTrade(c, at, "sell");
     const fee = c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE;
@@ -1129,6 +1249,67 @@ export class Engine {
     if (!d.ended && at - d.launchedAt > 45_000 && mcUsd < 4500 && dem.heat < 0.25) this.endLaunch(c, "died");
     const quiet = dem.heat < 0.05 && mcUsd < 6000;
     this.at(at + (quiet ? 1500 : this.rng.range(180, 320)), (a) => this.devFlow(c, a));
+  }
+
+  /** Snipers on your launch dump on their timer, or take profit at their 2x. */
+  private sniperExits(c: Coin, at: number): void {
+    const d = c.dev!;
+    if (!d.snipers.length || at < c.lockUntil) return;
+    const mc = this.mc(c);
+    const out = d.snipers.filter((s) => at >= s.exitAt || mc >= s.targetMc);
+    if (!out.length) return;
+    for (const s of out) this.applySell(c, s.tokens, at, "bot");
+    d.snipers = d.snipers.filter((s) => !out.includes(s));
+    this.sniperStats(c);
+  }
+
+  private sniperStats(c: Coin): void {
+    const d = c.dev!;
+    c.stats.snipers = +((sum(d.snipers.map((s) => s.tokens)) / SUPPLY) * 100).toFixed(1);
+  }
+
+  /** What a bubble map sees in your non-deployer wallets right now. */
+  private clusterOf(d: DevLaunch): { pct: number; risk: number } {
+    const tokens = sum(d.lw) + sum(d.bw) + d.hw.tokens * 0.5;
+    const pct = (tokens / SUPPLY) * 100;
+    const wallets = d.lw.filter((x) => x > 1).length + d.bw.filter((x) => x > 1).length + d.hw.count / 4;
+    const maxWalletPct = (Math.max(0, ...d.lw, ...d.bw) / SUPPLY) * 100;
+    // Only the block-0 wallets were built to hide; anything you piled in since is funded straight from you.
+    const hidden = tokens > 0 ? Math.min(1, d.bundleTokens / tokens) : 0;
+    const stealth = d.bundle ? BUNDLE_BUILDS[d.bundle.build].stealth * hidden : 0;
+    return { pct, risk: bundleRisk({ clusterPct: pct, wallets, maxWalletPct, stealth, mev: d.bundle ? d.bundle.mev : 0.5 }) };
+  }
+
+  /** One bundle-checker pass. Caught: the BUNDLED tag, a callout on the Tracker, buyers thin out and KOLs leave. */
+  private bundleCheck(c: Coin, at: number): void {
+    const d = c.dev!;
+    d.checks++;
+    d.nextCheck = d.launchedAt + (d.checks < BUNDLE_CHECKS_MS.length ? BUNDLE_CHECKS_MS[d.checks] : BUNDLE_CHECKS_MS[BUNDLE_CHECKS_MS.length - 1] + (d.checks - BUNDLE_CHECKS_MS.length + 1) * BUNDLE_RECHECK_MS);
+    if (d.ended) return;
+    const { pct, risk } = this.clusterOf(d);
+    if (!this.rng.chance(risk)) return;
+    d.bundled = { pct, at };
+    c.bundlers = Math.round(pct);
+    d.promo.peak *= 0.4;
+    const n = d.lw.filter((x) => x > 1).length + d.bw.filter((x) => x > 1).length;
+    const t = c.spec.ticker;
+    const how =
+      d.bundle?.build === "full"
+        ? `aged wallets, CEX-funded, still one cluster`
+        : d.bundle?.build === "clean"
+          ? `funded through hops, same source two steps back`
+          : `all funded from one wallet`;
+    const lines = [
+      `🚨 $${t} is ${pct.toFixed(0)}% bundled. ${n} wallets, ${how}. be careful`,
+      `bubble map on $${t}: ${n} wallets holding ${pct.toFixed(0)}% in one cluster. dev bundled it`,
+      `$${t} bundle check: ${pct.toFixed(0)}% of supply in linked wallets. not touching this`,
+    ];
+    const text = this.rng.pick(lines);
+    const segs: TweetSeg[] = text.split(/(\$[A-Za-z0-9]+)/).filter(Boolean).map((x) => ({ text: x, hl: x.startsWith("$") }));
+    this.pushTweet(this.rng.pick(BUNDLE_CHECKERS), segs, false, undefined, at);
+    // KOLs who are in want out before the crowd reads it.
+    for (let k = 0; k < c.kolsIn.length; k++) this.at(at + this.rng.range(1500, 9000), (a) => this.coins.has(c.id) && this.kolTrade(c, a, "sell"));
+    this.emitNow();
   }
 
   /** A burst of attention on one of your launches; a stronger one replaces a weaker one still running. */
@@ -1599,6 +1780,19 @@ export class Engine {
         check: d.check,
         right: { name: right.name, ticker: right.ticker, art: sc.options.images[sc.options.rightImage], config: sc.plan.rightConfig },
         config: c.spec.config,
+        mode: d.mode,
+        bundle: (() => {
+          const k = this.clusterOf(d);
+          return {
+            build: d.bundle?.build ?? null,
+            clusterPct: k.pct,
+            risk: k.risk,
+            read: bubbleRead(k.risk),
+            flagged: d.bundled,
+            nextCheckInMs: Math.max(0, d.nextCheck - this.simNow),
+          };
+        })(),
+        snipers: { count: d.snipers.length, pct: (sum(d.snipers.map((s) => s.tokens)) / SUPPLY) * 100 },
       });
     }
     return out;
@@ -1616,9 +1810,24 @@ export class Engine {
     return out.sort((a, b) => b - a);
   }
 
+  /**
+   * The anonymous wallets in a coin. On your own launches they are real: your launch and bot wallets (they look
+   * like anyone, which is the point and the risk), the snipers, and the market's bag spread over its biggest buyers.
+   */
+  private anonOf(c: Coin): number[] {
+    const d = c.dev;
+    if (!d) return c.anon;
+    const pct = (t: number) => (t / SUPPLY) * 100;
+    const market = pct(d.marketTokens);
+    const spread = [0.14, 0.11, 0.09, 0.075, 0.065, 0.055, 0.048, 0.042, 0.036, 0.03];
+    return [...d.lw.map(pct), ...d.bw.map(pct), ...d.snipers.map((x) => pct(x.tokens)), ...spread.map((w) => market * w)]
+      .filter((x) => x > 0.01)
+      .sort((a, b) => b - a);
+  }
+
   /** Top 10 holders' share of supply (pool excluded): you, the dev, KOLs and the anonymous wallets. */
   private top10(c: Coin): number {
-    const all = [...c.anon, c.devPct || c.stats.dev, ...[...c.kolHold.values()].map((h) => h.pct), ...this.walletPcts(c.id)]
+    const all = [...this.anonOf(c), c.devPct || c.stats.dev, ...[...c.kolHold.values()].map((h) => h.pct), ...this.walletPcts(c.id)]
       .filter((x) => x > 0)
       .sort((a, b) => b - a)
       .slice(0, 10);
@@ -1688,7 +1897,7 @@ export class Engine {
     const c = this.coins.get(coinId);
     if (!c) return { youPct: 0, you: [], devPct: 0, kols: [], anon: [] };
     return {
-      anon: c.anon,
+      anon: this.anonOf(c),
       youPct: this.holdingPct(coinId),
       you: this.walletPcts(coinId),
       devPct: c.stats.dev,
@@ -3256,6 +3465,7 @@ export class Engine {
       devMigrated: c.devMigrated,
       proTraders: Math.round(c.holders * c.proFrac),
       bundlers: c.bundlers,
+      bundled: !!c.dev?.bundled,
       dexPaid: c.dexPaid,
       called: c.thesis !== null,
       tailers: c.tailers.length,

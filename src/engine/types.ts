@@ -73,6 +73,8 @@ export interface CoinView {
   devMigrated: number;
   proTraders: number;
   bundlers: number;
+  /** Bundle checkers called it out (Dev mode launches). */
+  bundled: boolean;
   dexPaid: boolean;
   /** KOL Rep: you posted a call on this coin; how many of your followers tailed you in, and with how much. */
   called: boolean;
@@ -307,6 +309,18 @@ export interface LaunchView {
   /** What the tweet called for. */
   right: { name: string; ticker: string; art: ArtSpec; config: CoinConfig };
   config: CoinConfig;
+  mode: "manual" | "organic" | "block0";
+  /** What bubble maps see in your non-deployer wallets, the per-check risk, and the flag once one catches you. */
+  bundle: {
+    build: "quick" | "clean" | "full" | null;
+    clusterPct: number;
+    risk: number;
+    read: "Likely clean" | "Uncertain" | "Clustered";
+    flagged: { pct: number; at: number } | null;
+    nextCheckInMs: number;
+  };
+  /** Outside snipers still holding. */
+  snipers: { count: number; pct: number };
 }
 
 /** What the launch panel shows for a Dev mode tweet. The right answers stay in the engine. */

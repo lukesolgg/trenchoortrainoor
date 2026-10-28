@@ -13,6 +13,12 @@ const Stat = ({ k, v, sub, tone, warn }: { k: string; v: string; sub: string; to
   </div>
 );
 
+const BUBBLE = {
+  "Likely clean": "border-line text-dim",
+  Uncertain: "border-amber/50 bg-amber/[0.06] text-amber",
+  Clustered: "border-down/50 bg-down/[0.06] text-down",
+} as const;
+
 interface Props {
   l: LaunchView;
   now: number;
@@ -45,9 +51,24 @@ export function DevOps({ l, now, onNuke, onClaim, onReport }: Props) {
           </div>
         </LaunchCheckTip>
       )}
+      {l.bundle.flagged ? (
+        <div className="mb-2 rounded-md border border-down/60 bg-down/10 px-2.5 py-1.5 text-[11.5px] leading-snug text-down">
+          <span className="font-black">BUNDLED {l.bundle.flagged.pct.toFixed(0)}%</span> · called out {Math.max(0, Math.round((l.bundle.flagged.at - l.launchedAt) / 1000))} s in. Buyers
+          thin out and KOLs won&apos;t touch it.
+        </div>
+      ) : l.bundle.clusterPct >= 6 ? (
+        <div className={`tabular mb-2 flex items-center justify-between rounded-md border px-2.5 py-1.5 text-[11.5px] ${BUBBLE[l.bundle.read]}`}>
+          <span>
+            Bubble map: <span className="font-bold">{l.bundle.read}</span> · {l.bundle.clusterPct.toFixed(1)}% linked
+          </span>
+          <span className="text-dim">
+            {Math.round(l.bundle.risk * 100)}%/check · next {Math.ceil(l.bundle.nextCheckInMs / 1000)}s
+          </span>
+        </div>
+      ) : null}
       <div className="tabular mb-2 grid grid-cols-3 gap-1.5 text-[11px]">
         <Stat k="You hold" v={`${l.totalPct.toFixed(2)}%`} sub={`≈ ${sol(l.holdingsSol)} SOL`} warn={l.totalPct >= 20} />
-        <Stat k="Deployer" v={`${l.deployerPct.toFixed(2)}%`} sub="public" />
+        <Stat k="Deployer" v={`${l.deployerPct.toFixed(2)}%`} sub={l.snipers.count ? `public · ${l.snipers.count} sniper${l.snipers.count === 1 ? "" : "s"} ${l.snipers.pct.toFixed(1)}%` : "public"} />
         <Stat k="Realised" v={`${l.pnlSol >= 0 ? "+" : ""}${sol(l.pnlSol)}`} sub="SOL" tone={l.pnlSol >= 0 ? "text-up" : "text-down"} />
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1.5">
