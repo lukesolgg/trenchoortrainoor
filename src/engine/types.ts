@@ -318,7 +318,11 @@ export interface LaunchView {
     read: "Likely clean" | "Uncertain" | "Clustered";
     flagged: { pct: number; at: number } | null;
     nextCheckInMs: number;
+    /** Until bubble maps catch up, nothing can flag you. */
+    hiddenForMs: number;
   };
+  /** Market maker running on it. */
+  mm: { strategy: "defend" | "make" | "distribute"; band: number; pace: number; budgetSol: number; spentSol: number; gotSol: number; soldPct: number } | null;
   /** Outside snipers still holding. */
   snipers: { count: number; pct: number };
 }

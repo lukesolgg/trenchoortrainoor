@@ -1550,23 +1550,60 @@ describe("dev mode", () => {
     expect(e.quoteLaunch(1, 1).risk).toBe(0);
   });
 
-  it("a heavy Quick bundle gets called out: BUNDLED tag, a checker tweet, no KOLs", () => {
+  it("nobody can flag a bundle for the first 5-10 minutes, however big", () => {
+    const { e, id, sc } = make(21, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 2000);
+    expect(e.devDeploy(id, b0(sc, { supplyPct: 75, wallets: 10, mev: 0 })).ok).toBe(true);
+    const l0 = e.getSnapshot().launches[0];
+    expect(l0.holdersPct).toBeGreaterThan(70);
+    expect(l0.bonded).toBe(false);
+    expect(l0.bundle.hiddenForMs).toBeGreaterThanOrEqual(5 * 60_000 - 1);
+    expect(l0.bundle.hiddenForMs).toBeLessThanOrEqual(6 * 60_000);
+    const end = e.now() + 4.9 * 60_000;
+    for (let t = e.now(); t < end; t += 1000) e.advanceTo(t);
+    expect(e.getSnapshot().launches[0].bundle.flagged).toBeNull();
+  });
+
+  it("after the quiet window a heavy Quick bundle gets called out: BUNDLED tag, a checker tweet", () => {
     let caught = 0;
     for (const seed of [21, 22, 23, 24]) {
       const { e, id, sc } = make(seed, "trencher", 200);
       e.advanceTo(sc.tweetAt + 2000);
-      e.devDeploy(id, b0(sc, { supplyPct: 35, wallets: 10, mev: 0 }));
-      const end = e.now() + 40_000;
-      for (let t = e.now(); t < end; t += 500) e.advanceTo(t);
+      e.devDeploy(id, b0(sc, { supplyPct: 40, wallets: 10, mev: 0 }));
+      const end = e.now() + 7 * 60_000;
+      for (let t = e.now(); t < end; t += 1000) e.advanceTo(t);
       const l = e.getSnapshot().launches[0];
       if (!l.bundle.flagged) continue;
       caught++;
+      expect(l.bundle.flagged.at - l.launchedAt).toBeGreaterThanOrEqual(5 * 60_000);
       const cv = e.getCoinView(l.coinId)!;
       expect(cv.bundled).toBe(true);
-      expect(cv.bundlers).toBeGreaterThan(20);
       expect(e.getSnapshot().feed.some((t) => t.segments.some((s) => s.text.includes(l.ticker)) && t.segments.map((s) => s.text).join("").match(/bundl|cluster/))).toBe(true);
     }
     expect(caught).toBeGreaterThanOrEqual(3);
+  });
+
+  it("market maker: Defend buys dips from its budget and never sells; Distribute sells the bag into strength", () => {
+    const { e, id, sc } = make(51, "trencher", 300);
+    e.advanceTo(sc.tweetAt + 2000);
+    e.devDeploy(id, b0(sc, { supplyPct: 40, wallets: 20, build: "full" }));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    expect(e.startMarketMaker(coinId, { strategy: "defend", band: 0.05, budgetSol: 10, pace: 2 }).ok).toBe(true);
+    let end = e.now() + 120_000;
+    for (let t = e.now(); t < end; t += 500) e.advanceTo(t);
+    let mm = e.getSnapshot().launches[0].mm!;
+    expect(mm.gotSol).toBe(0);
+    expect(mm.spentSol).toBeLessThanOrEqual(10 + 1e-6);
+    const bag0 = e.getSnapshot().launches[0].holdersPct;
+    expect(e.startMarketMaker(coinId, { strategy: "distribute", band: 0.1, budgetSol: 0, pace: 5 }).ok).toBe(true);
+    end = e.now() + 180_000;
+    for (let t = e.now(); t < end; t += 500) e.advanceTo(t);
+    const l = e.getSnapshot().launches[0];
+    mm = l.mm!;
+    expect(l.holdersPct).toBeLessThan(bag0 * 0.9);
+    expect(l.gotSol).toBeGreaterThan(0);
+    e.stopMarketMaker(coinId);
+    expect(e.getSnapshot().launches[0].mm).toBeNull();
   });
 
   it("a plain launch with a small dev buy never gets flagged", () => {

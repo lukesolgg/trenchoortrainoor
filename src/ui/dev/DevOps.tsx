@@ -56,6 +56,15 @@ export function DevOps({ l, now, onNuke, onClaim, onReport }: Props) {
           <span className="font-black">BUNDLED {l.bundle.flagged.pct.toFixed(0)}%</span> · called out {Math.max(0, Math.round((l.bundle.flagged.at - l.launchedAt) / 1000))} s in. Buyers
           thin out and KOLs won&apos;t touch it.
         </div>
+      ) : l.bundle.clusterPct >= 6 && l.bundle.hiddenForMs > 0 ? (
+        <div className="tabular mb-2 flex items-center justify-between rounded-md border border-up/40 bg-up/[0.05] px-2.5 py-1.5 text-[11.5px] text-up">
+          <span className="whitespace-nowrap">
+            Hidden · <span className="font-bold">{Math.floor(l.bundle.hiddenForMs / 60000)}:{String(Math.floor((l.bundle.hiddenForMs % 60000) / 1000)).padStart(2, "0")}</span>
+          </span>
+          <span className="whitespace-nowrap text-dim">
+            {l.bundle.clusterPct.toFixed(1)}% linked · then {Math.round(l.bundle.risk * 100)}%/check
+          </span>
+        </div>
       ) : l.bundle.clusterPct >= 6 ? (
         <div className={`tabular mb-2 flex items-center justify-between rounded-md border px-2.5 py-1.5 text-[11.5px] ${BUBBLE[l.bundle.read]}`}>
           <span>

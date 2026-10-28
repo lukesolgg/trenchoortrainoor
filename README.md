@@ -64,7 +64,15 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
   0.03). Back MEV slider: low front-runs the snipers (fewer of them, you top the holder list); high sends up to 40%
   of the wallets in behind them (more early dumping, you hide in the crowd). The summary shows bundle cost, wallet
   funding, the bubble-map read and the chance of being flagged in the first 30 s.
-- **Bundle checkers** run on every launch at 6, 15 and 30 s, then every 30 s. Risk comes from the supply in your
+- **Quiet window:** nobody can flag a bundle (of any size, up to 75% of supply) for the first 5-6 min (Quick),
+  6-8 (Clean) or 8-10 (Full); launches without a bundle count as Quick. A countdown shows on your launch.
+- **Market maker** (Bots): trades your launch wallets around a ~25 s moving average, sized from pool liquidity.
+  Defend buys dips past the band (±5/10/20%) from a budget and never sells; Make market also sells rips; Distribute
+  sells into strength at 1/2/5% of the bag a minute, pauses on dips, buys back deep flushes. While it runs it counts
+  as attention and social proof, and a chart holding near its highs lifts the ceiling up to 3×. Harness
+  (`dev.exit.harness.test.ts`, "kimchi"): 70% Full bundle, Defend 150 SOL → Make market → Distribute 5%/min:
+  ~85-270 SOL in, peak median ~$890K (p90 ~$2.5M, best ~$4.4M), ~200-1,900 SOL out.
+- **Bundle checkers** run on every launch once the quiet window closes: at +0, +15 and +30 s, then every 30 s. Risk comes from the supply in your
   non-deployer wallets (launch, trend-bot, half of holder-bot), how few wallets it sits in, the biggest one (5%+),
   the build (only the block-0 tokens get its stealth; anything piled in later is traceable) and the MEV setting
   (`bundleRisk` in `dev.ts`). Caught: a BUNDLED x% tag on the coin, board and launch chip, a callout on the

@@ -4,6 +4,7 @@ import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
 import { BOT_WALLETS, HOLDER_PACKAGES, HOLDER_RENT_SOL, HOLDER_SUPPLY_PCT, holderCostSol, LAUNCH_WALLETS_MAX, LAUNCH_WALLETS_START, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
+import { BUNDLE_MAX_PCT, MM_CEILING_MAX, type MmConfig, type MmStrategy } from "./dev";
 import { BUNDLE_BUILDS, BUNDLE_CHECKS_MS, BUNDLE_RECHECK_MS, bubbleRead, bundleRisk, earlyDetection, type BundleConfig, type LaunchMode, type LaunchQuote } from "./dev";
 import { checkLaunch, correctness, CREATOR_FEE_CURVE, CREATOR_FEE_POOL, DEPLOY_FEE_SOL, devCeilingUsd, devDemand, makeLaunchOptions, narrativeLuck, OPTION_COUNT, RIVAL_LAG_S, type DevChoice, type LaunchCheck, type LaunchOptions } from "./dev";
 import { BOOSTS, BUNDLE_CHECKERS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES, NOISE_AUTHORS } from "./content";
@@ -155,10 +156,14 @@ interface DevLaunch {
   /** Block-0 setup, and the tokens it bought (for how much of your cluster is the well-hidden part). */
   bundle: BundleConfig | null;
   bundleTokens: number;
-  /** Bundle checkers: the next pass, how many have run, and the flag once one catches you. */
+  /** Bundle checkers: nobody can flag you before `graceUntil`; then the next pass, how many have run, the flag. */
+  graceUntil: number;
   nextCheck: number;
   checks: number;
   bundled: { pct: number; at: number } | null;
+  /** Market maker running on this launch. `ema` is the moving average it trades around (SOL MC); `owed` is
+   * Distribute's sell allowance (tokens); `startBag` what you held when it started; `ceil0` the ceiling then. */
+  mm: (MmConfig & { spentSol: number; gotSol: number; soldTokens: number; boughtTokens: number; startBag: number; ema: number; owed: number; ceil0: number; last: number }) | null;
   /** Organic holders' tokens: they sit through dips (traders hold `marketTokens`). */
   holdTokens: number;
   /** Most the deployer, and the rest of your wallets, have held (for how much of each you have sold). */
@@ -968,7 +973,10 @@ export class Engine {
       clusterTokens += r.tokens;
     }
     if (bundle && bundle.supplyPct > 0) {
-      bundleSol = this.solForTokens(c, (SUPPLY * bundle.supplyPct) / 100);
+      // Never past the end of the curve: a bundle that big bonds in the create block.
+      const left = curveLib.INIT_VTOK - curveLib.REAL_TOK_TOTAL;
+      const room = Math.max(0, c.vTok - left) * 0.995;
+      bundleSol = this.solForTokens(c, Math.min(room, (SUPPLY * bundle.supplyPct) / 100));
       const r = curveLib.buy(c, bundleSol);
       c = r.curve;
       clusterTokens += r.tokens;
@@ -994,6 +1002,7 @@ export class Engine {
       risk,
       detectPct: earlyDetection(risk) * 100,
       read: bubbleRead(risk),
+      graceMin: BUNDLE_BUILDS[bundle?.build ?? "quick"].graceMin,
     };
   }
 
@@ -1024,7 +1033,7 @@ export class Engine {
       choice.mode === "block0" && choice.bundle
         ? {
             ...choice.bundle,
-            supplyPct: Math.max(0, Math.min(60, choice.bundle.supplyPct)),
+            supplyPct: Math.max(0, Math.min(BUNDLE_MAX_PCT, choice.bundle.supplyPct)),
             wallets: Math.max(1, Math.min(LAUNCH_WALLETS_MAX, Math.round(choice.bundle.wallets))),
             mev: Math.max(0, Math.min(1, choice.bundle.mev)),
           }
@@ -1088,7 +1097,9 @@ export class Engine {
       mode: choice.mode,
       bundle,
       bundleTokens: 0,
-      nextCheck: at + BUNDLE_CHECKS_MS[0],
+      graceUntil: 0,
+      nextCheck: 0,
+      mm: null,
       checks: 0,
       bundled: null,
       snipers: [],
@@ -1098,6 +1109,11 @@ export class Engine {
       hist60: [],
       waveStage: 0,
     };
+    {
+      const [g0, g1] = BUNDLE_BUILDS[bundle?.build ?? "quick"].graceMin;
+      c.dev.graceUntil = at + this.rng.range(g0, g1) * 60_000;
+      c.dev.nextCheck = c.dev.graceUntil + BUNDLE_CHECKS_MS[0];
+    }
     sc.launched = c.id;
     this.launchIds.push(c.id);
     if (devBuy > 0) {
@@ -1252,8 +1268,8 @@ export class Engine {
       momentum,
       migrated: c.migrated,
       // A running volume bot keeps it on the trending lists; volume and holders are social proof.
-      promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0),
-      proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? 0.1 : 0),
+      promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0, d.mm ? 0.3 : 0),
+      proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? 0.1 : 0) + (d.mm ? 0.1 : 0),
       bundled: !!d.bundled,
       support,
       drawdown,
@@ -1271,7 +1287,7 @@ export class Engine {
       d.holdTokens -= d.holdTokens * leave;
       d.marketTokens += d.holdTokens * leave;
     }
-    if (!d.bundled && at >= d.nextCheck) this.bundleCheck(c, at);
+    if (!d.bundled && at >= d.graceUntil && at >= d.nextCheck) this.bundleCheck(c, at);
     // A right coin that is running draws KOLs at each milestone: real buys, sometimes a tweet. They take profit
     // when it bleeds.
     if (d.rightCoin && mcUsd >= KOL_MILESTONES[d.kolStage]) {
@@ -1353,7 +1369,7 @@ export class Engine {
   private bundleCheck(c: Coin, at: number): void {
     const d = c.dev!;
     d.checks++;
-    d.nextCheck = d.launchedAt + (d.checks < BUNDLE_CHECKS_MS.length ? BUNDLE_CHECKS_MS[d.checks] : BUNDLE_CHECKS_MS[BUNDLE_CHECKS_MS.length - 1] + (d.checks - BUNDLE_CHECKS_MS.length + 1) * BUNDLE_RECHECK_MS);
+    d.nextCheck = d.graceUntil + (d.checks < BUNDLE_CHECKS_MS.length ? BUNDLE_CHECKS_MS[d.checks] : BUNDLE_CHECKS_MS[BUNDLE_CHECKS_MS.length - 1] + (d.checks - BUNDLE_CHECKS_MS.length + 1) * BUNDLE_RECHECK_MS);
     if (d.ended) return;
     const { pct, risk } = this.clusterOf(d);
     if (!this.rng.chance(risk)) return;
@@ -1471,6 +1487,7 @@ export class Engine {
     this.stopVolumeBot(coinId);
     d.bots.trend = null;
     d.bots.holders = null;
+    d.mm = null;
     const refs: WalletRef[] = [
       { g: "deployer" },
       ...Array.from({ length: WALLETS }, (_, i) => ({ g: "trade" as const, i })),
@@ -1747,6 +1764,130 @@ export class Engine {
     this.emitNow();
   }
 
+  /** Start the market maker on your launch (one at a time; starting again swaps the settings, keeping the totals). */
+  startMarketMaker(coinId: string, cfg: MmConfig): { ok: boolean; reason?: string } {
+    const own = this.ownLaunch(coinId);
+    if (!own) return { ok: false, reason: "Not your launch" };
+    const { c, d } = own;
+    if (d.ended) return { ok: false, reason: "That launch is over" };
+    const bag = sum(d.lw) + sum(d.bw);
+    if (cfg.strategy !== "defend" && bag <= 1) return { ok: false, reason: "Nothing in your launch wallets to sell" };
+    if (cfg.budgetSol > this.devSol + 1e-9 && cfg.strategy !== "distribute") return { ok: false, reason: `Not enough SOL for a ${cfg.budgetSol} SOL budget` };
+    const prev = d.mm;
+    d.mm = {
+      ...cfg,
+      spentSol: prev?.spentSol ?? 0,
+      gotSol: prev?.gotSol ?? 0,
+      soldTokens: prev?.soldTokens ?? 0,
+      boughtTokens: prev?.boughtTokens ?? 0,
+      // Budget is per start: a restart tops it up to the new figure.
+      budgetSol: cfg.budgetSol + (prev?.spentSol ?? 0),
+      startBag: prev?.startBag ?? bag,
+      ema: prev?.ema ?? this.mc(c),
+      owed: 0,
+      ceil0: prev?.ceil0 ?? d.ceilingUsd,
+      last: this.simNow,
+    };
+    if (!prev) this.at(this.simNow + 500, (a) => this.mmStep(c, a));
+    this.emitNow();
+    return { ok: true };
+  }
+
+  stopMarketMaker(coinId: string): void {
+    const own = this.ownLaunch(coinId);
+    if (!own?.d.mm) return;
+    const m = own.d.mm;
+    own.d.lastBot = `Market maker stopped: bought ${m.spentSol.toFixed(2)} SOL, sold ${m.gotSol.toFixed(2)} SOL`;
+    own.d.mm = null;
+    this.emitNow();
+  }
+
+  /** Sell from your launch-side wallets (launch, then trend-bot), biggest first, as anonymous market sells. */
+  private sellCluster(c: Coin, at: number, tokens: number): number {
+    const d = c.dev!;
+    const slots: { arr: number[]; i: number }[] = [...d.lw.map((_, i) => ({ arr: d.lw, i })), ...d.bw.map((_, i) => ({ arr: d.bw, i }))]
+      .filter((x) => x.arr[x.i] > 1)
+      .sort((a, b) => b.arr[b.i] - a.arr[a.i]);
+    let left = tokens;
+    let got = 0;
+    for (const x of slots.slice(0, 3)) {
+      if (left <= 1) break;
+      const t = Math.min(left, x.arr[x.i]);
+      got += this.marketSell(c, at, t);
+      x.arr[x.i] -= t;
+      left -= t;
+    }
+    this.wallet += got;
+    d.gotSol += got;
+    return got;
+  }
+
+  /**
+   * One market-maker step (every 1.2-2.5 s). Trades around a ~25 s moving average of the market cap, in sizes set by
+   * the pool's liquidity (about 1.2% of its SOL side, more the further price is from the average).
+   */
+  private mmStep(c: Coin, at: number): void {
+    const d = c.dev;
+    const m = d?.mm;
+    if (!d || !m || !this.coins.has(c.id)) return;
+    if (d.ended) {
+      d.mm = null;
+      return;
+    }
+    if (at >= c.lockUntil) {
+      const mc = this.mc(c);
+      m.ema += (mc - m.ema) * 0.08;
+      const dev = mc / m.ema - 1;
+      const chunk = c.migrated ? this.poolShare(c) * mc * 0.012 : Math.max(0.2, c.curve.realSol * 0.02);
+      const price = mc / SUPPLY;
+      const bag = sum(d.lw) + sum(d.bw);
+      const buy = (sol: number) => {
+        const s = Math.min(sol, m.budgetSol - m.spentSol, this.devSol);
+        if (s < 0.01) return;
+        const w0 = this.devSol;
+        const t = this.devWalletBuy(c, s, at, { g: "launch", i: this.rng.int(0, d.lw.length - 1) });
+        m.spentSol += w0 - this.devSol;
+        m.boughtTokens += t;
+        // Bids under the chart: dip buyers see a floor.
+        this.devPromo(c, 0.3, 20_000);
+      };
+      const sell = (sol: number) => {
+        const t = Math.min(bag, sol / price);
+        if (t <= 1) return;
+        m.gotSol += this.sellCluster(c, at, t);
+        m.soldTokens += t;
+      };
+      const k = (x: number) => 1 + Math.min(2, Math.abs(x) / m.band);
+      if (m.strategy === "defend") {
+        if (dev < -m.band) buy(chunk * k(dev));
+      } else if (m.strategy === "make") {
+        if (dev < -m.band) buy(chunk * k(dev));
+        else if (dev > m.band) sell(chunk * k(dev));
+      } else {
+        m.owed += (m.startBag * (m.pace / 100) * (at - m.last)) / 60_000;
+        if (dev < -2 * m.band) buy(chunk * 0.5);
+        else if (dev > -m.band / 2 && m.owed > 1) {
+          // Lean in on strength, never more than ~3 chunks at once.
+          const want = Math.min(m.owed * (dev > m.band ? 1 : 0.5), (chunk * 3) / price);
+          const before = m.soldTokens;
+          sell(want * price);
+          m.owed -= m.soldTokens - before;
+        }
+        if (bag <= 1) {
+          d.lastBot = `Market maker done: bag distributed for ${m.gotSol.toFixed(1)} SOL`;
+          d.mm = null;
+          this.emitNow();
+          return;
+        }
+      }
+      // A clean chart holding near its highs keeps finding new buyers.
+      const usdNow = toUsd(mc);
+      if (usdNow > d.ceilingUsd * 0.6 && dev > -m.band) d.ceilingUsd = Math.min(m.ceil0 * MM_CEILING_MAX, d.ceilingUsd * 1.006);
+    }
+    m.last = at;
+    this.at(at + this.rng.range(1200, 2500), (a) => this.mmStep(c, a));
+  }
+
   /** Rough cost of `n` holders on a launch right now (rent + their buys at today's price). */
   quoteHolders(coinId: string, n: number): number {
     const c = this.coins.get(coinId);
@@ -1864,8 +2005,20 @@ export class Engine {
             read: bubbleRead(k.risk),
             flagged: d.bundled,
             nextCheckInMs: Math.max(0, d.nextCheck - this.simNow),
+            hiddenForMs: Math.max(0, d.graceUntil - this.simNow),
           };
         })(),
+        mm: d.mm
+          ? {
+              strategy: d.mm.strategy,
+              band: d.mm.band,
+              pace: d.mm.pace,
+              budgetSol: d.mm.budgetSol,
+              spentSol: d.mm.spentSol,
+              gotSol: d.mm.gotSol,
+              soldPct: d.mm.startBag > 0 ? Math.min(1, d.mm.soldTokens / d.mm.startBag) : 0,
+            }
+          : null,
         snipers: { count: d.snipers.length, pct: (sum(d.snipers.map((s) => s.tokens)) / SUPPLY) * 100 },
       });
     }

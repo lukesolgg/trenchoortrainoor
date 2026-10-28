@@ -1,7 +1,8 @@
 "use client";
 
 import type { Engine } from "@/engine/engine";
-import { HOLDER_PACKAGES, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol } from "@/engine/dev";
+import { useState } from "react";
+import { HOLDER_PACKAGES, MM_BANDS, MM_BUDGETS, MM_PACES, MM_STRATEGIES, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type MmStrategy } from "@/engine/dev";
 import type { LaunchView } from "@/engine/types";
 import { sol, usd } from "../format";
 
@@ -115,7 +116,112 @@ export function Bots({ engine, l, devSol, notify }: Props) {
           })}
         </div>
       )}
+      <MarketMaker engine={engine} l={l} devSol={devSol} notify={notify} />
+
       {b.lastBot && <p className="mt-2 text-[11px] text-dim">{b.lastBot}</p>}
+    </div>
+  );
+}
+
+const chipCls = (on: boolean) =>
+  `tabular rounded-md border px-2 py-1 text-[11px] font-bold transition-colors ${on ? "border-amber/70 bg-amber/10 text-amber" : "border-line text-dim hover:border-line-hi hover:text-ink"}`;
+
+/**
+ * Market maker: trades your launch wallets around a moving average. Pick a strategy, a band and a buy budget
+ * (Distribute: a pace). Starting again while it runs swaps the settings and keeps the totals.
+ */
+function MarketMaker({ engine, l, devSol, notify }: Props) {
+  const m = l.mm;
+  const [strategy, setStrategy] = useState<MmStrategy>(m?.strategy ?? "defend");
+  const [band, setBand] = useState<number>(m?.band ?? 0.1);
+  const [budget, setBudget] = useState<number>(10);
+  const [pace, setPace] = useState<number>(m?.pace ?? 2);
+  const start = () => {
+    const r = engine.startMarketMaker(l.coinId, { strategy, band, budgetSol: budget, pace });
+    notify(r.ok ? `Market maker ${m ? "updated" : "on"}: ${MM_STRATEGIES[strategy].label}` : (r.reason ?? "Couldn't start it"));
+  };
+  return (
+    <div className="mt-2.5 rounded-md border border-line p-2">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] font-semibold text-faint">Market maker · trades your launch wallets</span>
+        {m && (
+          <button
+            type="button"
+            onClick={() => engine.stopMarketMaker(l.coinId)}
+            className="rounded border border-down/50 px-1.5 text-[10.5px] font-bold text-down hover:bg-down/10"
+          >
+            Stop
+          </button>
+        )}
+      </div>
+      {m && (
+        <div className="tabular mt-1.5 grid grid-cols-3 gap-1 text-center text-[10.5px]">
+          <div className="rounded border border-line py-1">
+            <div className="text-faint">Bought</div>
+            <div className="font-bold">{sol(m.spentSol)} / {sol(m.budgetSol)}</div>
+          </div>
+          <div className="rounded border border-line py-1">
+            <div className="text-faint">Sold</div>
+            <div className="font-bold text-up">{sol(m.gotSol)}</div>
+          </div>
+          <div className="rounded border border-line py-1">
+            <div className="text-faint">Bag out</div>
+            <div className="font-bold">{Math.round(m.soldPct * 100)}%</div>
+          </div>
+        </div>
+      )}
+      <div className="mt-1.5 grid grid-cols-3 gap-1">
+        {(Object.keys(MM_STRATEGIES) as MmStrategy[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setStrategy(k)}
+            className={`rounded-md border px-1.5 py-1 text-left transition-colors ${
+              strategy === k ? "border-violet bg-violet/15" : "border-line hover:border-line-hi"
+            } ${m?.strategy === k ? "ring-1 ring-up/60" : ""}`}
+          >
+            <div className="text-[11.5px] font-extrabold">{MM_STRATEGIES[k].label}</div>
+            <div className="text-[9.5px] leading-tight text-dim">{MM_STRATEGIES[k].sub}</div>
+          </button>
+        ))}
+      </div>
+      <div className="mt-1.5 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1 text-[10.5px]">
+        <span className="font-semibold text-faint">Band</span>
+        <div className="flex flex-wrap gap-1">
+          {MM_BANDS.map((v) => (
+            <button key={v} type="button" className={chipCls(band === v)} onClick={() => setBand(v)}>
+              ±{v * 100}%
+            </button>
+          ))}
+        </div>
+        <span className="font-semibold text-faint">Budget</span>
+        <div className="flex flex-wrap gap-1">
+          {MM_BUDGETS.map((v) => (
+            <button key={v} type="button" disabled={v > devSol} className={`${chipCls(budget === v)} disabled:opacity-35`} onClick={() => setBudget(v)}>
+              {v}
+            </button>
+          ))}
+        </div>
+        {strategy === "distribute" && (
+          <>
+            <span className="font-semibold text-faint">Pace</span>
+            <div className="flex flex-wrap gap-1">
+              {MM_PACES.map((v) => (
+                <button key={v} type="button" className={chipCls(pace === v)} onClick={() => setPace(v)}>
+                  {v}% / min
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={start}
+        className="mt-2 w-full rounded-md border border-violet/60 bg-violet/15 py-1.5 text-[12px] font-black text-violet transition-colors hover:bg-violet/25"
+      >
+        {m ? "Update market maker" : `Start ${MM_STRATEGIES[strategy].label}`}
+      </button>
     </div>
   );
 }

@@ -88,13 +88,15 @@ export interface BundleConfig {
  * How the bundle is built. Quick funds every wallet from one source with even sizes: cheap and obvious. Clean
  * funds through hops. Full uses aged wallets, CEX funding and varied sizes: costs the most, hardest to trace.
  */
-export const BUNDLE_BUILDS: Record<BundleBuild, { label: string; sub: string; perWalletSol: number; stealth: number }> = {
-  quick: { label: "Quick", sub: "One funder, even sizes", perWalletSol: 0.002, stealth: 0 },
-  clean: { label: "Clean", sub: "Hop-funded wallets", perWalletSol: 0.012, stealth: 0.45 },
-  full: { label: "Full", sub: "Aged, CEX-funded, varied", perWalletSol: 0.03, stealth: 0.75 },
+export const BUNDLE_BUILDS: Record<BundleBuild, { label: string; sub: string; perWalletSol: number; stealth: number; graceMin: [number, number] }> = {
+  quick: { label: "Quick", sub: "One funder, even sizes", perWalletSol: 0.002, stealth: 0, graceMin: [5, 6] },
+  clean: { label: "Clean", sub: "Hop-funded wallets", perWalletSol: 0.012, stealth: 0.45, graceMin: [6, 8] },
+  full: { label: "Full", sub: "Aged, CEX-funded, varied", perWalletSol: 0.03, stealth: 0.75, graceMin: [8, 10] },
 };
 export const BUNDLE_WALLETS = [5, 10, 20, 30, 50] as const;
-export const BUNDLE_PCTS = [5, 10, 20, 30, 40] as const;
+export const BUNDLE_PCTS = [5, 10, 20, 40, 60, 75] as const;
+/** Most a bundle can take: past ~79% the curve completes and it bonds in the create block. */
+export const BUNDLE_MAX_PCT = 75;
 
 export interface BundleRiskInput {
   /** Supply in your non-deployer wallets (launch, bot, half of holder-bot), %. */
@@ -128,11 +130,40 @@ export function bubbleRead(risk: number): "Likely clean" | "Uncertain" | "Cluste
   return risk < 0.12 ? "Likely clean" : risk < 0.35 ? "Uncertain" : "Clustered";
 }
 
-/** Bundle checkers look at 6, 15 and 30 s, then every 30 s while you hold enough to matter. */
-export const BUNDLE_CHECKS_MS = [6_000, 15_000, 30_000];
+/**
+ * Nobody has mapped the wallets yet: for the first 5-10 minutes (longer the cleaner the build; launches without a
+ * bundle count as Quick) no check can flag you. After that, checks at +0, +15 and +30 s, then every 30 s.
+ */
+export const BUNDLE_CHECKS_MS = [0, 15_000, 30_000];
 export const BUNDLE_RECHECK_MS = 30_000;
-/** Chance of getting caught across the first three checks. */
+/** Chance of getting caught across the first three checks once the window closes. */
 export const earlyDetection = (risk: number) => 1 - Math.pow(1 - risk, BUNDLE_CHECKS_MS.length);
+/**
+ * Market maker on your launch, trading from your launch wallets. Defend buys dips below the moving average and never
+ * sells; Make market buys dips and sells rips around it; Distribute sells into strength at a set pace (% of the bag
+ * per minute), pauses on dips and only buys back deep flushes.
+ */
+export type MmStrategy = "defend" | "make" | "distribute";
+export const MM_STRATEGIES: Record<MmStrategy, { label: string; sub: string }> = {
+  defend: { label: "Defend", sub: "Buys dips, never sells" },
+  make: { label: "Make market", sub: "Buys dips, sells rips" },
+  distribute: { label: "Distribute", sub: "Sells into strength" },
+};
+/** How far from the moving average (fraction) before it trades. */
+export const MM_BANDS = [0.05, 0.1, 0.2] as const;
+/** SOL it may spend on buys. */
+export const MM_BUDGETS = [5, 10, 25, 50, 100, 250] as const;
+/** Distribute: % of your launch-side bag per minute. */
+export const MM_PACES = [1, 2, 5] as const;
+export interface MmConfig {
+  strategy: MmStrategy;
+  band: number;
+  budgetSol: number;
+  pace: number;
+}
+/** A market maker keeps a clean chart; a coin holding near its highs keeps finding buyers, up to 3× its ceiling. */
+export const MM_CEILING_MAX = 3;
+
 /** What the launch panel shows before you deploy. */
 export interface LaunchQuote {
   mcUsd: number;
@@ -143,9 +174,11 @@ export interface LaunchQuote {
   walletCostSol: number;
   /** Deploy fee + every buy + wallet funding. */
   costSol: number;
-  /** Per-check risk, chance of getting flagged in the first 30 s, and the bubble-map read. */
+  /** Per-check risk, chance of getting flagged in the first 30 s after the quiet window, and the bubble-map read. */
   risk: number;
   detectPct: number;
+  /** The quiet window, minutes. */
+  graceMin: [number, number];
   read: ReturnType<typeof bubbleRead>;
 }
 

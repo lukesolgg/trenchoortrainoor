@@ -280,7 +280,11 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
                 <>
                   <span className="text-dim">Bubble map</span>
                   <span className={`text-right font-bold ${READ_TONE[quote.read]}`}>{quote.read}</span>
-                  <span className="text-dim">Flagged in the first 30 s</span>
+                  <span className="text-dim">Hidden from bubble maps</span>
+                  <span className="text-right font-bold text-up">
+                    {quote.graceMin[0]}-{quote.graceMin[1]} min
+                  </span>
+                  <span className="text-dim">Then flagged within 30 s</span>
                   <span className={`text-right font-bold ${READ_TONE[quote.read]}`}>{Math.round(quote.detectPct)}%</span>
                 </>
               )}
@@ -294,7 +298,9 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
               </span>
             </div>
             {quote.detectPct >= 50 ? (
-              <p className="mt-2 text-[11px] text-down">Bundle checkers will very likely call this out: buyers thin out and KOLs stay away.</p>
+              <p className="mt-2 text-[11px] text-amber">
+                Nobody can map it for the first {quote.graceMin[0]}-{quote.graceMin[1]} min. Still holding this much after that, it will very likely get called out.
+              </p>
             ) : mode !== "block0" && quote.supplyPct >= 10 ? (
               <p className="mt-2 text-[11px] text-amber">A big dev bag is public: buyers see the DEV % and wait for you to sell.</p>
             ) : null}
