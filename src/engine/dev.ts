@@ -13,6 +13,32 @@ export const DEPLOY_FEE_SOL = 0.02;
 export const CREATOR_FEE_CURVE = 0.003;
 export const CREATOR_FEE_POOL = 0.0005;
 
+// ------------------------------------------------------------------ bots
+
+/**
+ * Volume packages: wash trades (buy, then sell the same tokens a few seconds later) adding up to `usd` of volume over
+ * `minutes`. The price covers the 1% pump fee on every trade plus the service's cut, which is what makes volume
+ * expensive for real.
+ */
+export const VOLUME_PACKAGES = [
+  { id: "v10", usd: 10_000, minutes: 5 },
+  { id: "v50", usd: 50_000, minutes: 10 },
+  { id: "v200", usd: 200_000, minutes: 20 },
+] as const;
+export const volumeCostSol = (usd: number) => (usd / SOL_USD) * 0.0125;
+
+/** Holder bot: each fake holder is a fresh wallet with a token account (rent) and a dust buy. */
+export const HOLDER_PACKAGES = [25, 50, 100, 200] as const;
+export const HOLDER_SOL = 0.004;
+/** Trend bot targets: a multiple of the current market cap, the bonding line, or a fixed market cap. */
+export const TREND_TARGETS = [
+  { id: "x1.5", label: "+50%", mult: 1.5 },
+  { id: "x2", label: "2×", mult: 2 },
+  { id: "bond", label: "Bond", usd: 44_000 },
+  { id: "100k", label: "$100K", usd: 100_000 },
+] as const;
+export type TrendTargetId = (typeof TREND_TARGETS)[number]["id"];
+
 export const OPTION_COUNT: Record<DifficultyId, number> = { paper: 3, trencher: 4, sniper: 5 };
 /** How long after the tweet rival devs land their coins (s). */
 export const RIVAL_LAG_S: Record<DifficultyId, [number, number]> = { paper: [14, 22], trencher: [8, 14], sniper: [4, 8] };
@@ -156,8 +182,10 @@ export interface DemandInput {
   /** Log change in market cap over the last ~10 s. */
   momentum: number;
   migrated: boolean;
-  /** Attention from things you or others did (DEX paid, boosts, KOLs): a heat floor that fades (0-1). */
+  /** Attention from things you or others did (DEX paid, boosts, KOLs, a volume bot): a heat floor that fades (0-1). */
   promo: number;
+  /** Social proof from holder count and visible volume (0-0.35): more buyers give it a look. */
+  proof: number;
 }
 
 export interface Demand {
@@ -196,7 +224,7 @@ export function devDemand(d: DemandInput): Demand {
   const room = d.mcUsd >= d.ceilingUsd ? 0 : clamp(Math.log(d.ceilingUsd / d.mcUsd) / Math.log(d.ceilingUsd / 4000), 0, 1);
   const trust = 1 - 0.85 * clamp(d.devSoldFrac, 0, 1);
   // Mistakes cost more than their face value: a market that smells something off just walks.
-  const interest = d.heat0 * heat * Math.pow(d.corr, DEV_TUNING.corrExp) * Math.pow(d.share, 1.3) * d.rep * trust * (d.cashback ? 1.15 : 1);
+  const interest = d.heat0 * heat * Math.pow(d.corr, DEV_TUNING.corrExp) * Math.pow(d.share, 1.3) * d.rep * trust * (d.cashback ? 1.15 : 1) * (1 + d.proof);
   const fomo = 1 + 4 * Math.max(0, d.momentum);
   const buyP = clamp(0.04 + DEV_TUNING.buy * interest * Math.sqrt(room) * fomo, 0, 0.92);
   const over = d.mcUsd > d.ceilingUsd ? 0.35 : 0;

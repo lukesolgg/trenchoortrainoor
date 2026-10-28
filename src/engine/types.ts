@@ -276,6 +276,14 @@ export interface LaunchView {
   holdersPct: number;
   /** Each launch wallet's share of supply (%). */
   launchWalletPcts: number[];
+  /** Bots running on this launch. */
+  bots: {
+    volume: { label: string; done: number; endsInMs: number } | null;
+    trend: { targetUsd: number; spentSol: number; budgetSol: number } | null;
+    holders: { total: number; added: number } | null;
+    botHolders: number;
+    lastBot: string | null;
+  };
   holdingsSol: number;
   /** Everything you put in (deploy fee, dev buy, organic buys, buys after), what your sells returned, rewards. */
   spentSol: number;

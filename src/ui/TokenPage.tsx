@@ -1,5 +1,6 @@
 "use client";
 
+import { Bots } from "./dev/Bots";
 import { WalletColumn } from "./dev/WalletColumn";
 import { DevOps } from "./dev/DevOps";
 import { KOL_BUBBLE_TIER, type Features } from "@/campaign/progression";
@@ -129,6 +130,13 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
   const coin = engine.getCoinView(coinId);
   const kol = engine.getKol();
   const launch = snap.launches.find((l) => l.coinId === coinId);
+  // Say when a bot finishes (the trend bot hitting its target, or running out of budget).
+  const lastBot = launch?.bots.lastBot ?? null;
+  const seenBot = useRef(lastBot);
+  useEffect(() => {
+    if (lastBot && lastBot !== seenBot.current) notify(lastBot);
+    seenBot.current = lastBot;
+  }, [lastBot, notify]);
   const devMode = snap.devSol !== null;
   const tape = engine.getTape(coinId);
   const position = snap.positions.find((p) => p.coinId === coinId);
@@ -398,28 +406,31 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
         <TradePanel
           top={
             launch && (
-              <DevOps
-                l={launch}
-                now={snap.now}
-                devSol={snap.devSol ?? 0}
-                onSell={(from, p) => {
-                  const r = engine.devSellFrom(coinId, from, p);
-                  notify(r.ok ? `Sold ${p === "max" ? "everything" : `${p}% of supply`} from ${from === "deployer" ? "the deployer" : "your other wallets"} for ${sol(r.sol ?? 0)} SOL` : (r.reason ?? "Sell failed"));
-                }}
-                onDevBuy={(v) => {
-                  const r = engine.devBuy(coinId, v);
-                  notify(r.ok ? `Dev bought ${v} SOL` : (r.reason ?? "Buy failed"));
-                }}
-                onNuke={() => {
-                  const r = engine.nuke(coinId);
-                  notify(r.ok ? `☢ Nuked: ${sol(r.sol ?? 0)} SOL out` : (r.reason ?? "Nothing to sell"));
-                }}
-                onClaim={() => {
-                  const r = engine.claimRewards(coinId);
-                  if (r.ok) notify(`Claimed ${sol(r.sol ?? 0, 3)} SOL of creator fees`);
-                }}
-                onReport={() => onLaunchReport?.(coinId)}
-              />
+              <>
+                <DevOps
+                  l={launch}
+                  now={snap.now}
+                  devSol={snap.devSol ?? 0}
+                  onSell={(from, p) => {
+                    const r = engine.devSellFrom(coinId, from, p);
+                    notify(r.ok ? `Sold ${p === "max" ? "everything" : `${p}% of supply`} from ${from === "deployer" ? "the deployer" : "the launch wallets"} for ${sol(r.sol ?? 0)} SOL` : (r.reason ?? "Sell failed"));
+                  }}
+                  onDevBuy={(v) => {
+                    const r = engine.devBuy(coinId, v);
+                    notify(r.ok ? `Dev bought ${v} SOL` : (r.reason ?? "Buy failed"));
+                  }}
+                  onNuke={() => {
+                    const r = engine.nuke(coinId);
+                    notify(r.ok ? `☢ Nuked: ${sol(r.sol ?? 0)} SOL out` : (r.reason ?? "Nothing to sell"));
+                  }}
+                  onClaim={() => {
+                    const r = engine.claimRewards(coinId);
+                    if (r.ok) notify(`Claimed ${sol(r.sol ?? 0, 3)} SOL of creator fees`);
+                  }}
+                  onReport={() => onLaunchReport?.(coinId)}
+                />
+                <Bots engine={engine} l={launch} devSol={snap.devSol ?? 0} notify={notify} />
+              </>
             )
           }
           holdingPct={engine.holdingPct(coinId)}

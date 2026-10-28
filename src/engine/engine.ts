@@ -3,6 +3,7 @@ import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type 
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
+import { HOLDER_PACKAGES, HOLDER_SOL, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
 import { checkLaunch, correctness, CREATOR_FEE_CURVE, CREATOR_FEE_POOL, DEPLOY_FEE_SOL, devCeilingUsd, devDemand, makeLaunchOptions, narrativeLuck, OPTION_COUNT, RIVAL_LAG_S, type DevChoice, type LaunchCheck, type LaunchOptions } from "./dev";
 import { BOOSTS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES, NOISE_AUTHORS } from "./content";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound, scoreSaga } from "./scoring";
@@ -136,6 +137,16 @@ interface DevLaunch {
   rightCoin: boolean;
   /** Next market cap milestone (index into KOL_MILESTONES) where KOLs may pile in. */
   kolStage: number;
+  /** Bots you have running on this launch. */
+  bots: {
+    volume: { label: string; totalSol: number; doneSol: number; startAt: number; endAt: number; costSol: number } | null;
+    trend: { targetUsd: number; budgetSol: number; spentSol: number; estSol: number } | null;
+    holders: { total: number; added: number } | null;
+  };
+  /** Fake holders your holder bots have added so far. */
+  botHolders: number;
+  /** What the last bot to finish did, for a toast. */
+  lastBot: string | null;
   /** Market cap (USD) once a second, last 10 s, for momentum. */
   hist: number[];
   lastSample: number;
@@ -975,6 +986,9 @@ export class Engine {
       promo: { peak: 0, at: at, tauMs: 1 },
       rightCoin,
       kolStage: 0,
+      bots: { volume: null, trend: null, holders: null },
+      botHolders: 0,
+      lastBot: null,
       hist: [],
       lastSample: at,
     };
@@ -1071,7 +1085,9 @@ export class Engine {
       ceilingUsd: d.ceilingUsd,
       momentum,
       migrated: c.migrated,
-      promo: d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs),
+      // A running volume bot keeps it on the trending lists; volume and holders are social proof.
+      promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0),
+      proof: Math.min(0.25, d.botHolders / 400) + (d.bots.volume ? 0.1 : 0),
     });
     // A right coin that is running draws KOLs at each milestone: real buys, sometimes a tweet. They take profit
     // when it bleeds.
@@ -1202,6 +1218,174 @@ export class Engine {
     return { ok: true, sol };
   }
 
+  // ------------------------------------------------------------------ dev bots
+
+  private ownLaunch(coinId: string): { c: Coin; d: DevLaunch } | null {
+    const c = this.coins.get(coinId);
+    return c?.dev ? { c, d: c.dev } : null;
+  }
+
+  /** Buy a volume package for your launch: wash trades over its window, paid up front from the dev wallet. */
+  startVolumeBot(coinId: string, pkgId: string): { ok: boolean; reason?: string } {
+    const own = this.ownLaunch(coinId);
+    const pkg = VOLUME_PACKAGES.find((p) => p.id === pkgId);
+    if (!own || !pkg) return { ok: false, reason: "Not your launch" };
+    const { c, d } = own;
+    if (d.bots.volume) return { ok: false, reason: "A volume bot is already running" };
+    const cost = volumeCostSol(pkg.usd);
+    if (cost > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
+    this.devSol -= cost;
+    d.spentSol += cost;
+    const now = this.simNow;
+    d.bots.volume = { label: `$${pkg.usd / 1000}K`, totalSol: pkg.usd / SOL_USD, doneSol: 0, startAt: now, endAt: now + pkg.minutes * 60_000, costSol: cost };
+    this.at(now + 300, (a) => this.volumeStep(c, a));
+    this.emitNow();
+    return { ok: true };
+  }
+
+  /** One wash trade: a buy, and the same tokens sold back a moment later. */
+  private volumeStep(c: Coin, at: number): void {
+    const d = c.dev;
+    const v = d?.bots.volume;
+    if (!d || !v || !this.coins.has(c.id)) return;
+    if (at >= v.endAt || v.doneSol >= v.totalSol) {
+      d.bots.volume = null;
+      this.emitNow();
+      return;
+    }
+    if (at >= c.lockUntil) {
+      const stepsLeft = Math.max(1, (v.endAt - at) / 2200);
+      const size = Math.max(0.01, ((v.totalSol - v.doneSol) / stepsLeft / 2) * this.rng.range(0.5, 1.5));
+      const r = this.applyBuy(c, size, at, "bot");
+      if (r.tokens > 0) {
+        const fee = c.migrated ? CREATOR_FEE_POOL : CREATOR_FEE_CURVE;
+        v.doneSol += r.spent * 2;
+        if (d.rewards === "creator") d.rewardsSol += r.spent * 2 * fee;
+        this.at(at + this.rng.range(800, 3500), (a) => {
+          if (this.coins.has(c.id)) this.applySell(c, r.tokens, a, "bot");
+        });
+      }
+    }
+    this.at(at + this.rng.range(1500, 2900), (a) => this.volumeStep(c, a));
+  }
+
+  /** Stop the volume bot: what it has not traded yet comes back to the dev wallet. */
+  stopVolumeBot(coinId: string): number {
+    const own = this.ownLaunch(coinId);
+    const v = own?.d.bots.volume;
+    if (!own || !v) return 0;
+    const refund = v.costSol * Math.max(0, 1 - v.doneSol / v.totalSol);
+    this.devSol += refund;
+    own.d.spentSol -= refund;
+    own.d.bots.volume = null;
+    this.emitNow();
+    return refund;
+  }
+
+  /**
+   * About how much SOL it takes to push your launch's market cap to a target, from the curve (and the pool past
+   * bonding), plus a margin for the sellers who push back. An estimate: the market decides the rest.
+   */
+  quoteTrend(coinId: string, targetId: TrendTargetId): { targetUsd: number; sol: number } | null {
+    const own = this.ownLaunch(coinId);
+    const t = TREND_TARGETS.find((x) => x.id === targetId);
+    if (!own || !t) return null;
+    const { c } = own;
+    const mc = this.mc(c);
+    const targetUsd = "mult" in t ? toUsd(mc) * t.mult : t.usd;
+    const T = targetUsd / SOL_USD;
+    if (T <= mc) return { targetUsd, sol: 0 };
+    let net = 0;
+    if (!c.migrated) {
+      const k = c.curve.vSol * c.curve.vTok;
+      const vTokEnd = curveLib.INIT_VTOK - curveLib.REAL_TOK_TOTAL;
+      const migSol = (k / vTokEnd / vTokEnd) * SUPPLY;
+      if (T <= migSol) net = Math.sqrt((T * k) / SUPPLY) - c.curve.vSol;
+      else {
+        net = k / vTokEnd - c.curve.vSol;
+        net += 0.2 * migSol * (Math.sqrt(T / migSol) - 1);
+      }
+    } else net = this.poolShare(c) * mc * (Math.sqrt(T / mc) - 1);
+    return { targetUsd, sol: (Math.max(0, net) / (1 - FEE)) * 1.15 };
+  }
+
+  /** Start the trend bot: steady buys into your launch wallets until the target or its budget (estimate +30%). */
+  startTrendBot(coinId: string, targetId: TrendTargetId): { ok: boolean; reason?: string } {
+    const own = this.ownLaunch(coinId);
+    const q = this.quoteTrend(coinId, targetId);
+    if (!own || !q) return { ok: false, reason: "Not your launch" };
+    const { c, d } = own;
+    if (d.bots.trend) return { ok: false, reason: "A trend bot is already running" };
+    if (q.sol <= 0) return { ok: false, reason: "It's already past that" };
+    if (q.sol > this.devSol + 1e-9) return { ok: false, reason: `About ${q.sol.toFixed(2)} SOL needed: not enough in the dev wallet` };
+    d.bots.trend = { targetUsd: q.targetUsd, budgetSol: Math.min(this.devSol, q.sol * 1.3), spentSol: 0, estSol: q.sol };
+    this.at(this.simNow + 200, (a) => this.trendStep(c, a));
+    this.emitNow();
+    return { ok: true };
+  }
+
+  private trendStep(c: Coin, at: number): void {
+    const d = c.dev;
+    const t = d?.bots.trend;
+    if (!d || !t || !this.coins.has(c.id)) return;
+    const mcUsd = toUsd(this.mc(c));
+    if (mcUsd >= t.targetUsd || t.spentSol >= t.budgetSol - 0.005 || this.devSol < 0.01) {
+      d.bots.trend = null;
+      d.lastBot = mcUsd >= t.targetUsd ? `Trend bot hit ${Math.round(t.targetUsd / 1000)}K for ${t.spentSol.toFixed(2)} SOL` : `Trend bot ran out of budget at ${Math.round(mcUsd / 1000)}K`;
+      this.emitNow();
+      return;
+    }
+    if (at >= c.lockUntil) {
+      const chunk = Math.min(t.budgetSol - t.spentSol, Math.max(0.03, (t.estSol / 10) * this.rng.range(0.5, 1.5)));
+      const before = this.devSol;
+      this.devWalletBuy(c, chunk, at, this.rng.int(0, LAUNCH_WALLETS - 1));
+      t.spentSol += before - this.devSol;
+    }
+    this.at(at + this.rng.range(1200, 2800), (a) => this.trendStep(c, a));
+  }
+
+  stopTrendBot(coinId: string): void {
+    const own = this.ownLaunch(coinId);
+    if (!own?.d.bots.trend) return;
+    own.d.bots.trend = null;
+    this.emitNow();
+  }
+
+  /** Holder bot: `n` fresh wallets each make a dust buy over the next minute or so. Paid up front. */
+  startHolderBot(coinId: string, n: number): { ok: boolean; reason?: string } {
+    const own = this.ownLaunch(coinId);
+    if (!own || !(HOLDER_PACKAGES as readonly number[]).includes(n)) return { ok: false, reason: "Not your launch" };
+    const { c, d } = own;
+    if (d.bots.holders) return { ok: false, reason: "A holder bot is already running" };
+    const cost = n * HOLDER_SOL;
+    if (cost > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
+    this.devSol -= cost;
+    d.spentSol += cost;
+    d.bots.holders = { total: n, added: 0 };
+    this.at(this.simNow + 300, (a) => this.holderStep(c, a));
+    this.emitNow();
+    return { ok: true };
+  }
+
+  private holderStep(c: Coin, at: number): void {
+    const d = c.dev;
+    const h = d?.bots.holders;
+    if (!d || !h || !this.coins.has(c.id)) return;
+    if (at >= c.lockUntil) {
+      const before = c.holders;
+      this.applyBuy(c, 0.001, at, "bot");
+      c.holders = before + 1;
+      h.added++;
+      d.botHolders++;
+    }
+    if (h.added >= h.total) {
+      d.bots.holders = null;
+      this.emitNow();
+      return;
+    }
+    this.at(at + this.rng.range(250, 1100), (a) => this.holderStep(c, a));
+  }
+
   /** Stop managing a launch (it stays on the board; what you still hold is counted at its value). */
   closeLaunch(coinId: string): void {
     const c = this.coins.get(coinId);
@@ -1231,6 +1415,13 @@ export class Engine {
         deployerPct: (d.deployer / SUPPLY) * 100,
         holdersPct: (lwSum(d) / SUPPLY) * 100,
         launchWalletPcts: d.lw.map((x) => (x / SUPPLY) * 100),
+        bots: {
+          volume: d.bots.volume ? { label: d.bots.volume.label, done: d.bots.volume.doneSol / d.bots.volume.totalSol, endsInMs: Math.max(0, d.bots.volume.endAt - this.simNow) } : null,
+          trend: d.bots.trend ? { targetUsd: d.bots.trend.targetUsd, spentSol: d.bots.trend.spentSol, budgetSol: d.bots.trend.budgetSol } : null,
+          holders: d.bots.holders ? { ...d.bots.holders } : null,
+          botHolders: d.botHolders,
+          lastBot: d.lastBot,
+        },
         holdingsSol: (d.deployer + lwSum(d)) * price,
         spentSol: d.spentSol,
         gotSol: d.gotSol,

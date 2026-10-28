@@ -1651,6 +1651,84 @@ describe("dev mode", () => {
     expect(e.getSnapshot().launches[0].holdersPct).toBeCloseTo(0, 9);
   });
 
+  it("volume bot: paid up front, wash-trades its package over the window, stop refunds the rest", () => {
+    const { e, id, sc } = make(21, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const dev0 = e.getSnapshot().devSol!;
+    const vol0 = e.getCoinView(coinId)!.volumeUsd;
+    expect(e.startVolumeBot(coinId, "v10").ok).toBe(true);
+    expect(e.startVolumeBot(coinId, "v10").ok).toBe(false);
+    expect(dev0 - e.getSnapshot().devSol!).toBeCloseTo((10_000 / 104) * 0.0125, 6);
+    for (let t = e.now(), end = e.now() + 150_000; t < end; t += 500) e.advanceTo(t);
+    const l = e.getSnapshot().launches[0];
+    expect(l.bots.volume).not.toBeNull();
+    expect(l.bots.volume!.done).toBeGreaterThan(0.35);
+    expect(e.getCoinView(coinId)!.volumeUsd - vol0).toBeGreaterThan(3000);
+    const before = e.getSnapshot().devSol!;
+    expect(e.stopVolumeBot(coinId)).toBeGreaterThan(0);
+    expect(e.getSnapshot().devSol!).toBeGreaterThan(before);
+    expect(e.getSnapshot().launches[0].bots.volume).toBeNull();
+  });
+
+  it("trend bot: a live estimate, then buys into launch wallets until the target", () => {
+    const { e, id, sc } = make(22, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const mc0 = e.getCoinView(coinId)!.mcUsd;
+    const q = e.quoteTrend(coinId, "x2")!;
+    expect(q.targetUsd).toBeCloseTo(mc0 * 2, -2);
+    expect(q.sol).toBeGreaterThan(1);
+    expect(q.sol).toBeLessThan(30);
+    const bond = e.quoteTrend(coinId, "bond")!;
+    expect(bond.sol).toBeGreaterThan(q.sol);
+    expect(bond.sol).toBeLessThan(110);
+    const dev0 = e.getSnapshot().devSol!;
+    expect(e.startTrendBot(coinId, "x2").ok).toBe(true);
+    for (let t = e.now(), end = e.now() + 60_000; t < end; t += 250) e.advanceTo(t);
+    const l = e.getSnapshot().launches[0];
+    expect(l.bots.trend).toBeNull();
+    expect(l.bots.lastBot).toMatch(/hit|budget/);
+    expect(l.peakMcUsd).toBeGreaterThan(mc0 * 1.6);
+    const spent = dev0 - e.getSnapshot().devSol!;
+    expect(spent).toBeLessThanOrEqual(q.sol * 1.3 + 0.05);
+  });
+
+  it("trend bot alone (a wrong ticker nobody else buys) still gets it there, close to the estimate", () => {
+    const { e, id, sc } = make(24, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc, { nameIdx: (sc.options.rightName + 1) % sc.options.names.length }));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const mc0 = e.getCoinView(coinId)!.mcUsd;
+    const q = e.quoteTrend(coinId, "x2")!;
+    const dev0 = e.getSnapshot().devSol!;
+    e.startTrendBot(coinId, "x2");
+    for (let t = e.now(), end = e.now() + 90_000; t < end; t += 250) e.advanceTo(t);
+    const l = e.getSnapshot().launches[0];
+    expect(l.peakMcUsd).toBeGreaterThan(mc0 * 1.9);
+    expect(l.bots.lastBot).toMatch(/hit/);
+    expect(l.holdersPct).toBeGreaterThan(0);
+    const spent = dev0 - e.getSnapshot().devSol!;
+    expect(spent).toBeGreaterThan(q.sol * 0.5);
+    expect(spent).toBeLessThanOrEqual(q.sol * 1.3 + 0.05);
+  });
+
+  it("holder bot: adds exactly that many holders for 0.004 SOL each", () => {
+    const { e, id, sc } = make(23, "trencher", 50);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const dev0 = e.getSnapshot().devSol!;
+    expect(e.startHolderBot(coinId, 50).ok).toBe(true);
+    expect(dev0 - e.getSnapshot().devSol!).toBeCloseTo(0.2, 9);
+    for (let t = e.now(), end = e.now() + 70_000; t < end; t += 500) e.advanceTo(t);
+    const l = e.getSnapshot().launches[0];
+    expect(l.bots.holders).toBeNull();
+    expect(l.bots.botHolders).toBe(50);
+  });
+
   it("dividends are out of Dev mode: whatever you send, the launch gets the right setting", () => {
     const { e, id, sc } = make(9);
     e.devDeploy(id, choice(sc, { dividends: false }));

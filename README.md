@@ -79,6 +79,13 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
   200K ... milestones, and sometimes a KOL tweet; they take profit as it bleeds. DEX profile and boosts on your own
   launch work any time (curve or pool), are paid from the dev wallet, and show up as attention in the demand model.
   Dividends are out of Dev mode for now.
+- **Bots** (phase 2, under Dev Ops on your launch, paid from the dev wallet):
+  - *Volume*: $10K / 5 min, $50K / 10 min, $200K / 20 min of wash trades (buy, then sell the same tokens). Priced
+    at 1.25% of the volume (pump fee + service cut). While it runs the coin keeps attention (trending) and some
+    social proof; creator fees come back on its volume. Stop refunds what it has not traded.
+  - *Trend*: +50%, 2×, Bond or $100K. A live estimate from the curve and pool maths (+15% for sellers); it buys
+    steadily into random launch wallets until the target or a budget of estimate +30%. Stop any time.
+  - *Holders*: 25 / 50 / 100 / 200 fresh wallets with a dust buy, 0.004 SOL each; holder count is social proof.
 - **Launches bar** (dev wallet, every launch, session realised PnL) and a **launch card** when a launch ends:
   outcome, peak MC, realised PnL, still holding, fees, and the tweet's name / ticker / picture / config against yours.
 
