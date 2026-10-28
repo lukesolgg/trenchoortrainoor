@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as curve from "./curve";
-import { Engine, type BigOutcome } from "./engine";
+import { Engine, type BigOutcome, type WalletRef } from "./engine";
 import type { DevChoice } from "./dev";
 import { DIFFICULTIES } from "./difficulty";
 import { Rng } from "./rng";
@@ -1602,7 +1602,8 @@ describe("dev mode", () => {
     expect(e.payDex(coinId).ok).toBe(false);
     expect(e.buyBoost(coinId, "x30").ok).toBe(true);
     expect(dev0 - e.getSnapshot().devSol!).toBeCloseTo((299 + 249) / 104, 6);
-    expect(e.getSnapshot().walletSol).toBe(trade0);
+    // One balance in Dev mode: it came out of the same SOL.
+    expect(trade0 - e.getSnapshot().walletSol).toBeCloseTo((299 + 249) / 104, 6);
     expect(e.getSnapshot().launches[0].spentSol).toBeGreaterThan(5);
     const d = (e as unknown as { coins: Map<string, { dev: { promo: { peak: number } } }> }).coins.get(coinId)!.dev;
     expect(d.promo.peak).toBeGreaterThan(0.5);
@@ -1709,24 +1710,100 @@ describe("dev mode", () => {
     const l = e.getSnapshot().launches[0];
     expect(l.peakMcUsd).toBeGreaterThan(mc0 * 1.9);
     expect(l.bots.lastBot).toMatch(/hit/);
-    expect(l.holdersPct).toBeGreaterThan(0);
+    expect(l.botWalletPcts.some((p) => p > 0)).toBe(true);
     const spent = dev0 - e.getSnapshot().devSol!;
     expect(spent).toBeGreaterThan(q.sol * 0.5);
     expect(spent).toBeLessThanOrEqual(q.sol * 1.3 + 0.05);
   });
 
-  it("holder bot: adds exactly that many holders for 0.004 SOL each", () => {
+  it("holder bot: each holder buys ~0.03% of supply; 200 on a fresh coin is ~3 SOL; you can sell them all", () => {
     const { e, id, sc } = make(23, "trencher", 50);
+    e.advanceTo(sc.tweetAt + 1500);
+    // A wrong ticker: nobody else buys, so the holders are the only thing moving the price.
+    e.devDeploy(id, choice(sc, { devBuySol: 0.25, nameIdx: (sc.options.rightName + 1) % sc.options.names.length }));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const est = e.quoteHolders(coinId, 200);
+    expect(est).toBeGreaterThan(2);
+    expect(est).toBeLessThan(4.5);
+    const b0 = e.getSnapshot().devSol!;
+    expect(e.startHolderBot(coinId, 200).ok).toBe(true);
+    for (let t = e.now(), end = e.now() + 240_000; t < end; t += 500) e.advanceTo(t);
+    let l = e.getSnapshot().launches[0];
+    expect(l.bots.holders).toBeNull();
+    expect(l.holderWallets.count).toBe(200);
+    expect(l.holderWallets.pct).toBeGreaterThan(5);
+    expect(l.holderWallets.pct).toBeLessThan(6.5);
+    expect(b0 - e.getSnapshot().devSol!).toBeGreaterThan(2);
+    expect(b0 - e.getSnapshot().devSol!).toBeLessThan(est * 1.3);
+    const holders = e.getCoinView(coinId)!.holders;
+    const r = e.walletsSell(coinId, [{ g: "holder" }], 1);
+    expect(r.ok).toBe(true);
+    l = e.getSnapshot().launches[0];
+    expect(l.holderWallets.count).toBe(0);
+    expect(e.getCoinView(coinId)!.holders).toBeLessThanOrEqual(Math.max(1, holders - 200 + 1));
+    expect(e.getCoinView(coinId)!.holders).toBeLessThan(holders);
+  });
+
+  it("one balance: launches, bots and trading wallets all draw on the same SOL", () => {
+    const { e, id, sc } = make(25, "trencher", 50);
+    expect(e.getSnapshot().devSol).toBe(e.getSnapshot().walletSol);
+    e.devDeploy(id, choice(sc));
+    expect(e.getSnapshot().walletSol).toBeCloseTo(50 - 1.02, 6);
+    const coinId = e.getSnapshot().launches[0].coinId;
+    e.startHolderBot(coinId, 25);
+    expect(e.getSnapshot().devSol).toBe(e.getSnapshot().walletSol);
+  });
+
+  it("wallet panel: buy and sell with any mix of deployer, launch, bot and trading wallets; launch wallets grow to 50", () => {
+    const { e, id, sc } = make(26, "trencher", 100);
     e.advanceTo(sc.tweetAt + 1500);
     e.devDeploy(id, choice(sc));
     const coinId = e.getSnapshot().launches[0].coinId;
-    const dev0 = e.getSnapshot().devSol!;
-    expect(e.startHolderBot(coinId, 50).ok).toBe(true);
-    expect(dev0 - e.getSnapshot().devSol!).toBeCloseTo(0.2, 9);
-    for (let t = e.now(), end = e.now() + 70_000; t < end; t += 500) e.advanceTo(t);
+    const w0 = e.getSnapshot().walletSol;
+    const refs: WalletRef[] = [{ g: "deployer" }, { g: "launch", i: 0 }, { g: "launch", i: 5 }, { g: "trade", i: 0 }, { g: "trade", i: 2 }];
+    const r = e.walletsBuy(coinId, refs, 0.5);
+    expect(r.fills).toBe(5);
+    expect(w0 - e.getSnapshot().walletSol).toBeCloseTo(2.5, 6);
+    let l = e.getSnapshot().launches[0];
+    expect(l.launchWalletPcts[0]).toBeGreaterThan(0);
+    expect(l.launchWalletPcts[5]).toBeGreaterThan(0);
+    expect(e.walletPcts(coinId)[0]).toBeGreaterThan(0);
+    expect(e.walletPcts(coinId)[2]).toBeGreaterThan(0);
+    const s = e.walletsSell(coinId, [{ g: "launch", i: 0 }, { g: "trade", i: 2 }], 1);
+    expect(s.fills).toBe(2);
+    l = e.getSnapshot().launches[0];
+    expect(l.launchWalletPcts[0]).toBe(0);
+    expect(e.walletPcts(coinId)[2]).toBe(0);
+    expect(e.addLaunchWallets(coinId)).toBe(20);
+    for (let k = 0; k < 5; k++) e.addLaunchWallets(coinId);
+    expect(e.getSnapshot().launches[0].launchWalletPcts).toHaveLength(50);
+    // Holder wallets are never bought directly, and a coin that isn't yours only takes trading wallets.
+    expect(e.walletsBuy(coinId, [{ g: "holder" }], 1).ok).toBe(false);
+  });
+
+  it("the holder bot stops at its budget when the price runs instead of draining your balance", () => {
+    const { e, id, sc } = make(23, "trencher", 50);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc, { devBuySol: 0.25 }));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    const est = e.quoteHolders(coinId, 200);
+    const b0 = e.getSnapshot().walletSol;
+    e.startHolderBot(coinId, 200);
+    for (let t = e.now(), end = e.now() + 240_000; t < end; t += 500) e.advanceTo(t);
+    expect(b0 - e.getSnapshot().walletSol).toBeLessThanOrEqual(est * 1.3 + 0.5);
+    expect(e.getSnapshot().walletSol).toBeGreaterThan(30);
+  });
+
+  it("the trend bot buys into its own wallets, never your launch wallets", () => {
+    const { e, id, sc } = make(27, "trencher", 200);
+    e.advanceTo(sc.tweetAt + 1500);
+    e.devDeploy(id, choice(sc, { nameIdx: (sc.options.rightName + 1) % sc.options.names.length }));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    e.startTrendBot(coinId, "x2");
+    for (let t = e.now(), end = e.now() + 60_000; t < end; t += 250) e.advanceTo(t);
     const l = e.getSnapshot().launches[0];
-    expect(l.bots.holders).toBeNull();
-    expect(l.bots.botHolders).toBe(50);
+    expect(l.botWalletPcts.reduce((a, b) => a + b, 0)).toBeGreaterThan(5);
+    expect(l.holdersPct).toBe(0);
   });
 
   it("dividends are out of Dev mode: whatever you send, the launch gets the right setting", () => {

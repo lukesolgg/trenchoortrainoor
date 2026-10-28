@@ -3,7 +3,7 @@ import { FEE, MIGRATION_LOCK_MS, MIGRATION_MC_USD, SOL_USD, SUPPLY, toUsd, type 
 import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
-import { HOLDER_PACKAGES, HOLDER_SOL, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
+import { BOT_WALLETS, HOLDER_PACKAGES, HOLDER_RENT_SOL, HOLDER_SUPPLY_PCT, holderCostSol, LAUNCH_WALLETS_MAX, LAUNCH_WALLETS_START, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
 import { checkLaunch, correctness, CREATOR_FEE_CURVE, CREATOR_FEE_POOL, DEPLOY_FEE_SOL, devCeilingUsd, devDemand, makeLaunchOptions, narrativeLuck, OPTION_COUNT, RIVAL_LAG_S, type DevChoice, type LaunchCheck, type LaunchOptions } from "./dev";
 import { BOOSTS, KOLS, AUTHORITIES, CTO_LEADERS, CTO_LINES, NOISE_AUTHORS } from "./content";
 import { ARMED_WAIT_MS, COUNTDOWN_MS, MAX_ROUND_MS, MISS_AFTER_MS, ratingFor, scoreRound, scoreSaga } from "./scoring";
@@ -116,9 +116,11 @@ interface DevLaunch {
   ceilingUsd: number;
   launchedAt: number;
   deployMs: number;
-  /** Tokens in your deployer wallet and in each of your launch wallets (LAUNCH_WALLETS of them). */
+  /** Tokens in your deployer wallet, each launch wallet (10-50), each trend-bot wallet, and the holder-bot wallets. */
   deployer: number;
   lw: number[];
+  bw: number[];
+  hw: { tokens: number; count: number };
   /** Most you have held across them (for how much you have sold). */
   initialTokens: number;
   /** Tokens held by the organic market (what it can sell back). */
@@ -141,10 +143,8 @@ interface DevLaunch {
   bots: {
     volume: { label: string; totalSol: number; doneSol: number; startAt: number; endAt: number; costSol: number } | null;
     trend: { targetUsd: number; budgetSol: number; spentSol: number; estSol: number } | null;
-    holders: { total: number; added: number } | null;
+    holders: { total: number; added: number; budgetSol: number; spentSol: number } | null;
   };
-  /** Fake holders your holder bots have added so far. */
-  botHolders: number;
   /** What the last bot to finish did, for a toast. */
   lastBot: string | null;
   /** Market cap (USD) once a second, last 10 s, for momentum. */
@@ -280,11 +280,16 @@ interface QueuedEvent {
 const FINAL_AT = 0.35;
 /** What a DEX profile costs, USD. */
 export const DEX_USD = 299;
-/** Dev mode: launch wallets besides the deployer. */
-export const LAUNCH_WALLETS = 10;
-/** A dev-side wallet: the deployer, one launch wallet (0-9), or "holders" for all launch wallets together. */
+/** A dev-side wallet: the deployer, one launch wallet, or "holders" for all launch wallets together. */
 export type DevWallet = "deployer" | "holders" | number;
-const lwSum = (d: { lw: number[] }) => d.lw.reduce((n, x) => n + x, 0);
+/** Any of your wallets on a coin (Dev mode wallet panel). */
+export type WalletRef = { g: "deployer" } | { g: "launch"; i: number } | { g: "bot"; i: number } | { g: "holder" } | { g: "trade"; i: number };
+/** Where launch tokens sit. */
+type Slot = "deployer" | "holders" | { g: "launch" | "bot"; i: number };
+const sum = (xs: number[]) => xs.reduce((n, x) => n + x, 0);
+const lwSum = (d: { lw: number[] }) => sum(d.lw);
+/** Everything you hold in a launch, every group. */
+const devHeld = (d: { deployer: number; lw: number[]; bw: number[]; hw: { tokens: number } }) => d.deployer + sum(d.lw) + sum(d.bw) + d.hw.tokens;
 /** Dev mode: market caps (USD) where KOLs may pile into a right coin you launched. */
 const KOL_MILESTONES = [25e3, 50e3, 100e3, 200e3, 400e3, 800e3, 1.6e6, 3.2e6, 6.4e6, 12.8e6, Infinity];
 /** Your wallets, and the one limit: a single wallet at 5%+ of supply drags the coin. There is no cap on the total. */
@@ -372,7 +377,8 @@ export class Engine {
     this.scheduleAmbientLoops();
     if (opts.autoRounds) this.at(this.rng.range(8000, 50000), () => this.startRound());
     if (opts.dev) {
-      this.devSol = opts.dev.sol;
+      // One balance in Dev mode: it starts at the dev wallet you picked.
+      this.wallet = opts.dev.sol;
       this.at(this.rng.range(3000, 6000), () => this.startDevScenario());
     }
     this.snap = this.buildSnapshot();
@@ -847,7 +853,13 @@ export class Engine {
 
   // ------------------------------------------------------------------ dev mode
 
-  private devSol = 0;
+  /** Dev mode has one SOL balance for everything: the dev wallet is the trading wallet. */
+  private get devSol(): number {
+    return this.wallet;
+  }
+  private set devSol(v: number) {
+    this.wallet = v;
+  }
   private scenarios = new Map<string, DevScenario>();
   private scenarioSeq = 1;
   private launchIds: string[] = [];
@@ -972,7 +984,9 @@ export class Engine {
       launchedAt: at,
       deployMs: at - sc.tweetAt,
       deployer: 0,
-      lw: Array(LAUNCH_WALLETS).fill(0),
+      lw: Array(LAUNCH_WALLETS_START).fill(0),
+      bw: Array(BOT_WALLETS).fill(0),
+      hw: { tokens: 0, count: 0 },
       initialTokens: 0,
       marketTokens: 0,
       spentSol: DEPLOY_FEE_SOL,
@@ -987,7 +1001,6 @@ export class Engine {
       rightCoin,
       kolStage: 0,
       bots: { volume: null, trend: null, holders: null },
-      botHolders: 0,
       lastBot: null,
       hist: [],
       lastSample: at,
@@ -1005,7 +1018,7 @@ export class Engine {
       const n = this.rng.int(3, 6);
       for (let i = 0; i < n; i++) {
         this.at(at + this.rng.range(300, 3000), (a) => {
-          if (this.coins.has(c.id)) this.devWalletBuy(c, organic / n, a, i % LAUNCH_WALLETS);
+          if (this.coins.has(c.id)) this.devWalletBuy(c, organic / n, a, { g: "launch", i });
         });
       }
     }
@@ -1015,8 +1028,8 @@ export class Engine {
     return { ok: true, coinId: c.id };
   }
 
-  /** Buy your own coin from the dev wallet into one of your launch wallets. Returns tokens bought. */
-  private devWalletBuy(c: Coin, sol: number, at: number, into: "deployer" | number): number {
+  /** Buy your own coin into one of your launch-side wallets. Returns tokens bought. */
+  private devWalletBuy(c: Coin, sol: number, at: number, into: Slot | number): number {
     const d = c.dev!;
     const spend = Math.min(sol, this.devSol);
     if (spend <= 0) return 0;
@@ -1026,8 +1039,10 @@ export class Engine {
     this.devSol -= r.spent;
     d.spentSol += r.spent;
     if (into === "deployer") d.deployer += r.tokens;
-    else d.lw[into] += r.tokens;
-    d.initialTokens = Math.max(d.initialTokens, d.deployer + lwSum(d));
+    else if (into === "holders") d.hw.tokens += r.tokens;
+    else if (typeof into === "number") d.lw[into] += r.tokens;
+    else (into.g === "launch" ? d.lw : d.bw)[into.i] += r.tokens;
+    d.initialTokens = Math.max(d.initialTokens, devHeld(d));
     return r.tokens;
   }
 
@@ -1079,7 +1094,7 @@ export class Engine {
       corr: d.corr,
       share: d.share,
       rep: this.opts.dev?.rep ?? 1,
-      devSoldFrac: d.initialTokens > 0 ? 1 - (d.deployer + lwSum(d)) / d.initialTokens : 0,
+      devSoldFrac: d.initialTokens > 0 ? 1 - devHeld(d) / d.initialTokens : 0,
       cashback: d.rewards === "cashback",
       mcUsd,
       ceilingUsd: d.ceilingUsd,
@@ -1087,7 +1102,7 @@ export class Engine {
       migrated: c.migrated,
       // A running volume bot keeps it on the trending lists; volume and holders are social proof.
       promo: Math.max(d.promo.peak * Math.exp(-(at - d.promo.at) / d.promo.tauMs), d.bots.volume ? 0.4 : 0),
-      proof: Math.min(0.25, d.botHolders / 400) + (d.bots.volume ? 0.1 : 0),
+      proof: Math.min(0.25, d.hw.count / 400) + (d.bots.volume ? 0.1 : 0),
     });
     // A right coin that is running draws KOLs at each milestone: real buys, sometimes a tweet. They take profit
     // when it bleeds.
@@ -1198,12 +1213,138 @@ export class Engine {
     return { ok: true };
   }
 
-  /** Sell everything you hold in the launch, every wallet, at once. */
+  /** Sell everything you hold in the launch, every launch-side wallet (deployer, launch, bot, holder), at once. */
   nuke(coinId: string): { ok: boolean; reason?: string; sol?: number } {
-    const a = this.devSellFrom(coinId, "holders", "max");
-    const b = this.devSellFrom(coinId, "deployer", "max");
-    if (!a.ok && !b.ok) return { ok: false, reason: b.reason ?? a.reason };
-    return { ok: true, sol: (a.sol ?? 0) + (b.sol ?? 0) };
+    const d = this.coins.get(coinId)?.dev;
+    if (!d) return { ok: false, reason: "Not your launch" };
+    const refs: WalletRef[] = [
+      { g: "deployer" },
+      ...d.lw.map((_, i) => ({ g: "launch" as const, i })),
+      ...d.bw.map((_, i) => ({ g: "bot" as const, i })),
+      { g: "holder" },
+    ];
+    const r = this.walletsSell(coinId, refs, 1);
+    return r.fills ? { ok: true, sol: r.sol } : { ok: false, reason: r.reason ?? "Nothing to sell" };
+  }
+
+  /** Add launch wallets to a launch, 10 at a time, up to 50. Returns how many it has now. */
+  addLaunchWallets(coinId: string, n = 10): number {
+    const d = this.coins.get(coinId)?.dev;
+    if (!d) return 0;
+    const add = Math.max(0, Math.min(n, LAUNCH_WALLETS_MAX - d.lw.length));
+    d.lw.push(...Array(add).fill(0));
+    this.emitNow();
+    return d.lw.length;
+  }
+
+  /**
+   * Buy with several of your wallets at once: `sol` in each (deployer, launch, bot or trading wallets; holder
+   * wallets are filled by the holder bot). On a coin that isn't your launch, only trading wallets can buy.
+   */
+  walletsBuy(coinId: string, refs: WalletRef[], sol: number): { ok: boolean; reason?: string; spent: number; fills: number } {
+    const c = this.coins.get(coinId);
+    if (!c) return { ok: false, reason: "Coin is gone", spent: 0, fills: 0 };
+    const usable = refs.filter((r) => r.g !== "holder" && (r.g === "trade" || c.dev));
+    if (!usable.length || sol <= 0) return { ok: false, reason: "Pick some wallets first", spent: 0, fills: 0 };
+    if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: buys reopen in a moment", spent: 0, fills: 0 };
+    if (sol * usable.length > this.wallet + 1e-9) return { ok: false, reason: `Not enough SOL: ${sol} × ${usable.length} wallets is ${(sol * usable.length).toFixed(2)} SOL`, spent: 0, fills: 0 };
+    let spent = 0;
+    let fills = 0;
+    let devTokens = 0;
+    let devSol = 0;
+    for (const r of usable) {
+      if (r.g === "holder") continue;
+      const w0 = this.wallet;
+      if (r.g === "trade") {
+        if (!this.quickBuy(coinId, sol, this.simNow, [r.i])) continue;
+      } else {
+        const t = this.devWalletBuy(c, sol, this.simNow, r.g === "deployer" ? "deployer" : { g: r.g, i: r.i });
+        if (t <= 0) continue;
+        if (r.g === "deployer") {
+          devTokens += t;
+          devSol += w0 - this.wallet;
+        }
+      }
+      spent += w0 - this.wallet;
+      fills++;
+    }
+    // The deployer's buys are public; every other wallet looks like anyone.
+    if (devTokens > 0 && c.dev) {
+      c.devPct = (c.dev.deployer / SUPPLY) * 100;
+      c.stats.dev = +c.devPct.toFixed(2);
+      this.social(c, this.simNow, { kind: "dev", side: "buy", name: "Dev", hue: 45, sol: devSol, pct: (devTokens / SUPPLY) * 100 });
+    }
+    this.emitNow();
+    return { ok: fills > 0, spent, fills, reason: fills ? undefined : "Buy failed" };
+  }
+
+  /** Sell `fraction` of each chosen wallet's bag (holder wallets sell as a crowd and leave the holder count). */
+  walletsSell(coinId: string, refs: WalletRef[], fraction: number): { ok: boolean; reason?: string; sol: number; fills: number } {
+    const c = this.coins.get(coinId);
+    if (!c) return { ok: false, reason: "Coin is gone", sol: 0, fills: 0 };
+    if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: trading reopens in a moment", sol: 0, fills: 0 };
+    const f = Math.min(1, Math.max(0, fraction));
+    const d = c.dev;
+    let got = 0;
+    let fills = 0;
+    let devSold = 0;
+    let devGot = 0;
+    for (const r of refs) {
+      if (r.g === "trade") {
+        const t = this.sell(coinId, f, this.simNow, "selected", [r.i]);
+        if (t) {
+          got += t.sol;
+          fills++;
+        }
+        continue;
+      }
+      if (!d) continue;
+      if (r.g === "holder") {
+        const sold = this.sellHolders(c, f);
+        if (sold > 0) {
+          got += sold;
+          d.gotSol += sold;
+          fills++;
+        }
+        continue;
+      }
+      const held = r.g === "deployer" ? d.deployer : (r.g === "launch" ? d.lw : d.bw)[r.i] ?? 0;
+      const tokens = held * f;
+      if (tokens <= 1) continue;
+      const sol = this.marketSell(c, this.simNow, tokens, r.g === "deployer" ? "DEV" : undefined);
+      if (r.g === "deployer") {
+        d.deployer -= tokens;
+        devSold += tokens;
+        devGot += sol;
+      } else (r.g === "launch" ? d.lw : d.bw)[r.i] -= tokens;
+      this.wallet += sol;
+      d.gotSol += sol;
+      got += sol;
+      fills++;
+    }
+    if (devSold > 0 && d) {
+      c.devPct = (d.deployer / SUPPLY) * 100;
+      c.stats.dev = +c.devPct.toFixed(2);
+      this.social(c, this.simNow, { kind: "dev", side: "sell", name: "Dev", hue: 45, sol: devGot, pct: (devSold / SUPPLY) * 100, all: d.deployer <= 1 }, false);
+    }
+    this.emitNow();
+    return { ok: fills > 0, sol: got, fills, reason: fills ? undefined : "Nothing in those wallets" };
+  }
+
+  /** The holder-bot wallets sell `fraction` of their tokens as a crowd of small sells; that many holders leave. */
+  private sellHolders(c: Coin, fraction: number): number {
+    const h = c.dev!.hw;
+    const tokens = h.tokens * fraction;
+    if (tokens <= 1) return 0;
+    const leaving = Math.max(1, Math.round(h.count * fraction));
+    const chunks = Math.max(1, Math.min(leaving, 12));
+    let got = 0;
+    for (let k = 0; k < chunks; k++) got += this.marketSell(c, this.simNow, tokens / chunks);
+    h.tokens -= tokens;
+    h.count = Math.max(0, h.count - leaving);
+    c.holders = Math.max(1, c.holders - leaving);
+    this.wallet += got;
+    return got;
   }
 
   /** Move your accrued creator rewards into the dev wallet. */
@@ -1338,7 +1479,7 @@ export class Engine {
     if (at >= c.lockUntil) {
       const chunk = Math.min(t.budgetSol - t.spentSol, Math.max(0.03, (t.estSol / 10) * this.rng.range(0.5, 1.5)));
       const before = this.devSol;
-      this.devWalletBuy(c, chunk, at, this.rng.int(0, LAUNCH_WALLETS - 1));
+      this.devWalletBuy(c, chunk, at, { g: "bot", i: this.rng.int(0, BOT_WALLETS - 1) });
       t.spentSol += before - this.devSol;
     }
     this.at(at + this.rng.range(1200, 2800), (a) => this.trendStep(c, a));
@@ -1351,17 +1492,28 @@ export class Engine {
     this.emitNow();
   }
 
-  /** Holder bot: `n` fresh wallets each make a dust buy over the next minute or so. Paid up front. */
+  /** Rough cost of `n` holders on a launch right now (rent + their buys at today's price). */
+  quoteHolders(coinId: string, n: number): number {
+    const c = this.coins.get(coinId);
+    return c ? holderCostSol(n, this.mc(c)) : 0;
+  }
+
+  /**
+   * Holder bot: `n` fresh wallets, each buying ~0.03% of supply over the next minute or so. Rent is paid up front;
+   * the buys come out of your balance as they happen. Their bag shows as Holder wallets, which you can sell.
+   */
   startHolderBot(coinId: string, n: number): { ok: boolean; reason?: string } {
     const own = this.ownLaunch(coinId);
     if (!own || !(HOLDER_PACKAGES as readonly number[]).includes(n)) return { ok: false, reason: "Not your launch" };
     const { c, d } = own;
     if (d.bots.holders) return { ok: false, reason: "A holder bot is already running" };
-    const cost = n * HOLDER_SOL;
-    if (cost > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL in the dev wallet" };
-    this.devSol -= cost;
-    d.spentSol += cost;
-    d.bots.holders = { total: n, added: 0 };
+    const est = holderCostSol(n, this.mc(c));
+    if (est > this.wallet + 1e-9) return { ok: false, reason: `About ${est.toFixed(2)} SOL needed: not enough` };
+    const rent = n * HOLDER_RENT_SOL;
+    this.wallet -= rent;
+    d.spentSol += rent;
+    // Budget: the estimate +30%. If the price runs away, it stops rather than draining your balance.
+    d.bots.holders = { total: n, added: 0, budgetSol: est * 1.3 - rent, spentSol: 0 };
     this.at(this.simNow + 300, (a) => this.holderStep(c, a));
     this.emitNow();
     return { ok: true };
@@ -1373,12 +1525,21 @@ export class Engine {
     if (!d || !h || !this.coins.has(c.id)) return;
     if (at >= c.lockUntil) {
       const before = c.holders;
-      this.applyBuy(c, 0.001, at, "bot");
-      c.holders = before + 1;
-      h.added++;
-      d.botHolders++;
+      const sol = ((HOLDER_SUPPLY_PCT / 100) * this.mc(c)) / (1 - FEE);
+      const w0 = this.wallet;
+      if (h.spentSol + sol <= h.budgetSol && this.devWalletBuy(c, sol, at, "holders") > 0) {
+        h.spentSol += w0 - this.wallet;
+        c.holders = before + 1;
+        h.added++;
+        d.hw.count++;
+      } else {
+        // Over budget (the price ran) or out of SOL: stop with what it has.
+        d.lastBot = `Holder bot stopped at ${h.added}/${h.total}: the price ran past its budget`;
+        h.total = h.added;
+      }
     }
     if (h.added >= h.total) {
+      if (h.added === h.total && !d.lastBot?.startsWith("Holder bot stopped")) d.lastBot = `Holder bot done: ${h.added} holders`;
       d.bots.holders = null;
       this.emitNow();
       return;
@@ -1415,14 +1576,17 @@ export class Engine {
         deployerPct: (d.deployer / SUPPLY) * 100,
         holdersPct: (lwSum(d) / SUPPLY) * 100,
         launchWalletPcts: d.lw.map((x) => (x / SUPPLY) * 100),
+        botWalletPcts: d.bw.map((x) => (x / SUPPLY) * 100),
+        holderWallets: { count: d.hw.count, pct: (d.hw.tokens / SUPPLY) * 100 },
+        totalPct: (devHeld(d) / SUPPLY) * 100,
         bots: {
           volume: d.bots.volume ? { label: d.bots.volume.label, done: d.bots.volume.doneSol / d.bots.volume.totalSol, endsInMs: Math.max(0, d.bots.volume.endAt - this.simNow) } : null,
           trend: d.bots.trend ? { targetUsd: d.bots.trend.targetUsd, spentSol: d.bots.trend.spentSol, budgetSol: d.bots.trend.budgetSol } : null,
-          holders: d.bots.holders ? { ...d.bots.holders } : null,
-          botHolders: d.botHolders,
+          holders: d.bots.holders ? { total: d.bots.holders.total, added: d.bots.holders.added } : null,
+          botHolders: d.hw.count,
           lastBot: d.lastBot,
         },
-        holdingsSol: (d.deployer + lwSum(d)) * price,
+        holdingsSol: devHeld(d) * price,
         spentSol: d.spentSol,
         gotSol: d.gotSol,
         rewardsMode: d.rewards,

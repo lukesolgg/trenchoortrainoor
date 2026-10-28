@@ -204,7 +204,7 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
               <span className="text-right font-bold">
                 <SolIcon /> {sol(cost, 2)}
               </span>
-              <span className="text-dim">Dev wallet after</span>
+              <span className="text-dim">Balance after</span>
               <span className={`text-right font-bold ${cost > devSol ? "text-down" : ""}`}>
                 <SolIcon /> {sol(devSol - cost, 2)}
               </span>

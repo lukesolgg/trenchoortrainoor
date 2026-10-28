@@ -1,7 +1,7 @@
 "use client";
 
 import type { Engine } from "@/engine/engine";
-import { HOLDER_PACKAGES, HOLDER_SOL, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol } from "@/engine/dev";
+import { HOLDER_PACKAGES, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol } from "@/engine/dev";
 import type { LaunchView } from "@/engine/types";
 import { sol, usd } from "../format";
 
@@ -24,7 +24,7 @@ export function Bots({ engine, l, devSol, notify }: Props) {
     <div className="border-b border-line p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-[13px] font-bold">Bots</h3>
-        <span className="text-[10.5px] text-faint">Paid from the dev wallet</span>
+        <span className="text-[10.5px] text-faint">Paid from your balance</span>
       </div>
 
       {/* Volume */}
@@ -58,7 +58,7 @@ export function Bots({ engine, l, devSol, notify }: Props) {
       )}
 
       {/* Trend */}
-      <div className="mt-2.5 text-[11px] font-semibold text-faint">Trend · buys into your launch wallets up to a target</div>
+      <div className="mt-2.5 text-[11px] font-semibold text-faint">Trend · buys into its own wallets up to a target</div>
       {b.trend ? (
         <Running
           label={`→ ${usd(b.trend.targetUsd)} · ${sol(b.trend.spentSol)} / ${sol(b.trend.budgetSol)} SOL`}
@@ -92,24 +92,27 @@ export function Bots({ engine, l, devSol, notify }: Props) {
 
       {/* Holders */}
       <div className="mt-2.5 text-[11px] font-semibold text-faint">
-        Holders · fresh wallets with a dust buy{b.botHolders > 0 && <span className="text-dim"> · {b.botHolders} added so far</span>}
+        Holders · each buys ~0.03% of supply{b.botHolders > 0 && <span className="text-dim"> · {b.botHolders} holding</span>}
       </div>
       {b.holders ? (
         <Running label={`${b.holders.added} / ${b.holders.total} holders`} pct={b.holders.added / b.holders.total} />
       ) : (
         <div className="mt-1 grid grid-cols-4 gap-1">
-          {HOLDER_PACKAGES.map((n) => (
+          {HOLDER_PACKAGES.map((n) => {
+            const est = engine.quoteHolders(id, n);
+            return (
             <button
               key={n}
               type="button"
-              disabled={n * HOLDER_SOL > devSol}
+              disabled={est > devSol}
               onClick={() => run(engine.startHolderBot(id, n), `Holder bot on: ${n} holders`)}
               className={`${btn} border-violet/40 text-violet enabled:hover:bg-violet/10`}
             >
               <span className="text-[11.5px] font-extrabold">{n}</span>
-              <span className="text-[9.5px] text-dim">{sol(n * HOLDER_SOL)}</span>
+              <span className="text-[9.5px] text-dim">~{sol(est)}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
       {b.lastBot && <p className="mt-2 text-[11px] text-dim">{b.lastBot}</p>}

@@ -62,7 +62,7 @@ export function LaunchCard({ l, onOpen, onClose }: { l: LaunchView; onOpen: () =
         <div className="grid grid-cols-4 gap-2.5 p-5 pb-3">
           <Stat k="Peak MC" v={usd(l.peakMcUsd)} />
           <Stat k="Realised PnL" v={`${signed(l.pnlSol)} SOL`} tone={l.pnlSol >= 0 ? "text-up" : "text-down"} sub={`in ${sol(l.spentSol)} · out ${sol(l.gotSol + l.claimedSol)}`} />
-          <Stat k="Still holding" v={`${sol(l.holdingsSol)} SOL`} sub={`${(l.deployerPct + l.holdersPct).toFixed(2)}% of supply`} />
+          <Stat k="Still holding" v={`${sol(l.holdingsSol)} SOL`} sub={`${l.totalPct.toFixed(2)}% of supply`} />
           <Stat k={l.rewardsMode === "creator" ? "Creator fees" : "Cashback"} v={l.rewardsMode === "creator" ? `${sol(l.rewardsSol + l.claimedSol, 3)} SOL` : "to holders"} sub={l.rewardsMode === "creator" ? `${sol(l.rewardsSol, 3)} unclaimed` : ""} />
         </div>
 

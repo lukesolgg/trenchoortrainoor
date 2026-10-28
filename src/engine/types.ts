@@ -274,8 +274,13 @@ export interface LaunchView {
   /** Share of supply in your deployer wallet and in your other launch wallets (%), and what it is all worth (SOL). */
   deployerPct: number;
   holdersPct: number;
-  /** Each launch wallet's share of supply (%). */
+  /** Each launch wallet's share of supply (%), 10 to 50 of them. */
   launchWalletPcts: number[];
+  /** The trend bot's own wallets (%), and the holder-bot wallets together. */
+  botWalletPcts: number[];
+  holderWallets: { count: number; pct: number };
+  /** Everything you hold in the launch across every group (%). */
+  totalPct: number;
   /** Bots running on this launch. */
   bots: {
     volume: { label: string; done: number; endsInMs: number } | null;

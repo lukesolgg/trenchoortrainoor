@@ -69,9 +69,11 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
 - **Dev Ops** on your coin's page: deployer and other-wallet holdings with sells of 0.1% / 1% / 3% / MAX of supply
   (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
   creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
-- **Wallet column** (Dev mode, right of the trade panel): one row per wallet: the deployer, launch wallets 1-10
-  (organic buys land in them; they look like anyone) and your trading wallets, each with its own buttons; flip the column between BUY (SOL per wallet)
-  and SELL (10/25/50/100% of that wallet's bag).
+- **One balance and one wallet panel** (Dev mode): the dev wallet and the trading wallet are a single SOL balance.
+  The panel right of the trade panel groups every wallet you have on the coin: Deployer (public), Launch wallets
+  (10 to start, +10 up to 50, shown as a chip grid), Trading (Main, Side 1-4), Trend bot wallets and Holder wallets
+  (the holder bot's crowd). Tick a group or pick chips, choose SOL per wallet (BUY) or % of each bag (SELL), fire
+  once. Dev Ops above shows what you hold, the deployer, realised PnL, fees, Nuke and the launch report.
 - **Where it went wrong:** hover a launch chip (it carries ✓ or ✗N), the "buyers aren't biting" warning, or the
   ✓/✗ next to Launch report on your coin to see the tweet's name / ticker / picture / config against yours,
   mistakes first.
@@ -84,8 +86,10 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
     at 1.25% of the volume (pump fee + service cut). While it runs the coin keeps attention (trending) and some
     social proof; creator fees come back on its volume. Stop refunds what it has not traded.
   - *Trend*: +50%, 2×, Bond or $100K. A live estimate from the curve and pool maths (+15% for sellers); it buys
-    steadily into random launch wallets until the target or a budget of estimate +30%. Stop any time.
-  - *Holders*: 25 / 50 / 100 / 200 fresh wallets with a dust buy, 0.004 SOL each; holder count is social proof.
+    steadily into its own five bot wallets until the target or a budget of estimate +30%. Stop any time.
+  - *Holders*: 25 / 50 / 100 / 200 fresh wallets, each buying ~0.03% of supply (+0.004 SOL rent): 200 on a fresh
+    coin is ~3 SOL and ~6% of supply; dearer as the price climbs, capped at the estimate +30%. They show as Holder
+    wallets and can be sold (the holder count drops as they leave).
 - **Launches bar** (dev wallet, every launch, session realised PnL) and a **launch card** when a launch ends:
   outcome, peak MC, realised PnL, still holding, fees, and the tweet's name / ticker / picture / config against yours.
 

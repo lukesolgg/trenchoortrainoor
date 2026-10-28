@@ -27,9 +27,20 @@ export const VOLUME_PACKAGES = [
 ] as const;
 export const volumeCostSol = (usd: number) => (usd / SOL_USD) * 0.0125;
 
-/** Holder bot: each fake holder is a fresh wallet with a token account (rent) and a dust buy. */
+/**
+ * Holder bot: each fake holder is a fresh wallet with a token account (rent, paid up front) that buys about 0.03% of
+ * supply at the price of the moment. On a fresh coin 200 of them come to ~3 SOL and ~6% of supply.
+ */
 export const HOLDER_PACKAGES = [25, 50, 100, 200] as const;
-export const HOLDER_SOL = 0.004;
+export const HOLDER_RENT_SOL = 0.004;
+export const HOLDER_SUPPLY_PCT = 0.03;
+/** Estimated cost of `n` holders at a market cap (SOL), with a margin for the price rising as they buy. */
+export const holderCostSol = (n: number, mcSol: number) => n * (HOLDER_RENT_SOL + (HOLDER_SUPPLY_PCT / 100) * mcSol) * 1.15;
+/** The trend bot buys into its own wallets, never your launch wallets. */
+export const BOT_WALLETS = 5;
+/** Launch wallets: 10 to start, add more 10 at a time. */
+export const LAUNCH_WALLETS_START = 10;
+export const LAUNCH_WALLETS_MAX = 50;
 /** Trend bot targets: a multiple of the current market cap, the bonding line, or a fixed market cap. */
 export const TREND_TARGETS = [
   { id: "x1.5", label: "+50%", mult: 1.5 },

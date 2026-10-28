@@ -15,7 +15,7 @@ export function LaunchesBar({ devSol, launches, openId, onOpen }: { devSol: numb
   return (
     <div className="flex h-11 shrink-0 items-center gap-3 border-b border-line bg-violet/[0.05] px-4 text-[12px]">
       <span className="shrink-0 rounded-md border border-violet/50 bg-violet/10 px-2 py-1 font-bold text-violet">
-        Dev wallet <SolIcon /> <span className="tabular">{sol(devSol)}</span>
+        Balance <SolIcon /> <span className="tabular">{sol(devSol)}</span>
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {launches.length === 0 ? (
