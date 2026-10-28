@@ -121,8 +121,6 @@ interface Props {
   onConsolidate: () => void;
   onBoost: (label: string) => void;
   onPayDex: () => void;
-  /** Shown at the top of the panel (Dev mode: your launch's controls). */
-  top?: React.ReactNode;
   /** Dev mode, your own launch: promotion is paid from the dev wallet and works before migration too. */
   devLaunch?: { devSol: number };
 }
@@ -255,7 +253,7 @@ const DEX_USD = 299;
 const SOL_PRICE = 104;
 
 /** Spend your own SOL promoting the coin: a DEX boost (may pump it, may not) or the DEX profile, once. */
-function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayDex, devLaunch }: { coin: CoinView; walletSol: number; locked: boolean; canBoost: boolean; canPayDex: boolean; onBoost: (l: string) => void; onPayDex: () => void; devLaunch?: { devSol: number } }) {
+export function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayDex, devLaunch }: { coin: CoinView; walletSol: number; locked: boolean; canBoost: boolean; canPayDex: boolean; onBoost: (l: string) => void; onPayDex: () => void; devLaunch?: { devSol: number } }) {
   // Your own launch: promote it any time (curve or pool), paid from the dev wallet.
   const live = devLaunch ? !locked : coin.stage === "migrated" && !locked;
   if (devLaunch) walletSol = devLaunch.devSol;
@@ -264,7 +262,7 @@ function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayD
     <div className="border-b border-line p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-[13px] font-bold">Promote</h3>
-        <span className="text-[10.5px] text-faint">{devLaunch ? "Paid from the dev wallet. Buys attention, not a pump." : live ? "Paid from your balance. No guarantees." : "Available after migration"}</span>
+        <span className="text-[10.5px] text-faint">{devLaunch ? "Paid from your balance. Buys attention, not a pump." : live ? "Paid from your balance. No guarantees." : "Available after migration"}</span>
       </div>
       <div className="grid grid-cols-5 gap-1">
         {BOOSTS.map((b) => {
@@ -297,7 +295,7 @@ function Promote({ coin, walletSol, locked, canBoost, canPayDex, onBoost, onPayD
   );
 }
 
-export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex, top, devLaunch }: Props) {
+export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets, presetSet, onPresetSet, instant, buyLocked, lockSecs, changePct, onBuy, onSell, holdingPct, walletPcts, walletSel, walletCount, kol, onPostCall, canConsolidate, canBoost, canPayDex, onWalletSel, onSplit, onConsolidate, onBoost, onPayDex, devLaunch }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [editing, setEditing] = useState(false);
   const [buyAmt, setBuyAmt] = useState("1");
@@ -318,7 +316,6 @@ export function TradePanel({ coin, walletSol, position, buyPresets, onBuyPresets
 
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-y-auto border-l border-line bg-panel">
-      {top}
       {/* Flow stats */}
       <div className="border-b border-line p-3">
         <div className="grid grid-cols-4 gap-1.5">

@@ -1,7 +1,7 @@
 "use client";
 
 import { Bots } from "./dev/Bots";
-import { WalletPanel } from "./dev/WalletPanel";
+import { DevTradePanel } from "./dev/DevTradePanel";
 import { DevOps } from "./dev/DevOps";
 import { KOL_BUBBLE_TIER, type Features } from "@/campaign/progression";
 import { buyWarning, WALLET_NAMES } from "./Wallets";
@@ -20,7 +20,7 @@ import { SourceBadge } from "./SourceBadge";
 import { QuickWidget } from "./QuickWidget";
 import { useUi } from "@/store/ui";
 import { age, sol, usd } from "./format";
-import { TradePanel } from "./TradePanel";
+import { Promote, TradePanel } from "./TradePanel";
 
 const Stat = ({ k, v, tone, sub }: { k: string; v: React.ReactNode; tone?: string; sub?: string }) => (
   <div className="leading-tight">
@@ -160,6 +160,15 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           ? "Migrating: buys reopen in a moment"
           : "Buy failed: not enough SOL, or the curve is complete"),
     );
+  };
+
+  const onBoost = (label: string) => {
+    const r = engine.buyBoost(coinId, label);
+    notify(r.ok ? `🚀 Boost ${label} is live on ${coin?.ticker ?? "it"}` : (r.reason ?? "Boost failed"));
+  };
+  const onPayDex = () => {
+    const r = engine.payDex(coinId);
+    notify(r.ok ? `DEX profile paid for ${coin?.ticker ?? "it"}` : (r.reason ?? "Could not pay DEX"));
   };
 
   const sell = (fraction: number, eventTs: number) => {
@@ -315,7 +324,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
         </div>
       </header>
 
-      <div className={`grid min-h-0 flex-1 ${devMode ? "grid-cols-[minmax(0,1fr)_340px_250px]" : "grid-cols-[minmax(0,1fr)_380px]"}`}>
+      <div className={`grid min-h-0 flex-1 ${devMode ? "grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-[minmax(0,1fr)_380px]"}`}>
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="flex h-9 shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-line bg-nav px-3 [scrollbar-width:none]">
             <Seg value={tf} options={TFS.map((t) => ({ v: t.s, label: t.label }))} onChange={setTf} />
@@ -403,9 +412,9 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
             />
           </div>
         </div>
-        <TradePanel
-          top={
-            launch && (
+        {devMode ? (
+          <DevTradePanel engine={engine} coin={coin} launch={launch} balance={snap.walletSol} tradingCount={snap.walletCount} notify={notify}>
+            {launch && (
               <>
                 <DevOps
                   l={launch}
@@ -420,12 +429,23 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
                   }}
                   onReport={() => onLaunchReport?.(coinId)}
                 />
-                <Bots engine={engine} l={launch} devSol={snap.devSol ?? 0} notify={notify} />
+                <Bots engine={engine} l={launch} devSol={snap.walletSol} notify={notify} />
               </>
-            )
-          }
+            )}
+            <Promote
+              coin={coin}
+              walletSol={snap.walletSol}
+              locked={buyLocked}
+              canBoost
+              canPayDex
+              devLaunch={launch ? { devSol: snap.walletSol } : undefined}
+              onBoost={onBoost}
+              onPayDex={onPayDex}
+            />
+          </DevTradePanel>
+        ) : (
+        <TradePanel
           holdingPct={engine.holdingPct(coinId)}
-          devLaunch={launch ? { devSol: snap.devSol ?? 0 } : undefined}
           walletPcts={engine.walletPcts(coinId)}
           walletSel={snap.walletSel}
           walletCount={snap.walletCount}
@@ -444,14 +464,8 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           onConsolidate={() => {
             if (engine.consolidate(coinId)) notify(`Moved all your ${coin.ticker} into ${WALLET_NAMES[engine.getWalletSel()[0]]}`);
           }}
-          onBoost={(label) => {
-            const r = engine.buyBoost(coinId, label);
-            notify(r.ok ? `🚀 Boost ${label} is live on ${coin.ticker}` : (r.reason ?? "Boost failed"));
-          }}
-          onPayDex={() => {
-            const r = engine.payDex(coinId);
-            notify(r.ok ? `DEX profile paid for ${coin.ticker}` : (r.reason ?? "Could not pay DEX"));
-          }}
+          onBoost={onBoost}
+          onPayDex={onPayDex}
           coin={coin}
           walletSol={snap.walletSol}
           position={position}
@@ -466,7 +480,7 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
           onBuy={buy}
           onSell={sell}
         />
-        {devMode && <WalletPanel engine={engine} coin={coin} launch={launch} balance={snap.walletSol} tradingCount={snap.walletCount} notify={notify} />}
+        )}
       </div>
     </div>
   );

@@ -70,10 +70,12 @@ the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mod
   (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
   creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
 - **One balance and one wallet panel** (Dev mode): the dev wallet and the trading wallet are a single SOL balance.
-  The panel right of the trade panel groups every wallet you have on the coin: Deployer (public), Launch wallets
+  In Dev mode the coin page has **one trade panel**: Buy / Sell and one-tap amounts at the top (they fire at once
+  with the picked wallets; a custom amount too), then the wallets, then your launch, bots and promotion. It groups
+  every wallet you have on the coin: Deployer (public), Launch wallets
   (10 to start, +10 up to 50, shown as a chip grid), Trading (Main, Side 1-4), Trend bot wallets and Holder wallets
-  (the holder bot's crowd). Tick a group or pick chips, choose SOL per wallet (BUY) or % of each bag (SELL), fire
-  once. Dev Ops above shows what you hold, the deployer, realised PnL, fees, Nuke and the launch report.
+  (the holder bot's crowd). Tick a group or pick chips, then tap an amount: SOL in each wallet (Buy) or % of each bag
+  (Sell). "Your launch" below shows what you hold, the deployer, realised PnL, fees, Nuke and the launch report.
 - **Where it went wrong:** hover a launch chip (it carries ✓ or ✗N), the "buyers aren't biting" warning, or the
   ✓/✗ next to Launch report on your coin to see the tweet's name / ticker / picture / config against yours,
   mistakes first.

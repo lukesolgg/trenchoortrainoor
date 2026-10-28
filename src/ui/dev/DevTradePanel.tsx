@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Engine, WalletRef } from "@/engine/engine";
 import { SOL_USD } from "@/engine/curve";
 import { LAUNCH_WALLETS_MAX } from "@/engine/dev";
@@ -9,7 +9,7 @@ import { sol } from "../format";
 import { SolIcon } from "../icons";
 import { WALLET_NAMES } from "../Wallets";
 
-const BUY = [0.1, 0.25, 0.5, 1, 2];
+const BUY = [0.1, 0.25, 0.5, 1, 2, 5];
 const SELL = [0.1, 0.25, 0.5, 1];
 
 interface Wallet {
@@ -37,17 +37,18 @@ interface Props {
   balance: number;
   tradingCount: number;
   notify: (text: string) => void;
+  /** Below the wallets: your launch, bots, promotion. */
+  children?: ReactNode;
 }
 
 /**
- * Every wallet you have on this coin in one place, Proxima-style: groups (deployer, launch wallets up to 50,
- * trading, trend-bot and holder-bot wallets) with select-all, chips to pick single wallets, then one action: buy
- * SOL in each, or sell a % of each bag. One balance pays for everything.
+ * Dev mode's one trade panel. Top: BUY / SELL and one-tap amounts that fire straight away with the wallets you have
+ * picked. Then the wallets, in groups (deployer, launch wallets up to 50, trading, trend-bot and holder-bot wallets)
+ * with select-all and chips for single wallets. Then your launch, bots and promotion. One balance pays for all.
  */
-export function WalletPanel({ engine, coin, launch, balance, tradingCount, notify }: Props) {
+export function DevTradePanel({ engine, coin, launch, balance, tradingCount, notify, children }: Props) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [amount, setAmount] = useState(0.5);
-  const [frac, setFrac] = useState(1);
+  const [custom, setCustom] = useState("");
   const [sel, setSel] = useState<Set<string>>(() => new Set(["t0"]));
   const [open, setOpen] = useState<Set<string>>(() => new Set(["launch"]));
   const id = coin.id;
@@ -109,22 +110,24 @@ export function WalletPanel({ engine, coin, launch, balance, tradingCount, notif
       return n;
     });
 
-  const fire = () => {
+  // One tap fires: buy `v` SOL in each picked wallet, or sell `v` (a fraction) of each picked wallet's bag.
+  const fire = (v: number) => {
+    if (!picked.length) return notify(side === "buy" ? "Pick wallets below first" : "Pick wallets holding it below");
     const refs = picked.map((w) => w.ref);
     if (side === "buy") {
-      const r = engine.walletsBuy(id, refs, amount);
-      notify(r.ok ? `Bought with ${r.fills} wallet${r.fills > 1 ? "s" : ""} · ${sol(r.spent)} SOL` : (r.reason ?? "Buy failed"));
+      const r = engine.walletsBuy(id, refs, v);
+      notify(r.ok ? `Bought ${v} SOL in ${r.fills} wallet${r.fills > 1 ? "s" : ""} · ${sol(r.spent)} SOL` : (r.reason ?? "Buy failed"));
     } else {
-      const r = engine.walletsSell(id, refs, frac);
-      notify(r.ok ? `Sold ${Math.round(frac * 100)}% from ${r.fills} wallet${r.fills > 1 ? "s" : ""} · ${sol(r.sol)} SOL` : (r.reason ?? "Nothing to sell"));
+      const r = engine.walletsSell(id, refs, v);
+      notify(r.ok ? `Sold ${Math.round(v * 100)}% from ${r.fills} wallet${r.fills > 1 ? "s" : ""} · ${sol(r.sol)} SOL` : (r.reason ?? "Nothing to sell"));
     }
   };
   const buying = side === "buy";
-  const cost = amount * picked.length;
+  const customN = parseFloat(custom);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-line bg-panel">
-      <div className="space-y-2 border-b border-line p-2.5">
+    <aside className="h-full min-h-0 overflow-y-auto border-l border-line bg-panel">
+      <div className="space-y-2 border-b border-line p-3">
         <div className="grid grid-cols-2 rounded-lg bg-bg p-0.5" role="radiogroup" aria-label="Buy or sell">
           {(["buy", "sell"] as const).map((s) => (
             <button
@@ -133,33 +136,66 @@ export function WalletPanel({ engine, coin, launch, balance, tradingCount, notif
               role="radio"
               aria-checked={side === s}
               onClick={() => setSide(s)}
-              className={`rounded-md py-1.5 text-[13px] font-black transition-colors ${side === s ? (s === "buy" ? "bg-up text-black" : "bg-down text-white") : "text-dim hover:text-ink"}`}
+              className={`rounded-md py-2 text-[14px] font-black transition-colors ${side === s ? (s === "buy" ? "bg-up text-black" : "bg-down text-white") : "text-dim hover:text-ink"}`}
             >
-              {s === "buy" ? "BUY" : "SELL"}
+              {s === "buy" ? "Buy" : "Sell"}
             </button>
           ))}
         </div>
-        <div className={`grid gap-1 ${buying ? "grid-cols-5" : "grid-cols-4"}`}>
-          {(buying ? BUY : SELL).map((v) => {
-            const on = buying ? amount === v : frac === v;
-            return (
-              <button
-                key={v}
-                type="button"
-                onClick={() => (buying ? setAmount(v) : setFrac(v))}
-                className={`tabular rounded border py-1 text-[11px] font-bold transition-colors ${
-                  on ? (buying ? "border-up bg-up/15 text-up" : "border-down bg-down/15 text-down") : "border-line text-dim hover:text-ink"
-                }`}
-              >
-                {buying ? v : `${Math.round(v * 100)}%`}
-              </button>
-            );
-          })}
+        <div className={`grid gap-1.5 ${buying ? "grid-cols-3" : "grid-cols-4"}`}>
+          {(buying ? BUY : SELL).map((v) => (
+            <button
+              key={v}
+              type="button"
+              disabled={!picked.length || (buying && v * picked.length > balance + 1e-9)}
+              onPointerDown={(e) => e.button === 0 && fire(v)}
+              className={`tabular rounded-lg border py-2 text-[14px] font-extrabold transition-colors disabled:opacity-35 ${
+                buying ? "border-up/50 text-up enabled:hover:bg-up/10 enabled:active:bg-up/20" : "border-down/50 text-down enabled:hover:bg-down/10 enabled:active:bg-down/20"
+              }`}
+            >
+              {buying ? (
+                <>
+                  <SolIcon /> {v}
+                </>
+              ) : (
+                `${Math.round(v * 100)}%`
+              )}
+            </button>
+          ))}
         </div>
-        <p className="text-center text-[10.5px] text-faint">{buying ? "SOL in each wallet" : "of each wallet's bag"}</p>
+        <div className="flex gap-1.5">
+          <input
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            inputMode="decimal"
+            placeholder={buying ? "Custom SOL per wallet" : "Custom % of each bag"}
+            className="tabular min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1.5 text-[12px] outline-none focus:border-line-hi"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && customN > 0) fire(buying ? customN : Math.min(1, customN / 100));
+            }}
+          />
+          <button
+            type="button"
+            disabled={!(customN > 0) || !picked.length}
+            onClick={() => fire(buying ? customN : Math.min(1, customN / 100))}
+            className={`rounded-md px-3 text-[12px] font-black disabled:opacity-35 ${buying ? "bg-up text-black" : "bg-down text-white"}`}
+          >
+            {buying ? "Buy" : "Sell"}
+          </button>
+        </div>
+        <p className="tabular text-center text-[11px] text-dim">
+          {picked.length ? (
+            <>
+              {buying ? "Each tap buys in" : "Each tap sells from"} <span className="font-bold text-ink">{picked.length}</span> wallet{picked.length > 1 ? "s" : ""} · balance <SolIcon />{" "}
+              <span className="font-bold text-ink">{sol(balance)}</span>
+            </>
+          ) : (
+            <span className="text-amber">Pick wallets below</span>
+          )}
+        </p>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="border-b border-line p-2">
         <div className="mb-1.5 flex gap-1 text-[10.5px]">
           <button type="button" onClick={() => toggle(all.filter((w) => w.pct > 0.0001).map((w) => w.key), true)} className="rounded border border-line px-1.5 py-0.5 text-dim hover:text-ink">
             Select holders
@@ -241,25 +277,7 @@ export function WalletPanel({ engine, coin, launch, balance, tradingCount, notif
         </div>
       </div>
 
-      <div className="border-t border-line p-2">
-        <button
-          type="button"
-          disabled={!picked.length || (buying && cost > balance + 1e-9)}
-          onClick={fire}
-          className={`tabular w-full rounded-lg py-2.5 text-[13px] font-black transition-[filter] hover:brightness-110 disabled:opacity-35 ${buying ? "bg-up text-black" : "bg-down text-white"}`}
-        >
-          {buying
-            ? picked.length
-              ? `BUY ${amount} × ${picked.length} = ${sol(cost)} SOL`
-              : "Pick wallets to buy with"
-            : picked.length
-              ? `SELL ${Math.round(frac * 100)}% from ${picked.length} wallet${picked.length > 1 ? "s" : ""}`
-              : "Pick wallets holding it"}
-        </button>
-        <div className="tabular mt-1.5 text-center text-[10.5px] text-dim">
-          Balance <SolIcon /> <span className="font-bold text-ink">{sol(balance)}</span>
-        </div>
-      </div>
+      {children}
     </aside>
   );
 }
