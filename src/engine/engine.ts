@@ -4,6 +4,7 @@ import { DIFFICULTIES, type Difficulty } from "./difficulty";
 import { Rng } from "./rng";
 import { BOOST_TIERS, planSaga, type Beat, type Catalyst, type SagaPlan } from "./saga";
 import { BOT_WALLETS, HOLDER_RENT_SOL, HOLDER_SUPPLY_PCT, LAUNCH_WALLETS_MAX, LAUNCH_WALLETS_START, TREND_TARGETS, VOLUME_PACKAGES, volumeCostSol, type TrendTargetId } from "./dev";
+import { pushMinutes, STRATEGY_STYLES, type StrategyConfig, type StrategyQuote, type StrategyStyle } from "./dev";
 import { HOLDER_RANGE, TREND_MIN_RANGE, TREND_USD_RANGE, VOLUME_MIN_RANGE, VOLUME_USD_RANGE, volumeLift } from "./dev";
 import { BUNDLE_MAX_PCT, MM_CEILING_MAX, type MmConfig, type MmStrategy } from "./dev";
 import { BUNDLE_BUILDS, BUNDLE_CHECKS_MS, BUNDLE_RECHECK_MS, bubbleRead, bundleRisk, earlyDetection, type BundleConfig, type LaunchMode, type LaunchQuote } from "./dev";
@@ -165,6 +166,21 @@ interface DevLaunch {
   /** Market maker running on this launch. `ema` is the moving average it trades around (SOL MC); `owed` is
    * Distribute's sell allowance (tokens); `startBag` what you held when it started; `ceil0` the ceiling then. */
   mm: (MmConfig & { spentSol: number; gotSol: number; soldTokens: number; boughtTokens: number; startBag: number; ema: number; owed: number; ceil0: number; last: number }) | null;
+  /** The strategy running this launch: its plan, where it is, and what it has spent on the push. */
+  strat: {
+    cfg: StrategyConfig;
+    phase: "push" | "hold" | "profit" | "stalled" | "done";
+    paused: boolean;
+    pushBudget: number;
+    pushSpent: number;
+    pushEndsAt: number;
+    defendBudget: number;
+    volumeStarted: boolean;
+    holdersStarted: boolean;
+    mmStarted: boolean;
+    peakUsd: number;
+    msg: string | null;
+  } | null;
   /** Organic holders' tokens: they sit through dips (traders hold `marketTokens`). */
   holdTokens: number;
   /** Most the deployer, and the rest of your wallets, have held (for how much of each you have sold). */
@@ -314,6 +330,7 @@ export type WalletRef = { g: "deployer" } | { g: "launch"; i: number } | { g: "b
 type Slot = "deployer" | "holders" | { g: "launch" | "bot"; i: number };
 const sum = (xs: number[]) => xs.reduce((n, x) => n + x, 0);
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+const fmtUsd = (n: number) => (n >= 1e6 ? `$${+(n / 1e6).toFixed(2)}M` : `$${Math.round(n / 1000)}K`);
 const lwSum = (d: { lw: number[] }) => sum(d.lw);
 /** Everything you hold in a launch, every group. */
 const devHeld = (d: { deployer: number; lw: number[]; bw: number[]; hw: { tokens: number } }) => d.deployer + sum(d.lw) + sum(d.bw) + d.hw.tokens;
@@ -854,7 +871,7 @@ export class Engine {
       highlight: def.highlight,
       noHighlight: def.noHighlight,
     };
-    const plan = makeRound(this.rng, vampMeme, this.difficulty);
+    const plan = makeRound(this.rng, vampMeme, this.difficulty, { noDividends: !!this.opts.dev });
     const source: TweetSource = { author: plan.author, segments: plan.segments };
     this.pushTweet(plan.author, plan.segments, true, vampMeme.art, at);
     const sc = this.scored;
@@ -1028,6 +1045,19 @@ export class Engine {
     const sc = this.scenarios.get(scenarioId);
     if (!this.opts.dev || !sc) return { ok: false, reason: "That tweet is gone" };
     if (sc.launched) return { ok: false, reason: "You already launched this one" };
+    // A strategy picks the launch for you: its style's dev buy, organic buys or bundle.
+    const strat = choice.strategy ? STRATEGY_STYLES[choice.strategy.style] : null;
+    if (strat) {
+      choice = {
+        ...choice,
+        devBuySol: strat.devBuySol,
+        organicSol: strat.organicSol,
+        mode: strat.bundle ? "block0" : strat.organicSol > 0 ? "organic" : "manual",
+        bundle: strat.bundle ?? undefined,
+      };
+      const q = this.quoteStrategy(choice.strategy!);
+      if (q.totalSol > this.devSol + 1e-9) return { ok: false, reason: `That strategy needs about ${q.totalSol.toFixed(1)} SOL` };
+    }
     const devBuy = Math.max(0, choice.devBuySol);
     const organic = choice.mode === "organic" ? Math.max(0, choice.organicSol) : 0;
     const bundle =
@@ -1101,6 +1131,7 @@ export class Engine {
       graceUntil: 0,
       nextCheck: 0,
       mm: null,
+      strat: null,
       checks: 0,
       bundled: null,
       snipers: [],
@@ -1175,6 +1206,25 @@ export class Engine {
         });
       }
     }
+    if (choice.strategy) {
+      const cfg = choice.strategy;
+      const q = this.quoteStrategy(cfg);
+      c.dev.strat = {
+        cfg: { ...cfg },
+        phase: "push",
+        paused: false,
+        pushBudget: q.pushSol,
+        pushSpent: 0,
+        pushEndsAt: at + q.pushMinutes * 60_000,
+        defendBudget: q.defendSol,
+        volumeStarted: false,
+        holdersStarted: false,
+        mmStarted: false,
+        peakUsd: 0,
+        msg: null,
+      };
+      this.at(at + 1500, (a) => this.strategyStep(c, a));
+    }
     this.scheduleRoasts(c, sc);
     this.at(at + 200, (a) => this.devFlow(c, a));
     this.emitNow();
@@ -1247,7 +1297,9 @@ export class Engine {
     const sc = this.scenarios.get(d.scenarioId)!;
     // Organic holders build with the market cap (a few hundred by $50K, ~1,000 at $200K) and only trickle out.
     const organic = Math.max(1, c.holders - d.hw.count);
-    const want = 12 * Math.pow(Math.max(1, mcUsd) / 1000, 0.85) * (d.bundled ? 0.6 : 1) * Math.min(1, d.corr * 1.5);
+    // A coin you mostly own has few real holders: the more of the supply sits with you, the fewer come.
+    const yours = devHeld(d) / SUPPLY;
+    const want = 12 * Math.pow(Math.max(1, mcUsd) / 1000, 0.85) * (d.bundled ? 0.6 : 1) * Math.min(1, d.corr * 1.5) * Math.pow(Math.max(0, 1 - yours), 1.5);
     if (want > organic) c.holders += Math.round((want - organic) * 0.02 * this.rng.range(0.5, 1.5));
     else if (organic > want * 1.6 && this.rng.chance(0.3)) c.holders = Math.max(1, c.holders - 1);
     const support = clamp01(Math.log(organic / 40) / Math.log(25));
@@ -1323,7 +1375,7 @@ export class Engine {
   /** New holders find a running coin: a burst of buys over ~15 s that go to holders, and the count jumps. */
   private holderWave(c: Coin, at: number, size = 1): void {
     const d = c.dev!;
-    const n = Math.round(this.rng.range(12, 30) * (d.bundled ? 0.5 : 1) * d.corr * size);
+    const n = Math.round(this.rng.range(12, 30) * (d.bundled ? 0.5 : 1) * d.corr * size * Math.max(0, 1 - devHeld(d) / SUPPLY));
     for (let k = 0; k < n; k++) {
       this.at(at + this.rng.range(500, 15_000), (a) => {
         if (!this.coins.has(c.id) || d.ended) return;
@@ -1489,6 +1541,10 @@ export class Engine {
     d.bots.trend = null;
     d.bots.holders = null;
     d.mm = null;
+    if (d.strat) {
+      d.strat.phase = "done";
+      d.strat.msg = "Nuked";
+    }
     const refs: WalletRef[] = [
       { g: "deployer" },
       ...Array.from({ length: WALLETS }, (_, i) => ({ g: "trade" as const, i })),
@@ -1734,33 +1790,119 @@ export class Engine {
     const { c } = own;
     const mc = this.mc(c);
     const targetUsd = t ? ("mult" in t ? toUsd(mc) * t.mult : t.usd) : Math.max(TREND_USD_RANGE[0], Math.min(TREND_USD_RANGE[1], target as number));
+    return { targetUsd, sol: this.pushFrom(c.migrated, c.curve, mc, targetUsd).sol * 1.15 };
+  }
+
+  /**
+   * SOL (fees in) and tokens it takes to buy a coin from where it is to a target market cap with nobody else trading:
+   * up the curve, then up a constant-product pool from bonding.
+   */
+  private pushFrom(migrated: boolean, curve: Curve, mcSol: number, targetUsd: number): { sol: number; tokens: number } {
     const T = targetUsd / SOL_USD;
-    if (T <= mc) return { targetUsd, sol: 0 };
+    if (T <= mcSol) return { sol: 0, tokens: 0 };
+    const mig = MIGRATION_MC_USD / SOL_USD;
     let net = 0;
-    if (!c.migrated) {
-      const k = c.curve.vSol * c.curve.vTok;
+    let tokens = 0;
+    if (!migrated) {
+      const k = curve.vSol * curve.vTok;
       const vTokEnd = curveLib.INIT_VTOK - curveLib.REAL_TOK_TOTAL;
       const migSol = (k / vTokEnd / vTokEnd) * SUPPLY;
-      if (T <= migSol) net = Math.sqrt((T * k) / SUPPLY) - c.curve.vSol;
-      else {
-        net = k / vTokEnd - c.curve.vSol;
-        net += 0.2 * migSol * (Math.sqrt(T / migSol) - 1);
+      if (T <= migSol) {
+        net = Math.sqrt((T * k) / SUPPLY) - curve.vSol;
+        tokens = curve.vTok - Math.sqrt((k * SUPPLY) / T);
+      } else {
+        net = k / vTokEnd - curve.vSol + 0.2 * mig * (Math.sqrt(T / mig) - 1);
+        tokens = curve.vTok - vTokEnd + 0.2 * SUPPLY * (1 - Math.sqrt(mig / T));
       }
-    } else net = this.poolShare(c) * mc * (Math.sqrt(T / mc) - 1);
-    return { targetUsd, sol: (Math.max(0, net) / (1 - FEE)) * 1.15 };
+    } else {
+      const f = 0.2 * Math.sqrt(mig / mcSol);
+      net = f * mcSol * (Math.sqrt(T / mcSol) - 1);
+      tokens = f * SUPPLY * (1 - Math.sqrt(mcSol / T));
+    }
+    return { sol: Math.max(0, net) / (1 - FEE), tokens: Math.max(0, tokens) };
+  }
+
+  /**
+   * The strategy panel's estimate, before launch (from a fresh curve) or for a running launch (from where it is now,
+   * launch costs then zero). Push, volume, holders and the defend budget are what the strategy will spend at most.
+   */
+  quoteStrategy(cfg: StrategyConfig, coinId?: string): StrategyQuote {
+    const st = STRATEGY_STYLES[cfg.style];
+    const c = coinId ? this.coins.get(coinId) : undefined;
+    const d = c?.dev;
+    const mig = MIGRATION_MC_USD / SOL_USD;
+    let launchSol = 0;
+    let openMcUsd: number;
+    let launchTokens: number;
+    let pushFromMc: number;
+    let push: { sol: number; tokens: number };
+    let risk: number;
+    if (c && d) {
+      openMcUsd = toUsd(this.mc(c));
+      launchTokens = devHeld(d);
+      pushFromMc = this.mc(c);
+      push = this.pushFrom(c.migrated, c.curve, pushFromMc, cfg.targetUsd);
+      risk = this.clusterOf(d).risk;
+    } else {
+      const q = this.quoteLaunch(st.devBuySol, st.organicSol, st.bundle);
+      launchSol = q.costSol;
+      openMcUsd = q.mcUsd;
+      launchTokens = (q.supplyPct / 100) * SUPPLY;
+      // The curve after the launch buys, to push from.
+      let cv = curveLib.newCurve();
+      for (const x of [st.devBuySol, st.organicSol, q.bundleSol]) if (x > 0) cv = curveLib.buy(cv, x).curve;
+      pushFromMc = curveLib.mcSol(cv);
+      push = this.pushFrom(false, cv, pushFromMc, cfg.targetUsd);
+      risk = q.risk;
+    }
+    // A margin for the sellers who push back on the way up.
+    const pushSol = push.sol * 1.3 * st.pushShare;
+    const minutes = pushMinutes(cfg.style, cfg.targetUsd);
+    const volumeSol = volumeCostSol(st.volumePerMin * (minutes + 5));
+    // Holders land around bonding (or now, if it's past that).
+    const holdMc = Math.max(mig, pushFromMc);
+    const hTokens = (st.holders * HOLDER_SUPPLY_PCT * SUPPLY) / 100;
+    const f = 0.2 * Math.sqrt(mig / holdMc);
+    const holdersSol = d?.bots.holders || (d && d.hw.count > 0) ? 0 : (st.holders * HOLDER_RENT_SOL + (f * holdMc * hTokens) / Math.max(1, f * SUPPLY - hTokens)) * 1.1;
+    const defendSol = pushSol * st.defendShare + 2;
+    const totalSol = launchSol + pushSol + volumeSol + holdersSol + defendSol;
+    const targetTokens = Math.min(SUPPLY * 0.95, launchTokens + push.tokens * st.pushShare);
+    const T = cfg.targetUsd / SOL_USD;
+    const fT = 0.2 * Math.sqrt(mig / T);
+    const dump = (fT * T * targetTokens) / (fT * SUPPLY + targetTokens);
+    return {
+      launchSol,
+      pushSol,
+      volumeSol,
+      holdersSol,
+      defendSol,
+      totalSol,
+      openMcUsd,
+      launchPct: (launchTokens / SUPPLY) * 100,
+      targetPct: (targetTokens / SUPPLY) * 100,
+      holdersAtTarget: Math.round(12 * Math.pow(cfg.targetUsd / 1000, 0.85) + st.holders),
+      bagUsdAtTarget: (targetTokens / SUPPLY) * cfg.targetUsd,
+      dumpSolAtTarget: dump * (1 - FEE),
+      pushMinutes: minutes,
+      graceMin: BUNDLE_BUILDS[st.bundle?.build ?? "quick"].graceMin,
+      risk,
+    };
   }
 
   /** Start the trend bot: steady buys into your launch wallets until the target or its budget (estimate +30%). */
-  startTrendBot(coinId: string, target: TrendTargetId | number, minutes = 1): { ok: boolean; reason?: string } {
+  startTrendBot(coinId: string, target: TrendTargetId | number, minutes = 1, budgetSol?: number): { ok: boolean; reason?: string } {
     const own = this.ownLaunch(coinId);
     const q = this.quoteTrend(coinId, target);
     if (!own || !q) return { ok: false, reason: "Not your launch" };
     const { c, d } = own;
     if (d.bots.trend) return { ok: false, reason: "A trend bot is already running" };
     if (q.sol <= 0) return { ok: false, reason: "It's already past that" };
-    if (q.sol > this.devSol + 1e-9) return { ok: false, reason: `About ${q.sol.toFixed(2)} SOL needed: not enough in the dev wallet` };
+    if (budgetSol === undefined && q.sol > this.devSol + 1e-9) return { ok: false, reason: `About ${q.sol.toFixed(2)} SOL needed: not enough in the dev wallet` };
     const mins = Math.max(TREND_MIN_RANGE[0], Math.min(TREND_MIN_RANGE[1], minutes));
-    d.bots.trend = { targetUsd: q.targetUsd, budgetSol: Math.min(this.devSol, q.sol * 1.3), spentSol: 0, estSol: q.sol, endsAt: this.simNow + mins * 60_000 };
+    // A set budget (a strategy paying only part of the push) is also what it paces itself to spend.
+    const budget = Math.min(this.devSol, budgetSol ?? q.sol * 1.3);
+    if (budget < 0.03) return { ok: false, reason: "No budget left for the push" };
+    d.bots.trend = { targetUsd: q.targetUsd, budgetSol: budget, spentSol: 0, estSol: budgetSol !== undefined ? budget : q.sol, endsAt: this.simNow + mins * 60_000 };
     this.at(this.simNow + 200, (a) => this.trendStep(c, a));
     this.emitNow();
     return { ok: true };
@@ -1785,6 +1927,7 @@ export class Engine {
       const before = this.devSol;
       this.devWalletBuy(c, chunk, at, { g: "bot", i: this.rng.int(0, BOT_WALLETS - 1) });
       t.spentSol += before - this.devSol;
+      if (d.strat) d.strat.pushSpent += before - this.devSol;
     }
     this.at(at + this.rng.range(1200, 2800), (a) => this.trendStep(c, a));
   }
@@ -1918,6 +2061,155 @@ export class Engine {
     }
     m.last = at;
     this.at(at + this.rng.range(1200, 2500), (a) => this.mmStep(c, a));
+  }
+
+  // ------------------------------------------------------------------ dev strategies
+
+  /**
+   * One strategy step (every 2 s): volume from 5 s, a market maker defending dips from 15 s, holders once it bonds,
+   * and the trend push to the target with the strategy's budget, paced to its time. At the target it holds (defending)
+   * or takes profit, as picked. If the push budget runs out short of the target it stalls: organic demand has to
+   * carry it the rest of the way.
+   */
+  private strategyStep(c: Coin, at: number): void {
+    const d = c.dev;
+    const g = d?.strat;
+    if (!d || !g || !this.coins.has(c.id)) return;
+    if (d.ended || g.phase === "done") {
+      g.phase = "done";
+      return;
+    }
+    const st = STRATEGY_STYLES[g.cfg.style];
+    const mcUsd = toUsd(this.mc(c));
+    g.peakUsd = Math.max(g.peakUsd, mcUsd);
+    if (at >= c.lockUntil) {
+      if (!g.volumeStarted && at - d.launchedAt > 5000) {
+        g.volumeStarted = true;
+        const mins = Math.min(60, Math.max(1, Math.round(pushMinutes(g.cfg.style, g.cfg.targetUsd) + 5)));
+        this.startVolumeBot(c.id, { usd: Math.max(5000, st.volumePerMin * mins), minutes: mins });
+      }
+      if (!g.holdersStarted && c.migrated) {
+        g.holdersStarted = true;
+        this.startHolderBot(c.id, st.holders);
+      }
+      if (!g.mmStarted && at - d.launchedAt > 15_000 && g.phase !== "profit") {
+        g.mmStarted = true;
+        if (g.defendBudget >= 0.05) this.startMarketMaker(c.id, { strategy: "defend", band: st.band, budgetSol: Math.min(g.defendBudget, this.devSol), pace: st.profitPace });
+      }
+      if (g.phase === "push" || g.phase === "stalled") {
+        if (g.peakUsd >= g.cfg.targetUsd) this.strategyReached(c);
+        else if (g.phase === "push" && !g.paused && !d.bots.trend) {
+          const left = g.pushBudget - g.pushSpent;
+          if (left < 0.05) {
+            g.phase = "stalled";
+            g.msg = `Push budget spent at ${fmtUsd(mcUsd)}: organic buyers have to carry it to ${fmtUsd(g.cfg.targetUsd)}`;
+            this.emitNow();
+          } else {
+            const mins = Math.max(0.5, (g.pushEndsAt - at) / 60_000);
+            this.startTrendBot(c.id, g.cfg.targetUsd, mins, left);
+          }
+        }
+      } else if (g.phase === "profit" && !d.mm) {
+        g.phase = "done";
+        g.msg = "Bag sold: the strategy is done";
+        this.emitNow();
+      }
+    }
+    this.at(at + 2000, (a) => this.strategyStep(c, a));
+  }
+
+  private strategyReached(c: Coin): void {
+    const d = c.dev!;
+    const g = d.strat!;
+    d.bots.trend = null;
+    if (g.cfg.exit === "auto") this.strategyProfit(c);
+    else {
+      g.phase = "hold";
+      g.msg = `Hit ${fmtUsd(g.cfg.targetUsd)}: holding and defending dips. Exit when you're ready.`;
+    }
+    this.emitNow();
+  }
+
+  private strategyProfit(c: Coin): void {
+    const d = c.dev!;
+    const g = d.strat!;
+    const st = STRATEGY_STYLES[g.cfg.style];
+    d.bots.trend = null;
+    g.phase = "profit";
+    g.mmStarted = true;
+    g.msg = `Taking profit: selling ${st.profitPace}% of the bag a minute into strength`;
+    this.startMarketMaker(c.id, { strategy: "distribute", band: 0.1, budgetSol: 0, pace: st.profitPace });
+  }
+
+  /** Point a running strategy at a new target: the push restarts with the budget the new estimate needs. */
+  setStrategyTarget(coinId: string, targetUsd: number): { ok: boolean; reason?: string } {
+    const c = this.coins.get(coinId);
+    const g = c?.dev?.strat;
+    if (!c || !g) return { ok: false, reason: "No strategy on that launch" };
+    const q = this.quoteStrategy({ ...g.cfg, targetUsd }, coinId);
+    if (q.pushSol > this.devSol + 1e-9) return { ok: false, reason: `About ${q.pushSol.toFixed(1)} SOL needed to push there` };
+    g.cfg.targetUsd = targetUsd;
+    g.pushBudget = g.pushSpent + q.pushSol;
+    g.pushEndsAt = this.simNow + q.pushMinutes * 60_000;
+    g.peakUsd = toUsd(this.mc(c));
+    g.paused = false;
+    g.msg = null;
+    c.dev!.bots.trend = null;
+    if (g.phase === "profit" || g.phase === "done" || c.dev!.mm?.strategy === "distribute") {
+      const st = STRATEGY_STYLES[g.cfg.style];
+      this.startMarketMaker(coinId, { strategy: "defend", band: st.band, budgetSol: Math.min(this.devSol, q.defendSol), pace: st.profitPace });
+    }
+    g.phase = toUsd(this.mc(c)) >= targetUsd ? "hold" : "push";
+    this.emitNow();
+    return { ok: true };
+  }
+
+  /** Pause or resume the push (the market maker and bots already running carry on). */
+  setStrategyPaused(coinId: string, paused: boolean): void {
+    const d = this.coins.get(coinId)?.dev;
+    if (!d?.strat) return;
+    d.strat.paused = paused;
+    if (paused) d.bots.trend = null;
+    this.emitNow();
+  }
+
+  /** Start taking profit now: the push stops and the market maker sells the bag into strength. */
+  takeProfit(coinId: string): { ok: boolean; reason?: string } {
+    const c = this.coins.get(coinId);
+    const d = c?.dev;
+    if (!c || !d) return { ok: false, reason: "Not your launch" };
+    if (!d.strat) {
+      return this.startMarketMaker(coinId, { strategy: "distribute", band: 0.1, budgetSol: 0, pace: 3 });
+    }
+    this.strategyProfit(c);
+    this.emitNow();
+    return { ok: true };
+  }
+
+  /** Sell a share of everything you hold in a launch (deployer, launch, bot and holder wallets) as one dev bag. */
+  sellDevBag(coinId: string, fraction: number): { ok: boolean; reason?: string; sol?: number } {
+    const d = this.coins.get(coinId)?.dev;
+    if (!d) return { ok: false, reason: "Not your launch" };
+    const refs: WalletRef[] = [
+      { g: "deployer" },
+      ...d.lw.map((_, i) => ({ g: "launch" as const, i })),
+      ...d.bw.map((_, i) => ({ g: "bot" as const, i })),
+      { g: "holder" },
+    ];
+    const r = this.walletsSell(coinId, refs, fraction);
+    return r.fills ? { ok: true, sol: r.sol } : { ok: false, reason: r.reason ?? "Nothing to sell" };
+  }
+
+  /** Buy more of your own launch from the dev wallet (into one of its quiet wallets, not the public deployer). */
+  buyDevBag(coinId: string, solAmt: number): { ok: boolean; reason?: string } {
+    const c = this.coins.get(coinId);
+    const d = c?.dev;
+    if (!c || !d) return { ok: false, reason: "Not your launch" };
+    if (this.simNow < c.lockUntil) return { ok: false, reason: "Migrating: wait a moment" };
+    if (solAmt > this.devSol + 1e-9) return { ok: false, reason: "Not enough SOL" };
+    const t = this.devWalletBuy(c, solAmt, this.simNow, { g: "launch", i: this.rng.int(0, d.lw.length - 1) });
+    this.emitNow();
+    return t > 0 ? { ok: true } : { ok: false, reason: "Buy failed" };
   }
 
   /** Rough cost of `n` holders on a launch right now (rent + their buys at today's price). */
@@ -2057,6 +2349,19 @@ export class Engine {
             hiddenForMs: Math.max(0, d.graceUntil - this.simNow),
           };
         })(),
+        strategy: d.strat
+          ? {
+              targetUsd: d.strat.cfg.targetUsd,
+              style: d.strat.cfg.style,
+              exit: d.strat.cfg.exit,
+              phase: d.strat.phase,
+              paused: d.strat.paused,
+              pushBudgetSol: d.strat.pushBudget,
+              pushSpentSol: d.strat.pushSpent,
+              pushEndsInMs: Math.max(0, d.strat.pushEndsAt - this.simNow),
+              msg: d.strat.msg,
+            }
+          : null,
         mm: d.mm
           ? {
               strategy: d.mm.strategy,
@@ -3246,7 +3551,7 @@ export class Engine {
     const meme = opts.memeId
       ? this.pack.find((m) => m.id === opts.memeId) ?? this.rng.pick(this.pack)
       : this.rng.pick(this.pack);
-    const plan = makeRound(this.rng, meme, this.difficulty);
+    const plan = makeRound(this.rng, meme, this.difficulty, { noDividends: !!this.opts.dev });
     const tTweet = this.simNow + (opts.leadMs ?? 0);
     if (this.length === "saga") {
       this.saga = planSaga(this.rng, meme.vamps?.length ?? 0);

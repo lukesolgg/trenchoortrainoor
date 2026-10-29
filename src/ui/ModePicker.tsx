@@ -22,9 +22,9 @@ export function ModePicker() {
       if (e.target instanceof HTMLInputElement) return;
       const k = e.key.toLowerCase();
       if (k === "c") pickMode("campaign");
-      if (k === "1") pickMode("firsttx");
+      if (k === "1") pickMode("trader");
       if (k === "2") pickMode("dev");
-      if (k === "f") pickMode("freeplay");
+      if (k === "3") pickMode("both");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -79,54 +79,37 @@ export function ModePicker() {
         </button>
 
         {/* Standalone modes */}
-        <div className="grid grid-cols-2 gap-3">
-          <Mode title="FIRST TX" hotkey="1" accent="#35d07f" live onPick={() => pickMode("firsttx")} blurb="Read the tweet, buy the right coin first. Blitz or Saga, any port." />
-          <Mode title="Dev mode" hotkey="2" accent="#8b5cf6" live onPick={() => pickMode("dev")} blurb="Launch the meme off the tweet before rival devs, bond it, run it, get out." />
-          <Mode title="OG mode" accent="#4db8ff" blurb="Spot the original launch among the copies." />
-          <Mode title="Mix" accent="#f472b6" blurb="Random rounds from every mode." />
+        <div className="grid grid-rows-3 gap-3">
+          <Mode title="Trader mode" hotkey="1" accent="#35d07f" onPick={() => pickMode("trader")} blurb="Read the tweet, buy the right coin first. Scored rounds, Blitz or Saga, any port." />
+          <Mode title="Dev mode" hotkey="2" accent="#8b5cf6" onPick={() => pickMode("dev")} blurb="Launch the meme off the tweet before rival devs, pick a strategy, run it, get out." />
+          <Mode title="Trader + Dev" hotkey="3" accent="#f472b6" onPick={() => pickMode("both")} blurb="Both on one board and one balance: dev the tweets you rate, trade everything else." />
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => pickMode("freeplay")}
-        className="mt-4 flex items-center justify-between rounded-2xl border border-dashed border-line-hi bg-card/60 px-5 py-3.5 text-left transition-colors hover:border-buy"
-      >
-        <div>
-          <div className="text-[14px] font-bold">Free play</div>
-          <div className="text-[12px] text-dim">Warm up: a tweet and its runner every 30-60 s. Nothing is scored.</div>
-        </div>
-        <kbd className="rounded border border-line-hi px-1.5 text-[11px] text-dim">F</kbd>
-      </button>
       <p className="mt-3 text-[11.5px] text-faint">Standalone modes have everything unlocked and only keep personal bests. The campaign is the career.</p>
     </main>
   );
 }
 
-function Mode({ title, blurb, accent, live, hotkey, onPick }: { title: string; blurb: string; accent: string; live?: boolean; hotkey?: string; onPick?: () => void }) {
+function Mode({ title, blurb, accent, hotkey, onPick }: { title: string; blurb: string; accent: string; hotkey: string; onPick: () => void }) {
   return (
     <button
       type="button"
-      disabled={!live}
       onClick={onPick}
-      className="relative flex flex-col rounded-2xl border border-line bg-card p-4 text-left transition-all enabled:hover:-translate-y-0.5 enabled:hover:border-[var(--accent)] disabled:cursor-not-allowed"
+      className="relative flex items-center gap-4 overflow-hidden rounded-2xl border border-line bg-card px-5 py-4 text-left transition-all hover:-translate-y-0.5 hover:border-[var(--accent)]"
       style={{ ["--accent" as string]: accent }}
     >
-      <span className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl" style={{ background: accent, opacity: live ? 1 : 0.35 }} />
-      <div className="flex items-start justify-between gap-2">
-        <span className={`text-[20px] font-black tracking-tight ${live ? "" : "text-ink/50"}`}>{title}</span>
-        {live ? (
-          hotkey && <kbd className="rounded border border-line-hi px-1.5 text-[11px] text-dim">{hotkey}</kbd>
-        ) : (
-          <span className="shrink-0 rounded-full border border-line-hi px-2 py-0.5 text-[10px] font-bold text-faint">Soon</span>
-        )}
+      <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: accent }} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[20px] font-black tracking-tight">{title}</span>
+          <kbd className="rounded border border-line-hi px-1.5 text-[11px] text-dim">{hotkey}</kbd>
+        </div>
+        <p className="mt-1 text-[12.5px] leading-snug text-dim">{blurb}</p>
       </div>
-      <p className={`mt-1.5 text-[12.5px] leading-snug ${live ? "text-dim" : "text-faint"}`}>{blurb}</p>
-      {live && (
-        <span className="mt-auto pt-3 text-[12.5px] font-extrabold" style={{ color: accent }}>
-          Play →
-        </span>
-      )}
+      <span className="shrink-0 text-[13px] font-extrabold" style={{ color: accent }}>
+        Play →
+      </span>
     </button>
   );
 }

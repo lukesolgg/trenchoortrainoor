@@ -28,8 +28,9 @@ npm run typecheck
 
 ## Menu and campaign
 
-Main menu: **Campaign** (the levelling journey) plus standalone modes: **FIRST TX** (live), Dev mode, OG mode, Mix
-(coming), and Free play. Standalone modes have everything unlocked and keep personal bests only.
+Main menu: **Campaign** (the levelling journey) plus three standalone modes: **Trader mode** (`1`, the scored FIRST TX
+rounds), **Dev mode** (`2`) and **Trader + Dev** (`3`: dev tweets and free-running tweets with tradeable runners on one
+board and one balance, nothing scored). Standalone modes have everything unlocked and keep personal bests only.
 
 Campaign (rules in `src/campaign/progression.ts`, state in `src/store/campaign.ts`, saved in localStorage
 `ta.campaign.v1`; the full plan is the project doc `trench-academy-plan.md`):
@@ -50,82 +51,50 @@ Campaign (rules in `src/campaign/progression.ts`, state in `src/store/campaign.t
 - **Admin (temporary):** the ADMIN button on menu screens, or the backtick key anywhere: set level, balances, reps,
   unlock everything, or reset the campaign.
 
-## Dev mode (phase 1)
+## Dev mode
 
-Standalone Dev mode (menu `2`): pick difficulty and a dev wallet of 10 / 50 / 200 / 1,000 SOL. Dividends aren't part of Dev mode (no DIV tags, no look-alikes that differ by them). A launchable tweet lands on
-the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mode-spec.md`; rules in
-`src/engine/dev.ts`).
+Dev mode (menu `2`, or `3` with trading): pick difficulty and a dev wallet of 10 / 50 / 200 / 1,000 SOL. A launchable
+tweet lands on the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mode-spec.md`; rules in
+`src/engine/dev.ts`). Dividends aren't part of Dev mode (no DIV tags, no look-alikes that differ by them).
 
-- **Launch panel:** name + ticker and picture picked from 3 / 4 / 5 near-miss options (Easy / Medium / Hard; keys
-  1-5 pick the name), launchpad, dividends, pair; Manual, Organic or Block-0 mode; dev buy, organic buys;
-  creator fees to you or cashback to holders; summary of opening MC, supply held and cost. Deploy fee 0.02 SOL.
-- **Block-0 bundles:** your launch wallets buy 5-40% of supply in the create block, over 5-50 wallets. Build:
-  Quick (one funder, even sizes, 0.002 SOL/wallet), Clean (hop-funded, 0.012), Full (aged, CEX-funded, varied sizes,
-  0.03). Back MEV slider: low front-runs the snipers (fewer of them, you top the holder list); high sends up to 40%
-  of the wallets in behind them (more early dumping, you hide in the crowd). The summary shows bundle cost, wallet
-  funding, the bubble-map read and the chance of being flagged in the first 30 s.
-- **Bots menu** (tabs on your coin's page, a dot on each running one): **Volume** (sliders for $5K-$2M over 1-60
-  min; cost 1.25%; attention scales with $/min; legs capped by liquidity, so a thin coin can't take a huge package and
-  the untraded share comes back), **Trend** (target MC slider to $20M with quick picks 2×, 3×, Bond, $100K-$5M, and a
-  0.5-30 min pace; estimate from the curve/pool, budget +30%), **Holders** (10-500, landing within seconds; later
-  holders buy smaller bags if the price runs so the count always completes), **Market maker**.
-- **Quiet window:** nobody can flag a bundle (of any size, up to 75% of supply) for the first 5-6 min (Quick),
-  6-8 (Clean) or 8-10 (Full); launches without a bundle count as Quick. A countdown shows on your launch.
-- **Market maker** (Bots): trades your launch wallets around a ~25 s moving average, sized from pool liquidity.
-  Defend buys dips past the band (±5/10/20%) from a budget and never sells; Make market also sells rips; Distribute
-  sells into strength at 1/2/5% of the bag a minute, pauses on dips, buys back deep flushes. While it runs it counts
-  as attention and social proof, and a chart holding near its highs lifts the ceiling up to 3×. Harness
-  (`dev.exit.harness.test.ts`, "kimchi"): 70% Full bundle, Defend 150 SOL → Make market → Distribute 5%/min:
-  ~85-270 SOL in, peak median ~$890K (p90 ~$2.5M, best ~$4.4M), ~200-1,900 SOL out.
-- **Bundle checkers** run on every launch once the quiet window closes: at +0, +15 and +30 s, then every 30 s. Risk comes from the supply in your
-  non-deployer wallets (launch, trend-bot, half of holder-bot), how few wallets it sits in, the biggest one (5%+),
-  the build (only the block-0 tokens get its stealth; anything piled in later is traceable) and the MEV setting
-  (`bundleRisk` in `dev.ts`). Caught: a BUNDLED x% tag on the coin, board and launch chip, a callout on the
-  Tracker, buyers at ~40% interest and fewer buys, KOLs sell out and no new ones come.
-- **Holders and exits:** organic holders build with the market cap (a few hundred by $50K, ~1,000 around $200K)
-  and a wave of new holders arrives at bonding, $100K, $200K, $400K and so on (thin past the narrative's ceiling).
-  Holders buy dips past bonding and don't panic like traders; deep under the high, sellers turn into bag holders.
-  Trust reads visible selling: deployer sells count in full, other wallets a third (in full once flagged). The pool
-  is one constant-product pool all the way down, so a full dump ends near ~$1.7K, never at zero. Selling in steps
-  beats a Nuke (`dev.exit.harness.test.ts`: from $150-200K, Nuke lands ~$22K, 12% every 3 s ends $8-130K for
-  ~1.5-2x the SOL). Nuke stops every bot first and sells every wallet, trading wallets included.
-- **Snipers** hit every launch in the first 0.3-2.5 s (fewer for a front-run bundle): most dump 10-45 s later, about
-  a third hold for a 2x or ~1-2 min. Your launch wallets, the snipers and the market's bag show in Holders and Top 10.
+- **Launch panel:** 1 Token: name + ticker and picture from 3 / 4 / 5 near-miss options (Easy / Medium / Hard; keys
+  1-5), launchpad and pair. 2 Strategy: a target ($100K, $250K, $500K, $1M, $3M, $10M), a style and what happens at
+  the target (hold for you, or take profit), plus creator fees or cashback. 3 Estimate: the cost line by line
+  (launch, push, volume, holders, defend) and the most it will spend, opening MC and your bag, your bag and its value
+  at the target, holders there, what dumping it all there would return, push time, the bubble-map quiet window, and
+  the odds of reaching the target on a right, fast launch (`strategyOdds`).
+- **Styles** (`STRATEGY_STYLES`): **Organic** (1 SOL dev buy + 1 SOL of organic buys, pays ~40% of the push, light
+  bots: the narrative does the work), **Balanced** (~20% Clean bundle over 20 wallets, pays for the push at a steady
+  pace, 150 holders, $8K/min volume), **Aggressive** (~50% Full bundle over 40 wallets, buys the push fast, 300
+  holders, $20K/min volume).
+- **The strategy runs the launch** (`strategyStep`, every 2 s): volume from 5 s, a market maker defending dips from
+  15 s, holders once it bonds, and a trend push to the target with its budget, paced to its time. At the target it
+  holds (defending) or takes profit (selling the bag into strength). If the push budget runs out short, it stalls and
+  organic buyers have to carry it the rest of the way.
+- **Your coin's page** (one card, `LaunchControl`): progress to the target, phase (Pushing / Holding / Taking profit /
+  Stalled / Done), push spent against budget, the quiet-window countdown or BUNDLED banner; change target, pause or
+  resume the push, take profit now; the dev bag (sell 25 / 50 / 100%, buy 0.5 / 1 / 5 SOL more), spent, realised,
+  holders, claim fees, Nuke; then DEX and boosts. Other coins trade with the normal panel and your trading wallets.
+- **Strategy harness** (`dev.strategy.harness.test.ts`, right and fast, N=8, a player who takes profit a minute after a
+  stall): Organic reaches $100K every time (+~40 SOL) but $500K+ only a quarter to a third of the time; Balanced gets
+  $100K every time (+~170 SOL), about half at $500K-$1M, a third at $3M; Aggressive reaches $100K-$3M every time
+  (+~80-600 SOL). Failed pushes cost most of their budget.
+- **Under the hood** (engine only, no UI): block-0 bundles (Quick / Clean / Full builds, back MEV), a 5-10 min quiet
+  window before bundle checkers can flag you (then a BUNDLED tag, a Tracker callout, fewer buyers, no KOLs), snipers on
+  every launch, volume / trend / holder bots, a market maker (Defend / Make market / Distribute), holder build-up and
+  waves (fewer real holders the more of the supply you own), dip buyers, bag holders, and one constant-product pool to
+  the floor (a full dump ends near ~$1.7K). Other harnesses: `dev.harness.test.ts` (demand by launch type) and
+  `dev.exit.harness.test.ts` (Nuke against selling in steps, and a Kimchi-style bundle run).
 - **Rivals** deploy the right coin and its look-alikes 4-22 s after the tweet (faster on harder levels). First right
   coin gets the narrative; a rival's right coin that lands after yours only gets scraps.
 - **Demand model:** your coins are not scripted. Organic buys and sells come from the tweet's heat, how right the
   launch is (a wrong name or ticker never bonds), your share of the narrative, room under a per-launch ceiling,
-  momentum, your selling, and a per-launch narrative-luck roll. Tuned with `dev.harness.test.ts`
-  (`HARNESS=1 npx vitest run src/engine/dev.harness.test.ts --silent=false`): right and fast bonds ~80% (median peak
-  ~$150K, 1 in 20 near $1M+), right but late ~15%, a wrong picture ~30%, a wrong pair ~15%, a wrong ticker never.
-- **Dev Ops** on your coin's page: deployer and other-wallet holdings with sells of 0.1% / 1% / 3% / MAX of supply
-  (deployer sells are public, the others look like anyone), dev buy (forcing a bond works, it won't run), claim
-  creator fees, Nuke. A wrong launch gets roasted on the Tracker and a "buyers aren't biting" warning.
-- **One balance and one wallet panel** (Dev mode): the dev wallet and the trading wallet are a single SOL balance.
-  In Dev mode the coin page has **one trade panel**: Buy / Sell and one-tap amounts at the top (they fire at once
-  with the picked wallets; a custom amount too), then the wallets, then your launch, bots and promotion. It groups
-  every wallet you have on the coin: Deployer (public), Launch wallets
-  (10 to start, +10 up to 50, shown as a chip grid), Trading (Main, Side 1-4), Trend bot wallets and Holder wallets
-  (the holder bot's crowd). Tick a group or pick chips, then tap an amount: SOL in each wallet (Buy) or % of each bag
-  (Sell). "Your launch" below shows what you hold, the deployer, realised PnL, fees, Nuke and the launch report.
-- **Where it went wrong:** hover a launch chip (it carries ✓ or ✗N), the "buyers aren't biting" warning, or the
-  ✓/✗ next to Launch report on your coin to see the tweet's name / ticker / picture / config against yours,
-  mistakes first.
-- **KOLs and promotion on your launch:** a right coin that runs draws KOL buys (real impact) at $25K / 50K / 100K /
-  200K ... milestones, and sometimes a KOL tweet; they take profit as it bleeds. DEX profile and boosts on your own
-  launch work any time (curve or pool), are paid from the dev wallet, and show up as attention in the demand model.
-  Dividends are out of Dev mode for now.
-- **Bots** (phase 2, under Dev Ops on your launch, paid from the dev wallet):
-  - *Volume*: $10K / 5 min, $50K / 10 min, $200K / 20 min of wash trades (buy, then sell the same tokens). Priced
-    at 1.25% of the volume (pump fee + service cut). While it runs the coin keeps attention (trending) and some
-    social proof; creator fees come back on its volume. Stop refunds what it has not traded.
-  - *Trend*: +50%, 2×, Bond or $100K. A live estimate from the curve and pool maths (+15% for sellers); it buys
-    steadily into its own five bot wallets until the target or a budget of estimate +30%. Stop any time.
-  - *Holders*: 25 / 50 / 100 / 200 fresh wallets, each buying ~0.03% of supply (+0.004 SOL rent): 200 on a fresh
-    coin is ~3 SOL and ~6% of supply; dearer as the price climbs, capped at the estimate +30%. They show as Holder
-    wallets and can be sold (the holder count drops as they leave).
-- **Launches bar** (dev wallet, every launch, session realised PnL) and a **launch card** when a launch ends:
-  outcome, peak MC, realised PnL, still holding, fees, and the tweet's name / ticker / picture / config against yours.
+  momentum, your selling, and a per-launch narrative-luck roll.
+- **Where it went wrong:** hover a launch chip (✓ or ✗N), the "buyers aren't biting" warning, or the ✓/✗ by Report on
+  your coin to see the tweet's name / ticker / picture / config against yours, mistakes first.
+- **KOLs and promotion:** a right coin that runs draws KOL buys at $25K / 50K / 100K ... milestones and sometimes a
+  KOL tweet. DEX profile and boosts on your own launch work any time and count as attention.
+- **Launches bar** (balance, every launch, session realised PnL) and a **launch card** when a launch ends.
 
 ## Trader journey (FIRST TX setup)
 
@@ -169,7 +138,7 @@ Rules worth knowing:
 
 | Key | Where | Does |
 | --- | --- | --- |
-| `T` / `1` / `F` | Home | Trader path / Free play (Dev path coming) |
+| `C` / `1` / `2` / `3` | Home | Campaign / Trader mode / Dev mode / Trader + Dev |
 | Space | Setup | Start |
 | click a card, or hover + `T` | Pulse | Open the coin's page |
 | `1`-`8` | Token page | Fires buy preset 1-8 of the active set (3 editable sets) |

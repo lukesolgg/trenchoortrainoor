@@ -323,6 +323,18 @@ export interface LaunchView {
     /** Until bubble maps catch up, nothing can flag you. */
     hiddenForMs: number;
   };
+  /** The strategy running it. */
+  strategy: {
+    targetUsd: number;
+    style: "organic" | "balanced" | "aggressive";
+    exit: "hold" | "auto";
+    phase: "push" | "hold" | "profit" | "stalled" | "done";
+    paused: boolean;
+    pushBudgetSol: number;
+    pushSpentSol: number;
+    pushEndsInMs: number;
+    msg: string | null;
+  } | null;
   /** Market maker running on it. */
   mm: { strategy: "defend" | "make" | "distribute"; band: number; pace: number; budgetSol: number; spentSol: number; gotSol: number; soldPct: number } | null;
   /** Outside snipers still holding. */

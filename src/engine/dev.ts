@@ -180,8 +180,132 @@ export interface MmConfig {
   budgetSol: number;
   pace: number;
 }
-/** A market maker keeps a clean chart; a coin holding near its highs keeps finding buyers, up to 3× its ceiling. */
-export const MM_CEILING_MAX = 3;
+/** A market maker keeps a clean chart; a coin holding near its highs keeps finding buyers, up to 2× its ceiling. */
+export const MM_CEILING_MAX = 2;
+
+/**
+ * Dev strategies: the one thing you pick to run a launch. A target market cap and a style; the strategy sets the dev
+ * buy and any bundle at launch, then runs the trend push, volume, holders and a market maker that defends dips, and
+ * holds or takes profit at the target. Organic leans on the narrative (pays ~40% of the push, no bundle); Balanced
+ * bundles ~20% and pays ~70%; Aggressive bundles ~50% and buys the whole push.
+ */
+export type StrategyStyle = "organic" | "balanced" | "aggressive";
+export type StrategyExit = "hold" | "auto";
+export interface StrategyConfig {
+  targetUsd: number;
+  style: StrategyStyle;
+  exit: StrategyExit;
+}
+export const STRATEGY_TARGETS = [100_000, 250_000, 500_000, 1_000_000, 3_000_000, 10_000_000] as const;
+export interface StyleSpec {
+  label: string;
+  sub: string;
+  devBuySol: number;
+  /** Organic buys from a few fresh wallets right after launch (SOL). */
+  organicSol: number;
+  bundle: BundleConfig | null;
+  /** Share of the push to the target the strategy pays for itself; organic buyers have to bring the rest. */
+  pushShare: number;
+  /** Minutes the push takes for a $100K target; +`pushPerDouble` for each doubling beyond. */
+  pushMin: number;
+  pushPerDouble: number;
+  /** Holder-bot wallets added once it bonds. */
+  holders: number;
+  /** Volume bot rate ($ per minute) while pushing and for 5 minutes after. */
+  volumePerMin: number;
+  /** Market maker: defend band, its buy budget as a share of the push budget, and the take-profit pace (%/min). */
+  band: number;
+  defendShare: number;
+  profitPace: number;
+}
+export const STRATEGY_STYLES: Record<StrategyStyle, StyleSpec> = {
+  organic: {
+    label: "Organic",
+    sub: "Small dev buy, light push. The narrative does the work.",
+    devBuySol: 1,
+    organicSol: 1,
+    bundle: null,
+    pushShare: 0.4,
+    pushMin: 6,
+    pushPerDouble: 2,
+    holders: 50,
+    volumePerMin: 3_000,
+    band: 0.1,
+    defendShare: 0.15,
+    profitPace: 2,
+  },
+  balanced: {
+    label: "Balanced",
+    sub: "~20% bundled, pays for a steady push, holders and volume.",
+    devBuySol: 1,
+    organicSol: 0,
+    bundle: { supplyPct: 20, wallets: 20, build: "clean", mev: 0.5 },
+    pushShare: 1,
+    pushMin: 3,
+    pushPerDouble: 1,
+    holders: 150,
+    volumePerMin: 8_000,
+    band: 0.1,
+    defendShare: 0.2,
+    profitPace: 3,
+  },
+  aggressive: {
+    label: "Aggressive",
+    sub: "~50% bundled, buys the whole push, heavy bots.",
+    devBuySol: 2,
+    organicSol: 0,
+    bundle: { supplyPct: 50, wallets: 40, build: "full", mev: 0.5 },
+    pushShare: 1,
+    pushMin: 2,
+    pushPerDouble: 0.8,
+    holders: 300,
+    volumePerMin: 20_000,
+    band: 0.05,
+    defendShare: 0.25,
+    profitPace: 5,
+  },
+};
+/**
+ * How likely a style is to reach a target on a right, fast launch, from the strategy harness
+ * (dev.strategy.harness.test.ts, N=8): Organic reaches $100K every time and $500K+ a quarter to a third of the time;
+ * Balanced gets $100K every time, about half at $500K-$1M and a third at $3M (a 20% bundle leaves plenty of supply to
+ * sell into the push);
+ * Aggressive holds 50% from block 0, so there's little to sell into its push and it gets there almost every time.
+ */
+export function strategyOdds(style: StrategyStyle, targetUsd: number): "High" | "Medium" | "Low" {
+  const [hi, mid] = style === "organic" ? [100_000, 250_000] : style === "balanced" ? [250_000, 1_000_000] : [10_000_000, Infinity];
+  return targetUsd <= hi ? "High" : targetUsd <= mid ? "Medium" : "Low";
+}
+
+/** How long a style takes to push to a target (minutes). */
+export const pushMinutes = (style: StrategyStyle, targetUsd: number) => {
+  const s = STRATEGY_STYLES[style];
+  return s.pushMin + s.pushPerDouble * Math.max(0, Math.log2(targetUsd / 100_000));
+};
+
+/** The strategy panel's estimate. */
+export interface StrategyQuote {
+  /** SOL by line: launch (fee, dev buy, bundle, funding), push, volume, holders, defend. */
+  launchSol: number;
+  pushSol: number;
+  volumeSol: number;
+  holdersSol: number;
+  defendSol: number;
+  totalSol: number;
+  /** Opening market cap and the supply you hold at launch, and at the target if the push goes as planned (%). */
+  openMcUsd: number;
+  launchPct: number;
+  targetPct: number;
+  /** Organic holders plus the bot's, at the target. */
+  holdersAtTarget: number;
+  /** Your bag at the target, and what dumping it all at once there would return (SOL). */
+  bagUsdAtTarget: number;
+  dumpSolAtTarget: number;
+  pushMinutes: number;
+  /** Bubble-map quiet window (minutes) and the per-check risk after it at launch. */
+  graceMin: [number, number];
+  risk: number;
+}
 
 /** What the launch panel shows before you deploy. */
 export interface LaunchQuote {
@@ -219,6 +343,8 @@ export interface DevChoice {
   rewards: RewardsMode;
   /** Block-0 mode only. */
   bundle?: BundleConfig;
+  /** A strategy sets the dev buy, any bundle and the mode from its style, then runs the launch. */
+  strategy?: StrategyConfig;
 }
 
 export interface LaunchCheck {

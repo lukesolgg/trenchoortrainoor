@@ -2,16 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Engine } from "@/engine/engine";
-import type { BundleBuild, BundleConfig, DevChoice, LaunchMode, RewardsMode } from "@/engine/dev";
-import { BUNDLE_BUILDS, BUNDLE_PCTS, BUNDLE_WALLETS, DEPLOY_FEE_SOL } from "@/engine/dev";
+import type { DevChoice, RewardsMode, StrategyExit, StrategyStyle } from "@/engine/dev";
+import { STRATEGY_STYLES, STRATEGY_TARGETS, strategyOdds } from "@/engine/dev";
 import type { Launchpad, Pair } from "@/engine/types";
 import { Art } from "../Art";
 import { sol, usd } from "../format";
 import { SolIcon } from "../icons";
 
 const PAIRS: Pair[] = ["SOL", "SPACEX", "TESLA", "PUMP"];
-const DEV_BUYS = [0.25, 0.5, 1, 2, 5];
-const ORGANIC = [0.5, 1, 2, 5];
 
 interface Props {
   engine: Engine;
@@ -24,8 +22,9 @@ interface Props {
 }
 
 /**
- * Launch a coin off a tweet, Proxima-style: the token (name and ticker, picture, config), the launch mode and
- * your buys, then a summary of what it opens at and costs. Keys: 1-5 pick the name, Enter deploys, Esc closes.
+ * Launch a coin off a tweet: the token (name and ticker, picture, config), then a strategy (a target and a style,
+ * hold or take profit there) with its estimate: what it costs line by line, your bag, holders, the exit and the odds.
+ * The strategy sets the launch buys and runs the bots. Keys: 1-5 pick the name, Enter deploys, Esc closes.
  */
 export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeployed, notify }: Props) {
   const sc = engine.getDevScenario(scenarioId);
@@ -33,27 +32,18 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
   const [imageIdx, setImageIdx] = useState<number | null>(null);
   const [launchpad, setLaunchpad] = useState<Launchpad>("pump");
   const [pair, setPair] = useState<Pair>("SOL");
-  const [mode, setMode] = useState<LaunchMode>("organic");
-  const [devBuy, setDevBuy] = useState(1);
-  const [organic, setOrganic] = useState(1);
+  const [style, setStyle] = useState<StrategyStyle>("balanced");
+  const [target, setTarget] = useState<number>(250_000);
+  const [exit, setExit] = useState<StrategyExit>("hold");
   const [rewards, setRewards] = useState<RewardsMode>("creator");
-  const [bPct, setBPct] = useState(10);
-  const [bWallets, setBWallets] = useState(20);
-  const [build, setBuild] = useState<BundleBuild>("clean");
-  const [mev, setMev] = useState(0.5);
 
-  const organicSol = mode === "organic" ? organic : 0;
-  const bundle: BundleConfig | null = mode === "block0" ? { supplyPct: bPct, wallets: bWallets, build, mev } : null;
-  const quote = useMemo(
-    () => engine.quoteLaunch(devBuy, organicSol, mode === "block0" ? { supplyPct: bPct, wallets: bWallets, build, mev } : null),
-    [engine, devBuy, organicSol, mode, bPct, bWallets, build, mev],
-  );
-  const cost = quote.costSol;
+  const q = useMemo(() => engine.quoteStrategy({ targetUsd: target, style, exit }), [engine, target, style, exit]);
+  const cost = q.totalSol;
   const ready = nameIdx !== null && imageIdx !== null && cost <= devSol + 1e-9 && !sc?.launchedCoinId;
 
   const deploy = () => {
     if (!sc || nameIdx === null || imageIdx === null) return;
-    const choice: DevChoice = { nameIdx, imageIdx, launchpad, dividends: true, pair, mode, devBuySol: devBuy, organicSol, rewards, bundle: bundle ?? undefined };
+    const choice: DevChoice = { nameIdx, imageIdx, launchpad, dividends: false, pair, mode: "manual", devBuySol: 0, organicSol: 0, rewards, strategy: { targetUsd: target, style, exit } };
     const r = engine.devDeploy(sc.id, choice);
     if (!r.ok) return notify(r.reason ?? "Deploy failed");
     notify(`Deployed $${sc.names[nameIdx].ticker} · ${((now - sc.tweetAt) / 1000).toFixed(1)} s after the tweet`);
@@ -154,55 +144,47 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
             </div>
           </section>
 
-          {/* 2. Mode and buys */}
+          {/* 2. Strategy */}
           <section>
-            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-dim">2 · Launch mode</h3>
+            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-dim">2 · Strategy</h3>
+            <div className="mb-1.5 text-[11px] font-semibold text-faint">Run it to</div>
+            <div className="grid grid-cols-6 gap-1.5">
+              {STRATEGY_TARGETS.map((t) => (
+                <button key={t} type="button" className={chip(target === t, "border-amber/70 bg-amber/10 text-amber")} onClick={() => setTarget(t)}>
+                  {tLabel(t)}
+                </button>
+              ))}
+            </div>
+            <div className="mb-1.5 mt-3 text-[11px] font-semibold text-faint">Style</div>
             <div className="grid grid-cols-3 gap-1.5">
-              <ModeCard on={mode === "manual"} title="Manual" sub="Dev buy only" onPick={() => setMode("manual")} />
-              <ModeCard on={mode === "organic"} title="Organic" sub="Dev buy + a few fresh wallets" onPick={() => setMode("organic")} />
-              <ModeCard on={mode === "block0"} title="Block-0" sub="Bundle in the create block" onPick={() => setMode("block0")} />
+              {(Object.keys(STRATEGY_STYLES) as StrategyStyle[]).map((k) => {
+                const o = strategyOdds(k, target);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setStyle(k)}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${style === k ? "border-violet bg-violet/15" : "border-line hover:border-line-hi"}`}
+                  >
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-[13px] font-extrabold">{STRATEGY_STYLES[k].label}</span>
+                      <span className={`text-[10px] font-bold ${ODDS_TONE[o]}`}>{o}</span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] leading-tight text-dim">{STRATEGY_STYLES[k].sub}</div>
+                  </button>
+                );
+              })}
             </div>
             <div className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-[12px]">
-              <span className="font-semibold text-faint">Dev buy</span>
-              <div className="flex flex-wrap gap-1.5">
-                {DEV_BUYS.map((v) => (
-                  <button key={v} type="button" className={chip(devBuy === v, "border-amber/70 bg-amber/10 text-amber")} onClick={() => setDevBuy(v)}>
-                    {v} SOL
-                  </button>
-                ))}
+              <span className="font-semibold text-faint">At the target</span>
+              <div className="flex gap-1.5">
+                <button type="button" className={chip(exit === "hold")} onClick={() => setExit("hold")}>
+                  Hold, I exit
+                </button>
+                <button type="button" className={chip(exit === "auto")} onClick={() => setExit("auto")}>
+                  Take profit
+                </button>
               </div>
-              {mode === "organic" && (
-                <>
-                  <span className="font-semibold text-faint">Organic buys</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {ORGANIC.map((v) => (
-                      <button key={v} type="button" className={chip(organic === v, "border-amber/70 bg-amber/10 text-amber")} onClick={() => setOrganic(v)}>
-                        {v} SOL
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-              {mode === "block0" && (
-                <>
-                  <span className="font-semibold text-faint">Bundle</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {BUNDLE_PCTS.map((v) => (
-                      <button key={v} type="button" className={chip(bPct === v, "border-amber/70 bg-amber/10 text-amber")} onClick={() => setBPct(v)}>
-                        {v}%
-                      </button>
-                    ))}
-                  </div>
-                  <span className="font-semibold text-faint">Wallets</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {BUNDLE_WALLETS.map((v) => (
-                      <button key={v} type="button" className={chip(bWallets === v)} onClick={() => setBWallets(v)}>
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
               <span className="font-semibold text-faint">Fees</span>
               <div className="flex gap-1.5">
                 <button type="button" className={chip(rewards === "creator", "border-up/70 bg-up/10 text-up")} onClick={() => setRewards("creator")}>
@@ -213,97 +195,70 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
                 </button>
               </div>
             </div>
-            {mode === "block0" && (
-              <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(Object.keys(BUNDLE_BUILDS) as BundleBuild[]).map((b) => (
-                    <button
-                      key={b}
-                      type="button"
-                      onClick={() => setBuild(b)}
-                      className={`rounded-lg border px-3 py-2 text-left transition-colors ${build === b ? "border-violet bg-violet/15" : "border-line hover:border-line-hi"}`}
-                    >
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-[13px] font-extrabold">{BUNDLE_BUILDS[b].label}</span>
-                        <span className="tabular text-[10px] text-faint">{BUNDLE_BUILDS[b].perWalletSol}/w</span>
-                      </div>
-                      <div className="text-[11px] leading-tight text-dim">{BUNDLE_BUILDS[b].sub}</div>
-                    </button>
-                  ))}
-                </div>
-                <div>
-                  <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-faint">
-                    <span>Back MEV</span>
-                    <span className="tabular text-dim">{Math.round(bWallets * 0.4 * mev) > 0 ? `${Math.round(bWallets * 0.4 * mev)} of ${bWallets} wallets buy after the snipers` : "Everything in block 0"}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={mev}
-                    onChange={(e) => setMev(Number(e.target.value))}
-                    className="w-full accent-violet"
-                    aria-label="Back MEV"
-                  />
-                  <div className="flex justify-between text-[10.5px] text-faint">
-                    <span>Fewer snipers · you top the holders</span>
-                    <span>More snipers · you hide in them</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            <p className="mt-1.5 text-[11px] leading-snug text-faint">
-              {rewards === "creator"
-                ? "You earn a cut of every trade (more on the curve, less on the pool). Claim it from the launch."
-                : "Traders get the fee back instead: a bit more of them come, you earn nothing from volume."}
-            </p>
           </section>
 
-          {/* 3. Summary */}
+          {/* 3. Estimate */}
           <section className="rounded-xl border border-line bg-card p-3.5">
-            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-dim">3 · Summary</h3>
-            <div className="tabular grid grid-cols-2 gap-y-1.5 text-[12.5px]">
-              <span className="text-dim">Opens at</span>
-              <span className="text-right font-bold">{usd(quote.mcUsd)} MC</span>
-              <span className="text-dim">Supply you hold</span>
-              <span className={`text-right font-bold ${quote.supplyPct >= 10 ? "text-down" : ""}`}>{quote.supplyPct.toFixed(2)}%</span>
-              {mode === "block0" && (
-                <>
-                  <span className="text-dim">Bundle buys + funding</span>
-                  <span className="text-right font-bold">
-                    <SolIcon /> {sol(quote.bundleSol, 2)} + {sol(quote.walletCostSol, 2)}
-                  </span>
-                </>
-              )}
-              {(mode === "block0" || quote.risk > 0) && (
-                <>
-                  <span className="text-dim">Bubble map</span>
-                  <span className={`text-right font-bold ${READ_TONE[quote.read]}`}>{quote.read}</span>
-                  <span className="text-dim">Hidden from bubble maps</span>
-                  <span className="text-right font-bold text-up">
-                    {quote.graceMin[0]}-{quote.graceMin[1]} min
-                  </span>
-                  <span className="text-dim">Then flagged within 30 s</span>
-                  <span className={`text-right font-bold ${READ_TONE[quote.read]}`}>{Math.round(quote.detectPct)}%</span>
-                </>
-              )}
-              <span className="text-dim">Cost (fee {DEPLOY_FEE_SOL} + buys)</span>
-              <span className="text-right font-bold">
-                <SolIcon /> {sol(cost, 2)}
-              </span>
-              <span className="text-dim">Balance after</span>
-              <span className={`text-right font-bold ${cost > devSol ? "text-down" : ""}`}>
-                <SolIcon /> {sol(devSol - cost, 2)}
+            <div className="mb-2 flex items-baseline justify-between">
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-dim">3 · Estimate</h3>
+              <span className={`text-[11px] font-bold ${ODDS_TONE[strategyOdds(style, target)]}`}>
+                Odds of {usd(target)}: {strategyOdds(style, target)}
               </span>
             </div>
-            {quote.detectPct >= 50 ? (
-              <p className="mt-2 text-[11px] text-amber">
-                Nobody can map it for the first {quote.graceMin[0]}-{quote.graceMin[1]} min. Still holding this much after that, it will very likely get called out.
-              </p>
-            ) : mode !== "block0" && quote.supplyPct >= 10 ? (
-              <p className="mt-2 text-[11px] text-amber">A big dev bag is public: buyers see the DEV % and wait for you to sell.</p>
-            ) : null}
+            <div className="grid grid-cols-5 gap-1 text-center">
+              {(
+                [
+                  ["Launch", q.launchSol],
+                  ["Push", q.pushSol],
+                  ["Volume", q.volumeSol],
+                  ["Holders", q.holdersSol],
+                  ["Defend", q.defendSol],
+                ] as const
+              ).map(([k, v]) => (
+                <div key={k} className="rounded-md bg-black/20 py-1.5">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-faint">{k}</div>
+                  <div className="tabular text-[12px] font-extrabold">{sol(v, v < 10 ? 1 : 0)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="tabular mt-2.5 grid grid-cols-2 gap-y-1.5 text-[12.5px]">
+              <span className="text-dim">Up to (it stops at the target)</span>
+              <span className={`text-right font-black ${cost > devSol ? "text-down" : ""}`}>
+                <SolIcon /> {sol(cost, 1)}
+              </span>
+              <span className="text-dim">Opens at · your bag</span>
+              <span className="text-right font-bold">
+                {usd(q.openMcUsd)} · {q.launchPct.toFixed(0)}%
+              </span>
+              <span className="text-dim">At {usd(target)}: your bag</span>
+              <span className="text-right font-bold">
+                {q.targetPct.toFixed(0)}% ≈ {usd(q.bagUsdAtTarget)}
+              </span>
+              <span className="text-dim">Holders there</span>
+              <span className="text-right font-bold">~{q.holdersAtTarget.toLocaleString("en-US")}</span>
+              <span className="text-dim">Dump it all there</span>
+              <span className="text-right font-bold text-amber">
+                ≈ <SolIcon /> {sol(q.dumpSolAtTarget, 0)}
+              </span>
+              <span className="text-dim">Push time</span>
+              <span className="text-right font-bold">~{Math.round(q.pushMinutes)} min</span>
+              {q.launchPct >= 8 && (
+                <>
+                  <span className="text-dim">Hidden from bubble maps</span>
+                  <span className="text-right font-bold text-up">
+                    {q.graceMin[0]}-{q.graceMin[1]} min
+                  </span>
+                </>
+              )}
+              <span className="text-dim">Balance after (max)</span>
+              <span className={`text-right font-bold ${cost > devSol ? "text-down" : ""}`}>
+                <SolIcon /> {sol(Math.max(0, devSol - cost), 1)}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] leading-snug text-faint">
+              Odds assume the right coin, launched fast. A dump all at once is liquidity-limited; taking profit over time gets more. Late or wrong launches do
+              worse whatever you spend.
+            </p>
           </section>
         </div>
 
@@ -314,7 +269,7 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
             onClick={deploy}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet py-3 text-[15px] font-black text-white shadow-[0_0_24px_rgba(139,92,246,.35)] transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
           >
-            {sc.launchedCoinId ? "Already launched" : nameIdx === null || imageIdx === null ? "Pick a name and a picture" : cost > devSol ? "Not enough SOL" : "Deploy"}
+            {sc.launchedCoinId ? "Already launched" : nameIdx === null || imageIdx === null ? "Pick a name and a picture" : cost > devSol ? `Needs ${sol(cost, 1)} SOL: pick a smaller target` : "Deploy"}
             {ready && <kbd className="rounded bg-black/20 px-1.5 text-[11px]">Enter</kbd>}
           </button>
         </footer>
@@ -323,20 +278,7 @@ export function LaunchPanel({ engine, scenarioId, now, devSol, onClose, onDeploy
   );
 }
 
-const READ_TONE = { "Likely clean": "text-up", Uncertain: "text-amber", Clustered: "text-down" } as const;
+const ODDS_TONE = { High: "text-up", Medium: "text-amber", Low: "text-down" } as const;
 
-function ModeCard({ on, title, sub, onPick, locked }: { on: boolean; title: string; sub: string; onPick?: () => void; locked?: boolean }) {
-  return (
-    <button
-      type="button"
-      disabled={locked}
-      onClick={onPick}
-      className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
-        locked ? "cursor-not-allowed border-dashed border-line opacity-50" : on ? "border-violet bg-violet/15" : "border-line hover:border-line-hi"
-      }`}
-    >
-      <div className="text-[13px] font-extrabold">{title}</div>
-      <div className="text-[11px] leading-tight text-dim">{sub}</div>
-    </button>
-  );
-}
+/** Compact target label: $100K, $1M, $10M. */
+const tLabel = (t: number) => (t >= 1e6 ? `$${t / 1e6}M` : `$${t / 1000}K`);

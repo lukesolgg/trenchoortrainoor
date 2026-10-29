@@ -25,7 +25,7 @@ import { TweetFeed } from "./TweetFeed";
 import { sol } from "./format";
 import { useEngine, useSnapshot } from "./hooks";
 
-const MODE_LABEL = { firsttx: "FIRST TX", dev: "DEV", freeplay: "FREE PLAY", campaign: "CAMPAIGN" } as const;
+const MODE_LABEL = { trader: "TRADER", dev: "DEV", both: "TRADER + DEV", campaign: "CAMPAIGN" } as const;
 
 interface Toast {
   id: number;
@@ -37,10 +37,11 @@ export function Game() {
     mode, difficulty: uiDifficulty, tab, setTab, quickAmount, setQuickAmount, quickEnabled, feedOpen, buySets, presetSet,
     setQuickEnabled, setBuyPresets, setPresetSet, setFeedOpen, toModes, start, style: uiStyle, length: uiLength, port, devBalance,
   } = useUi();
-  const devMode = mode === "dev";
+  // Trader + Dev runs Dev mode with free-running tweets and runners on the same board.
+  const devMode = mode === "dev" || mode === "both";
   // FIRST TX and the campaign are scored rounds. DEV and free play stay on the unscored free-running board for now.
   const campaign = mode === "campaign";
-  const scoredMode = mode === "firsttx" || campaign;
+  const scoredMode = mode === "trader" || campaign;
   // A campaign round plays with the campaign's settings, balance and unlocks (read once: the round is fixed at start).
   const [camp] = useState(() => {
     const c = useCampaign.getState();
@@ -56,7 +57,7 @@ export function Game() {
   const engine = useEngine({
     difficulty,
     // Free play runs a tweet every 30-60 s; Dev mode runs its own launchable tweets instead.
-    autoRounds: !scoredMode && !devMode,
+    autoRounds: mode === "both",
     dev: devMode ? { sol: devBalance } : null,
     training: style === "training",
     length: scoredMode ? length : "blitz",

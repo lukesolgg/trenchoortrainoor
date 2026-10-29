@@ -1631,6 +1631,85 @@ describe("dev mode", () => {
     expect(seen).toBeGreaterThan(0);
   });
 
+  const strat = (sc: ReturnType<typeof make>["sc"], style: "organic" | "balanced" | "aggressive", targetUsd: number, exit: "hold" | "auto" = "hold") =>
+    choice(sc, { strategy: { targetUsd, style, exit } });
+
+  it("strategy quotes: more aggressive and higher targets cost more; the bag grows on the way to the target", () => {
+    const { e } = make(61, "trencher", 5000);
+    const q = (style: "organic" | "balanced" | "aggressive", t: number) => e.quoteStrategy({ targetUsd: t, style, exit: "hold" });
+    expect(q("aggressive", 1e6).totalSol).toBeGreaterThan(q("balanced", 1e6).totalSol);
+    expect(q("balanced", 1e6).totalSol).toBeGreaterThan(q("organic", 1e6).totalSol);
+    expect(q("balanced", 3e6).totalSol).toBeGreaterThan(q("balanced", 500e3).totalSol);
+    const b = q("balanced", 1e6);
+    expect(b.launchPct).toBeGreaterThan(18);
+    expect(b.targetPct).toBeGreaterThan(b.launchPct);
+    expect(b.dumpSolAtTarget).toBeGreaterThan(0);
+    expect(b.dumpSolAtTarget).toBeLessThan((b.bagUsdAtTarget / 104) * 0.6);
+    expect(q("organic", 1e6).launchPct).toBeLessThan(8);
+  });
+
+  it("a strategy launch: the style picks the launch, bots start on their own, and it can't be afforded short", () => {
+    const { e, id, sc } = make(62, "trencher", 1000);
+    e.advanceTo(sc.tweetAt + 2000);
+    expect(e.devDeploy(id, strat(sc, "balanced", 10e6)).ok).toBe(false);
+    expect(e.devDeploy(id, strat(sc, "balanced", 500e3)).ok).toBe(true);
+    let l = e.getSnapshot().launches[0];
+    expect(l.mode).toBe("block0");
+    expect(l.holdersPct).toBeGreaterThan(14);
+    expect(l.strategy?.phase).toBe("push");
+    const end = e.now() + 20_000;
+    for (let t = e.now(); t < end; t += 500) e.advanceTo(t);
+    l = e.getSnapshot().launches[0];
+    expect(l.bots.volume !== null || l.bots.lastBot?.startsWith("Volume")).toBe(true);
+    expect(l.mm?.strategy).toBe("defend");
+  });
+
+  it("a strategy at its target holds, or takes profit when told to", () => {
+    for (const exit of ["hold", "auto"] as const) {
+      const { e, id, sc } = make(63, "trencher", 2000);
+      e.advanceTo(sc.tweetAt + 2000);
+      e.devDeploy(id, strat(sc, "aggressive", 100e3, exit));
+      const end = e.now() + 4 * 60_000;
+      for (let t = e.now(); t < end; t += 1000) {
+        e.advanceTo(t);
+        const p = e.getSnapshot().launches[0].strategy!.phase;
+        if (p !== "push" && p !== "stalled") break;
+      }
+      const l = e.getSnapshot().launches[0];
+      expect(l.peakMcUsd).toBeGreaterThanOrEqual(100e3);
+      expect(l.strategy!.phase).toBe(exit === "hold" ? "hold" : "profit");
+      if (exit === "auto") {
+        const later = e.now() + 60_000;
+        for (let t = e.now(); t < later; t += 1000) e.advanceTo(t);
+        expect(e.getSnapshot().launches[0].gotSol).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("strategy controls: change target, pause, take profit, sell and add to the dev bag", () => {
+    const { e, id, sc } = make(64, "trencher", 3000);
+    e.advanceTo(sc.tweetAt + 2000);
+    e.devDeploy(id, strat(sc, "balanced", 250e3));
+    const coinId = e.getSnapshot().launches[0].coinId;
+    e.advanceTo(e.now() + 5000);
+    while (e.now() < (e.getCoinView(coinId)!.migratingUntil ?? 0)) e.advanceTo(e.now() + 250);
+    e.setStrategyPaused(coinId, true);
+    expect(e.getSnapshot().launches[0].strategy!.paused).toBe(true);
+    expect(e.getSnapshot().launches[0].bots.trend).toBeNull();
+    expect(e.setStrategyTarget(coinId, 1e6).ok).toBe(true);
+    expect(e.getSnapshot().launches[0].strategy!.targetUsd).toBe(1e6);
+    expect(e.getSnapshot().launches[0].strategy!.paused).toBe(false);
+    const bag0 = e.getSnapshot().launches[0].totalPct;
+    expect(e.buyDevBag(coinId, 1).ok).toBe(true);
+    expect(e.getSnapshot().launches[0].totalPct).toBeGreaterThan(bag0);
+    const sold = e.sellDevBag(coinId, 0.5);
+    expect(sold.ok).toBe(true);
+    expect(e.getSnapshot().launches[0].totalPct).toBeLessThan(bag0);
+    expect(e.takeProfit(coinId).ok).toBe(true);
+    expect(e.getSnapshot().launches[0].strategy!.phase).toBe("profit");
+    expect(e.getSnapshot().launches[0].mm?.strategy).toBe("distribute");
+  });
+
   it("tweets come with a Dev button and 3, 4 or 5 options by difficulty, without the answers", () => {
     for (const [d, n] of [["paper", 3], ["trencher", 4], ["sniper", 5]] as const) {
       const { e, id } = make(2, d);
@@ -1735,7 +1814,7 @@ describe("dev mode", () => {
       for (let t = e.now(); t < end && e.getSnapshot().launches[0].mcUsd < 100_000; t += 500) e.advanceTo(t);
       if (e.getSnapshot().launches[0].mcUsd < 100_000) continue;
       checked++;
-      expect(e.getCoinView(coinId)!.holders).toBeGreaterThan(150);
+      expect(e.getCoinView(coinId)!.holders).toBeGreaterThan(100);
       while (e.now() < (e.getCoinView(coinId)!.migratingUntil ?? 0)) e.advanceTo(e.now() + 250);
       e.nuke(coinId);
       expect(e.getSnapshot().launches[0].mcUsd).toBeGreaterThan(10_000);

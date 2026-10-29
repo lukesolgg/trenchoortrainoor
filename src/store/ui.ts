@@ -4,7 +4,8 @@ import type { DifficultyId } from "@/engine/types";
 
 export type Screen = "modes" | "setup" | "campaign" | "play";
 export type NavTab = "trenches" | "trending" | "portfolio" | "rewards";
-export type ModeId = "firsttx" | "dev" | "freeplay" | "campaign";
+/** Trader: scored rounds (tweet → buy the right coin first). Both: dev tweets and tradeable runners on one board. */
+export type ModeId = "trader" | "dev" | "both" | "campaign";
 export type Port = "low" | "medium" | "whale";
 
 /** Starting balance for each port size, in SOL. */
@@ -101,7 +102,7 @@ export const useUi = create<UiState>()(
     (set) => ({
   screen: "modes",
   tab: "trenches",
-  mode: "firsttx",
+  mode: "trader",
   difficulty: "sniper",
   quickPresets: [0.5, 1, 3],
   colPreset: [2, 1, 1],
@@ -123,7 +124,7 @@ export const useUi = create<UiState>()(
   presetSet: 0,
   runId: 0,
   setTab: (tab) => set({ tab }),
-  pickMode: (mode) => set({ mode, screen: mode === "freeplay" ? "play" : mode === "campaign" ? "campaign" : "setup", runId: Date.now() }),
+  pickMode: (mode) => set({ mode, screen: mode === "campaign" ? "campaign" : "setup", runId: Date.now() }),
   setDifficulty: (difficulty) => set({ difficulty }),
   setQuickPreset: (i, n) => set((st) => ({ quickPresets: st.quickPresets.map((v, k) => (k === i ? n : v)) })),
   setColPreset: (col, i) => set((st) => ({ colPreset: st.colPreset.map((v, k) => (k === col ? i : v)) })),

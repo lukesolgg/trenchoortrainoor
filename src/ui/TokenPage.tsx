@@ -1,8 +1,6 @@
 "use client";
 
-import { Bots } from "./dev/Bots";
-import { DevTradePanel } from "./dev/DevTradePanel";
-import { DevOps } from "./dev/DevOps";
+import { LaunchControl } from "./dev/LaunchControl";
 import { KOL_BUBBLE_TIER, type Features } from "@/campaign/progression";
 import { buyWarning, WALLET_NAMES } from "./Wallets";
 import { useEffect, useRef, useState } from "react";
@@ -417,37 +415,27 @@ export function TokenPage({ engine, snap, coinId, wallStart, buyPresets, onBuyPr
             />
           </div>
         </div>
-        {devMode ? (
-          <DevTradePanel engine={engine} coin={coin} launch={launch} balance={snap.walletSol} tradingCount={snap.walletCount} notify={notify}>
-            {launch && (
-              <>
-                <DevOps
-                  l={launch}
-                  now={snap.now}
-                  onNuke={() => {
-                    const r = engine.nuke(coinId);
-                    notify(r.ok ? `☢ Nuked: ${sol(r.sol ?? 0)} SOL out` : (r.reason ?? "Nothing to sell"));
-                  }}
-                  onClaim={() => {
-                    const r = engine.claimRewards(coinId);
-                    if (r.ok) notify(`Claimed ${sol(r.sol ?? 0, 3)} SOL of creator fees`);
-                  }}
-                  onReport={() => onLaunchReport?.(coinId)}
-                />
-                <Bots engine={engine} l={launch} devSol={snap.walletSol} notify={notify} />
-              </>
-            )}
+        {devMode && launch ? (
+          <LaunchControl
+            engine={engine}
+            l={launch}
+            now={snap.now}
+            holders={coin.holders}
+            balance={snap.walletSol}
+            notify={notify}
+            onReport={() => onLaunchReport?.(coinId)}
+          >
             <Promote
               coin={coin}
               walletSol={snap.walletSol}
               locked={buyLocked}
               canBoost
               canPayDex
-              devLaunch={launch ? { devSol: snap.walletSol } : undefined}
+              devLaunch={{ devSol: snap.walletSol }}
               onBoost={onBoost}
               onPayDex={onPayDex}
             />
-          </DevTradePanel>
+          </LaunchControl>
         ) : (
         <TradePanel
           holdingPct={engine.holdingPct(coinId)}
