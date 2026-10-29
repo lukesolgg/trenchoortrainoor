@@ -1,6 +1,7 @@
 "use client";
 
 import { LaunchesBar } from "./dev/LaunchesBar";
+import { DevTable } from "./dev/DevTable";
 import { LaunchPanel } from "./dev/LaunchPanel";
 import { LaunchCard } from "./dev/LaunchCard";
 import { useCampaign, campaignFeatures } from "@/store/campaign";
@@ -346,9 +347,14 @@ export function Game() {
           pauseOnHover={!scoredMode && !devMode}
           open={feedOpen}
           onToggle={() => setFeedOpen(!feedOpen)}
-          dev={devMode ? { launched: launchedByScenario, onDev: onDevTweet } : undefined}
         />
       </div>
+      {/* Dev mode: the Dev table, beside the Tracker. Click a tweet to fill out its coin. */}
+      {devMode && (
+        <div className="h-full w-[280px] shrink-0">
+          <DevTable scenarios={engine.getDevScenarios()} launches={snap.launches} now={snap.now} onLaunch={onDevTweet} onOpenCoin={setOpenId} />
+        </div>
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
       <TopNav
         tab={tab}

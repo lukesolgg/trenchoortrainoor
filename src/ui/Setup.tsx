@@ -19,18 +19,18 @@ const COPY = {
     title: "Dev mode",
     lead: "Launch the meme from the tweet before the rival devs do, then run it: bond it, push it, and get your SOL out before it dies.",
     steps: [
-      ["Hit Dev on a tweet", "Every meme tweet on the Tracker can be launched. Skip the ones you don't rate; launch as many as you like."],
-      ["Get it right", "Pick the right name and ticker and the right picture, then the config: Pump and the author's pair. A wrong ticker never bonds; a wrong picture or config cuts the buyers."],
+      ["Pick a tweet in the Dev table", "Every launchable meme tweet lands in the Dev table beside the Tracker. Skip the ones you don't rate; launch as many as you like."],
+      ["Check the coin", "Name, ticker, picture, launchpad and pair come prefilled from the tweet. They're usually right, but now and then one is off: a wrong ticker never bonds; a wrong picture or config cuts the buyers."],
       ["Beat the rivals", "Rival devs launch their own versions a few seconds behind. The first right coin gets the narrative; late ones get scraps."],
-      ["Pick a strategy", "Choose a target ($100K to $10M) and a style: Organic, Balanced or Aggressive. The estimate shows the cost, your bag, holders and the exit. The strategy runs the bundle and bots for you."],
-      ["Get out", "Hold at the target and exit when you like (take profit, sell part of the bag, Nuke), or let it take profit on its own. A launch card shows how it went."],
+      ["Pick how it launches", "Organic (buys after launch), Balanced (a few block-0 wallets) or Aggressive (many block-0 wallets towards bond), each spelled out in wallets and SOL."],
+      ["Run it, then get out", "Once it's live, set a run strategy with sliders: push to a target, volume, holders, dip defence, taking profit. Sell any wallet group yourself, or Nuke. A launch card shows how it went."],
     ],
   },
   both: {
     title: "Trader + Dev",
     lead: "Both games on one board and one balance: dev the tweets you rate, and trade the runners and everyone else's launches.",
     steps: [
-      ["Dev a tweet", "Hit Dev on a meme tweet, get the name, picture and config right, pick a strategy and deploy before the rivals."],
+      ["Dev a tweet", "Pick a tweet in the Dev table, check the prefilled coin, choose how it launches and deploy before the rivals."],
       ["Or trade it", "Tweets also bring runners and look-alikes: trade them with your trading wallets, nothing is scored."],
       ["One balance", "Your launches and your trades come out of the same SOL. Watch your realised PnL in the launches bar."],
     ],

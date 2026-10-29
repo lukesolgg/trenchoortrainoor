@@ -19,7 +19,7 @@ export function LaunchesBar({ devSol, launches, openId, onOpen }: { devSol: numb
       </span>
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {launches.length === 0 ? (
-          <span className="text-dim">Hit Dev on a meme tweet in the Tracker to launch it. Rivals are already reading the same tweet.</span>
+          <span className="text-dim">Pick a tweet in the Dev table to launch it. Rivals are already reading the same tweet.</span>
         ) : (
           <>
           {launches.length > 6 && <span className="shrink-0 text-[11px] text-faint">+{launches.length - 6} earlier</span>}

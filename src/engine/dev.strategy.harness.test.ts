@@ -1,12 +1,15 @@
 import { it } from "vitest";
 import { Engine } from "./engine";
-import type { StrategyStyle } from "./dev";
+import type { LaunchKind, RunConfig } from "./dev";
 
 /**
- * Strategy harness (HARNESS=1): a right, fast launch per seed run by a strategy with auto take-profit, for 25 minutes.
- * Prints how often each style reaches each target, what it spends, and what comes back.
+ * Launch plan + run strategy harness (HARNESS=1): a right, fast launch per seed with a launch plan, then a run
+ * strategy pushing to a target (taking profit there at 5%/min), for 25 minutes. A sensible player takes profit a
+ * minute after the push stalls, or 12 minutes in. Prints how often each plan reaches each target, spend and return.
  */
-function run(seed: number, style: StrategyStyle, targetUsd: number) {
+const PLANS: Record<LaunchKind, number> = { organic: 1.5, balanced: 4, aggressive: 50 };
+
+function go(seed: number, kind: LaunchKind, targetUsd: number) {
   const e = new Engine({ seed, difficulty: "trencher", autoRounds: false, clock: () => 0, dev: { sol: 5000 } });
   let id: string | undefined;
   for (let t = 0; !id && t < 20000; t += 100) {
@@ -15,42 +18,46 @@ function run(seed: number, style: StrategyStyle, targetUsd: number) {
   }
   const sc = (e as any).scenarios.get(id!);
   e.advanceTo(sc.tweetAt + Number(process.env.DELAY_MS ?? 2500));
-  const q = e.quoteStrategy({ targetUsd, style, exit: "auto" });
-  const r = e.devDeploy(id!, { nameIdx: sc.options.rightName, imageIdx: sc.options.rightImage, launchpad: "pump", dividends: false, pair: sc.plan.rightConfig.pair, mode: "manual", devBuySol: 0, organicSol: 0, rewards: "creator", strategy: { targetUsd, style, exit: "auto" } });
+  const right = sc.options.names[sc.options.rightName];
+  const r = e.devDeploy(id!, { name: right.name, ticker: right.ticker, nameIdx: 0, imageIdx: sc.options.rightImage, launchpad: "pump", dividends: false, pair: sc.plan.rightConfig.pair, mode: "manual", devBuySol: 1, organicSol: 0, rewards: "creator", launch: { kind, amount: PLANS[kind] } });
   if (!r.ok) throw new Error(r.reason);
+  const coinId = r.coinId!;
   const t0 = e.now();
+  e.advanceTo(t0 + 4000);
+  while (e.now() < (e.getCoinView(coinId)!.migratingUntil ?? 0)) e.advanceTo(e.now() + 250);
+  const cfg: RunConfig = { targetUsd, pushMinutes: Number(process.env.PUSH_MIN ?? 4), volumePerMin: 5000, volumeMinutes: 10, holders: 100, defendSol: 10, band: 0.1, exit: "auto", profitPace: 5 };
+  const q = e.quoteRun(coinId, cfg);
+  const started = e.startRun(coinId, cfg).ok;
   let reachedAt: number | null = null;
   let stalledAt: number | null = null;
   let bailed = false;
-  for (let t = t0; t < t0 + 25 * 60_000; t += 2000) {
+  for (let t = e.now(); t < t0 + 25 * 60_000; t += 2000) {
     e.advanceTo(t);
     const l = e.getSnapshot().launches[0];
     if (reachedAt === null && l.peakMcUsd >= targetUsd) reachedAt = (t - t0) / 60_000;
     if (l.strategy?.phase === "stalled" && stalledAt === null) stalledAt = t;
-    // A sensible player: a minute after the push stalls (or 12 minutes in without the target), take profit.
     if (!bailed && l.strategy && (l.strategy.phase === "stalled" || l.strategy.phase === "push") && ((stalledAt !== null && t - stalledAt > 60_000) || t - t0 > 12 * 60_000)) {
       bailed = true;
-      e.takeProfit(l.coinId);
+      e.takeProfit(coinId, 5);
     }
     if (l.strategy?.phase === "done") break;
   }
   const l = e.getSnapshot().launches[0];
-  return { q, reached: reachedAt !== null, reachedAt, spent: l.spentSol, got: l.gotSol + l.rewardsSol, peak: l.peakMcUsd, left: l.totalPct, flagged: !!l.bundle.flagged };
+  return { q, started, reached: reachedAt !== null, reachedAt, spent: l.spentSol, got: l.gotSol + l.rewardsSol, peak: l.peakMcUsd, flagged: !!l.bundle.flagged, left: l.holdingsSol };
 }
 
 const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}K`);
 const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
 
-it.skipIf(!process.env.HARNESS)("dev strategies: reach rate, spend and return", () => {
-  const N = Number(process.env.N ?? 12);
-  const styles = (process.env.STYLES?.split(",") ?? ["organic", "balanced", "aggressive"]) as StrategyStyle[];
-  const targets = (process.env.TARGETS?.split(",").map(Number) ?? [100e3, 500e3, 1e6, 3e6]);
-  for (const style of styles)
+it.skipIf(!process.env.HARNESS)("launch plans + run strategy: reach rate, spend and return", () => {
+  const N = Number(process.env.N ?? 8);
+  const kinds = (process.env.KINDS?.split(",") ?? ["organic", "balanced", "aggressive"]) as LaunchKind[];
+  const targets = process.env.TARGETS?.split(",").map(Number) ?? [250e3, 1e6, 3e6];
+  for (const kind of kinds)
     for (const target of targets) {
-      const rs = Array.from({ length: N }, (_, i) => run(i + 1, style, target));
-      const q = rs[0].q;
+      const rs = Array.from({ length: N }, (_, i) => go(i + 1, kind, target));
       console.log(
-        `${style.padEnd(10)} ${k(target).padStart(5)} · quote ${q.totalSol.toFixed(0)} SOL (push ${q.pushSol.toFixed(0)}), bag ${q.targetPct.toFixed(0)}%, dump ${q.dumpSolAtTarget.toFixed(0)} · reached ${rs.filter((r) => r.reached).length}/${N} (med ${med(rs.filter((r) => r.reachedAt !== null).map((r) => r.reachedAt!)).toFixed(1)} min) · spent med ${med(rs.map((r) => r.spent)).toFixed(0)} · got med ${med(rs.map((r) => r.got)).toFixed(0)} · pnl med ${med(rs.map((r) => r.got - r.spent)).toFixed(0)} · peak med ${k(med(rs.map((r) => r.peak)))} · left med ${med(rs.map((r) => r.left)).toFixed(1)}% · flagged ${rs.filter((r) => r.flagged).length}`,
+        `${kind.padEnd(10)} → ${k(target).padStart(5)} · run quote med ${med(rs.map((r) => r.q.totalSol)).toFixed(0)} SOL · reached ${rs.filter((r) => r.reached).length}/${N} · spent med ${med(rs.map((r) => r.spent)).toFixed(0)} · got med ${med(rs.map((r) => r.got)).toFixed(0)} · pnl med ${med(rs.map((r) => r.got - r.spent)).toFixed(0)} · peak med ${k(med(rs.map((r) => r.peak)))} · bag left med ${med(rs.map((r) => r.left)).toFixed(0)} SOL · flagged ${rs.filter((r) => r.flagged).length}`,
       );
     }
 }, 900_000);

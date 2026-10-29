@@ -323,11 +323,19 @@ export interface LaunchView {
     /** Until bubble maps catch up, nothing can flag you. */
     hiddenForMs: number;
   };
-  /** The strategy running it. */
+  /** The run strategy on it. */
   strategy: {
-    targetUsd: number;
-    style: "organic" | "balanced" | "aggressive";
-    exit: "hold" | "auto";
+    cfg: {
+      targetUsd: number | null;
+      pushMinutes: number;
+      volumePerMin: number;
+      volumeMinutes: number;
+      holders: number;
+      defendSol: number;
+      band: number;
+      exit: "hold" | "auto";
+      profitPace: number;
+    };
     phase: "push" | "hold" | "profit" | "stalled" | "done";
     paused: boolean;
     pushBudgetSol: number;
@@ -335,6 +343,10 @@ export interface LaunchView {
     pushEndsInMs: number;
     msg: string | null;
   } | null;
+  /** How it was launched. */
+  plan: { kind: "organic" | "balanced" | "aggressive"; amount: number } | null;
+  /** Wallets holding something in each group. */
+  walletCounts: { launch: number; bot: number };
   /** Market maker running on it. */
   mm: { strategy: "defend" | "make" | "distribute"; band: number; pace: number; budgetSol: number; spentSol: number; gotSol: number; soldPct: number } | null;
   /** Outside snipers still holding. */
@@ -351,6 +363,13 @@ export interface DevScenarioView {
   launchedCoinId: string | null;
   /** A rival's right coin is already on the board. */
   rivalFirst: boolean;
+  /** What the launch form starts filled with (usually right, now and then a near miss). */
+  prefill: { name: string; ticker: string; imageIdx: number; launchpad: Launchpad; pair: Pair };
+  /** The tweet, for the Dev table. */
+  authorHandle: string;
+  authorHue: number;
+  authorAvatar?: string;
+  text: string;
 }
 
 export type RoundPhase = "countdown" | "armed" | "live" | "ended";

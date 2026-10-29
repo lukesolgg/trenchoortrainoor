@@ -98,6 +98,8 @@ export type BundleBuild = "quick" | "clean" | "full";
  */
 export interface BundleConfig {
   supplyPct: number;
+  /** Set instead of `supplyPct`: spend this much SOL across the bundle wallets. */
+  sol?: number;
   wallets: number;
   build: BundleBuild;
   mev: number;
@@ -184,127 +186,95 @@ export interface MmConfig {
 export const MM_CEILING_MAX = 2;
 
 /**
- * Dev strategies: the one thing you pick to run a launch. A target market cap and a style; the strategy sets the dev
- * buy and any bundle at launch, then runs the trend push, volume, holders and a market maker that defends dips, and
- * holds or takes profit at the target. Organic leans on the narrative (pays ~40% of the push, no bundle); Balanced
- * bundles ~20% and pays ~70%; Aggressive bundles ~50% and buys the whole push.
+ * Launch plans: how your coin comes out, picked before you deploy. Each is spelled out in wallets and SOL.
+ * Organic: your dev buy, then 4 fresh wallets buy over the first 1-6 s (after launch, so snipers get in first).
+ * Balanced: your dev buy plus 2-3 wallets buying in block 0, in the same block as the create (fewer snipers).
+ * Aggressive: your dev buy plus 12-25 wallets buying in block 0 towards bonding (almost no snipers, a big bag).
  */
-export type StrategyStyle = "organic" | "balanced" | "aggressive";
-export type StrategyExit = "hold" | "auto";
-export interface StrategyConfig {
-  targetUsd: number;
-  style: StrategyStyle;
-  exit: StrategyExit;
+export type LaunchKind = "organic" | "balanced" | "aggressive";
+export interface LaunchPlan {
+  kind: LaunchKind;
+  /** Organic and Balanced: total SOL across the wallets. Aggressive: % of supply to take in block 0. */
+  amount: number;
 }
-export const STRATEGY_TARGETS = [100_000, 250_000, 500_000, 1_000_000, 3_000_000, 10_000_000] as const;
-export interface StyleSpec {
-  label: string;
-  sub: string;
-  devBuySol: number;
-  /** Organic buys from a few fresh wallets right after launch (SOL). */
-  organicSol: number;
-  bundle: BundleConfig | null;
-  /** Share of the push to the target the strategy pays for itself; organic buyers have to bring the rest. */
-  pushShare: number;
-  /** Minutes the push takes for a $100K target; +`pushPerDouble` for each doubling beyond. */
-  pushMin: number;
-  pushPerDouble: number;
-  /** Holder-bot wallets added once it bonds. */
-  holders: number;
-  /** Volume bot rate ($ per minute) while pushing and for 5 minutes after. */
+export const LAUNCH_KINDS: Record<LaunchKind, { label: string; sub: string; range: [number, number]; step: number; def: number; unit: "SOL" | "%" }> = {
+  organic: { label: "Organic", sub: "Buys after launch", range: [0.5, 5], step: 0.25, def: 1.5, unit: "SOL" },
+  balanced: { label: "Balanced", sub: "A few block-0 wallets", range: [1, 15], step: 0.5, def: 4, unit: "SOL" },
+  aggressive: { label: "Aggressive", sub: "Block 0 towards bond", range: [20, 75], step: 5, def: 50, unit: "%" },
+};
+/** Organic: wallets that buy after launch, and when (ms after the create). */
+export const ORGANIC_WALLETS = 4;
+export const ORGANIC_DELAY_MS: [number, number] = [1000, 6000];
+/** How many wallets a plan uses (besides the deployer). */
+export function planWallets(p: LaunchPlan): number {
+  if (p.kind === "organic") return ORGANIC_WALLETS;
+  if (p.kind === "balanced") return p.amount <= 3 ? 2 : 3;
+  return Math.max(12, Math.min(25, Math.round(p.amount / 3)));
+}
+/** The bundle a plan makes (null for Organic). Balanced is a SOL amount, Aggressive a share of supply. */
+export function planBundle(p: LaunchPlan): BundleConfig | null {
+  if (p.kind === "organic") return null;
+  if (p.kind === "balanced") return { supplyPct: 0, sol: p.amount, wallets: planWallets(p), build: "clean", mev: 0 };
+  return { supplyPct: p.amount, wallets: planWallets(p), build: "full", mev: 0 };
+}
+/** Snipers to expect on a right launch, by plan (block-0 buys front-run them). */
+export const PLAN_SNIPERS: Record<LaunchKind, string> = { organic: "3-6", balanced: "1-3", aggressive: "0-2" };
+
+/** Dev buys offered on the launch form (SOL, from the public deployer wallet). */
+export const DEV_BUY_RANGE: [number, number] = [0, 5];
+
+/**
+ * Run strategy: set up once the coin is live, all optional. A push to a target market cap over some minutes, volume
+ * at a $/min rate for a while, holder wallets, a dip-defence budget, and what happens at the target (hold, or take
+ * profit at a % of the bag per minute).
+ */
+export interface RunConfig {
+  /** null: no push. */
+  targetUsd: number | null;
+  pushMinutes: number;
   volumePerMin: number;
-  /** Market maker: defend band, its buy budget as a share of the push budget, and the take-profit pace (%/min). */
+  volumeMinutes: number;
+  holders: number;
+  defendSol: number;
   band: number;
-  defendShare: number;
+  exit: "hold" | "auto";
   profitPace: number;
 }
-export const STRATEGY_STYLES: Record<StrategyStyle, StyleSpec> = {
-  organic: {
-    label: "Organic",
-    sub: "Small dev buy, light push. The narrative does the work.",
-    devBuySol: 1,
-    organicSol: 1,
-    bundle: null,
-    pushShare: 0.4,
-    pushMin: 6,
-    pushPerDouble: 2,
-    holders: 50,
-    volumePerMin: 3_000,
-    band: 0.1,
-    defendShare: 0.15,
-    profitPace: 2,
-  },
-  balanced: {
-    label: "Balanced",
-    sub: "~20% bundled, pays for a steady push, holders and volume.",
-    devBuySol: 1,
-    organicSol: 0,
-    bundle: { supplyPct: 20, wallets: 20, build: "clean", mev: 0.5 },
-    pushShare: 1,
-    pushMin: 3,
-    pushPerDouble: 1,
-    holders: 150,
-    volumePerMin: 8_000,
-    band: 0.1,
-    defendShare: 0.2,
-    profitPace: 3,
-  },
-  aggressive: {
-    label: "Aggressive",
-    sub: "~50% bundled, buys the whole push, heavy bots.",
-    devBuySol: 2,
-    organicSol: 0,
-    bundle: { supplyPct: 50, wallets: 40, build: "full", mev: 0.5 },
-    pushShare: 1,
-    pushMin: 2,
-    pushPerDouble: 0.8,
-    holders: 300,
-    volumePerMin: 20_000,
-    band: 0.05,
-    defendShare: 0.25,
-    profitPace: 5,
-  },
+export const RUN_DEFAULTS: RunConfig = {
+  targetUsd: 250_000,
+  pushMinutes: 4,
+  volumePerMin: 5_000,
+  volumeMinutes: 10,
+  holders: 100,
+  defendSol: 5,
+  band: 0.1,
+  exit: "hold",
+  profitPace: 3,
 };
-/**
- * How likely a style is to reach a target on a right, fast launch, from the strategy harness
- * (dev.strategy.harness.test.ts, N=8): Organic reaches $100K every time and $500K+ a quarter to a third of the time;
- * Balanced gets $100K every time, about half at $500K-$1M and a third at $3M (a 20% bundle leaves plenty of supply to
- * sell into the push);
- * Aggressive holds 50% from block 0, so there's little to sell into its push and it gets there almost every time.
- */
-export function strategyOdds(style: StrategyStyle, targetUsd: number): "High" | "Medium" | "Low" {
-  const [hi, mid] = style === "organic" ? [100_000, 250_000] : style === "balanced" ? [250_000, 1_000_000] : [10_000_000, Infinity];
-  return targetUsd <= hi ? "High" : targetUsd <= mid ? "Medium" : "Low";
-}
-
-/** How long a style takes to push to a target (minutes). */
-export const pushMinutes = (style: StrategyStyle, targetUsd: number) => {
-  const s = STRATEGY_STYLES[style];
-  return s.pushMin + s.pushPerDouble * Math.max(0, Math.log2(targetUsd / 100_000));
+export const RUN_RANGES = {
+  targetUsd: [50_000, 20_000_000] as [number, number],
+  pushMinutes: [1, 20] as [number, number],
+  volumePerMin: [0, 50_000] as [number, number],
+  volumeMinutes: [1, 60] as [number, number],
+  holders: [0, 500] as [number, number],
+  defendSol: [0, 250] as [number, number],
+  profitPace: [1, 10] as [number, number],
 };
+export const RUN_TARGETS = [100_000, 250_000, 500_000, 1_000_000, 3_000_000, 10_000_000] as const;
 
-/** The strategy panel's estimate. */
-export interface StrategyQuote {
-  /** SOL by line: launch (fee, dev buy, bundle, funding), push, volume, holders, defend. */
-  launchSol: number;
+/** The run panel's estimate for a live launch. */
+export interface RunQuote {
   pushSol: number;
   volumeSol: number;
   holdersSol: number;
   defendSol: number;
   totalSol: number;
-  /** Opening market cap and the supply you hold at launch, and at the target if the push goes as planned (%). */
-  openMcUsd: number;
-  launchPct: number;
-  targetPct: number;
-  /** Organic holders plus the bot's, at the target. */
-  holdersAtTarget: number;
-  /** Your bag at the target, and what dumping it all at once there would return (SOL). */
+  /** Your bag now and at the target if the push goes as planned (%), its value there, and a dump-it-all there (SOL). */
+  bagPctNow: number;
+  bagPctAtTarget: number;
   bagUsdAtTarget: number;
   dumpSolAtTarget: number;
-  pushMinutes: number;
-  /** Bubble-map quiet window (minutes) and the per-check risk after it at launch. */
-  graceMin: [number, number];
-  risk: number;
+  holdersAtTarget: number;
 }
 
 /** What the launch panel shows before you deploy. */
@@ -330,6 +300,10 @@ export const BUNDLED_INTEREST = 0.4;
 export type RewardsMode = "creator" | "cashback";
 
 export interface DevChoice {
+  /** Typed name and ticker (the launch form). When set they're checked as typed, case and spaces aside. */
+  name?: string;
+  ticker?: string;
+  /** Index into the name options (older flow, tests). */
   nameIdx: number;
   imageIdx: number;
   launchpad: Launchpad;
@@ -343,8 +317,8 @@ export interface DevChoice {
   rewards: RewardsMode;
   /** Block-0 mode only. */
   bundle?: BundleConfig;
-  /** A strategy sets the dev buy, any bundle and the mode from its style, then runs the launch. */
-  strategy?: StrategyConfig;
+  /** A launch plan sets the mode, organic buys or bundle from its kind (the dev buy stays `devBuySol`). */
+  launch?: LaunchPlan;
 }
 
 export interface LaunchCheck {
@@ -405,12 +379,41 @@ export function makeLaunchOptions(rng: Rng, meme: Meme, pack: readonly Meme[], n
   return { names, images, rightName: names.indexOf(right), rightImage: images.indexOf(meme.art) };
 }
 
-export function checkLaunch(choice: DevChoice, opts: LaunchOptions, right: CoinConfig): LaunchCheck {
-  const picked = opts.names[choice.nameIdx];
-  const truth = opts.names[opts.rightName];
+export const normName = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+export const normTicker = (s: string) => s.trim().replace(/^\$/, "").replace(/\s+/g, "").toUpperCase();
+
+/** What the launch form starts filled with: right most of the time, a near miss in any field now and then. */
+export interface LaunchPrefill {
+  name: string;
+  ticker: string;
+  imageIdx: number;
+  launchpad: Launchpad;
+  pair: Pair;
+}
+/** Chance each prefilled field is wrong, by difficulty. */
+export const PREFILL_WRONG: Record<DifficultyId, number> = { paper: 0.1, trencher: 0.18, sniper: 0.25 };
+const PAIRS_ALL: Pair[] = ["SOL", "SPACEX", "TESLA", "PUMP"];
+
+export function makePrefill(rng: Rng, meme: Meme, opts: LaunchOptions, right: CoinConfig, wrong: number): LaunchPrefill {
+  const ticker = meme.tickers[0];
+  const typoT = [...meme.tickers.slice(1), ...tickerTypos(ticker)];
+  const typoN = nameTypos(meme.name);
+  const wrongImgs = opts.images.map((_, i) => i).filter((i) => i !== opts.rightImage);
   return {
-    name: picked?.name === truth.name,
-    ticker: picked?.ticker === truth.ticker,
+    name: rng.chance(wrong) && typoN.length ? rng.pick(typoN) : meme.name,
+    ticker: rng.chance(wrong) && typoT.length ? rng.pick(typoT) : ticker,
+    imageIdx: rng.chance(wrong * 0.8) && wrongImgs.length ? rng.pick(wrongImgs) : opts.rightImage,
+    launchpad: rng.chance(wrong * 0.5) ? (right.launchpad === "pump" ? "bonk" : "pump") : right.launchpad,
+    pair: rng.chance(wrong * 0.8) ? rng.pick(PAIRS_ALL.filter((p) => p !== right.pair)) : right.pair,
+  };
+}
+
+export function checkLaunch(choice: DevChoice, opts: LaunchOptions, right: CoinConfig): LaunchCheck {
+  const truth = opts.names[opts.rightName];
+  const picked = choice.ticker !== undefined ? { name: choice.name ?? "", ticker: choice.ticker } : opts.names[choice.nameIdx];
+  return {
+    name: !!picked && normName(picked.name) === normName(truth.name),
+    ticker: !!picked && normTicker(picked.ticker) === normTicker(truth.ticker),
     image: choice.imageIdx === opts.rightImage,
     launchpad: choice.launchpad === right.launchpad,
     dividends: choice.dividends === right.dividends,
@@ -515,7 +518,8 @@ export function devDemand(d: DemandInput): Demand {
   const dd = d.drawdown ?? 0;
   const dip = d.migrated && dd > 0.08 && dd < 0.75 ? 0.5 * support * Math.min(1, dd / 0.3) * trust * (d.bundled ? 0.5 : 1) * (0.3 + 0.7 * Math.sqrt(room)) : 0;
   const buyP = clamp(clamp(0.04 + DEV_TUNING.buy * interest * Math.sqrt(room) * fomo, 0, 0.92) * (d.bundled ? 0.6 : 1) + dip, 0, 0.92);
-  const over = d.mcUsd > d.ceilingUsd ? 0.35 : 0;
+  // Past the ceiling, sellers grow the further it goes (a little over looks like strength; 4x over is a top).
+  const over = d.mcUsd > d.ceilingUsd ? 0.35 * clamp(Math.log(d.mcUsd / d.ceilingUsd) / Math.log(4), 0.15, 1) : 0;
   // Holders don't panic like traders: a big base damps the sell-off cascade.
   const calm = 1 - 0.6 * support;
   const sellP = clamp(

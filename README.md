@@ -57,29 +57,32 @@ Dev mode (menu `2`, or `3` with trading): pick difficulty and a dev wallet of 10
 tweet lands on the Tracker every 35-55 s with a **Dev this** button (spec: project doc `dev-mode-spec.md`; rules in
 `src/engine/dev.ts`). Dividends aren't part of Dev mode (no DIV tags, no look-alikes that differ by them).
 
-- **Launch panel:** 1 Token: name + ticker and picture from 3 / 4 / 5 near-miss options (Easy / Medium / Hard; keys
-  1-5), launchpad and pair. 2 Strategy: a target ($100K, $250K, $500K, $1M, $3M, $10M), a style and what happens at
-  the target (hold for you, or take profit), plus creator fees or cashback. 3 Estimate: the cost line by line
-  (launch, push, volume, holders, defend) and the most it will spend, opening MC and your bag, your bag and its value
-  at the target, holders there, what dumping it all there would return, push time, the bubble-map quiet window, and
-  the odds of reaching the target on a right, fast launch (`strategyOdds`).
-- **Styles** (`STRATEGY_STYLES`): **Organic** (1 SOL dev buy + 1 SOL of organic buys, pays ~40% of the push, light
-  bots: the narrative does the work), **Balanced** (~20% Clean bundle over 20 wallets, pays for the push at a steady
-  pace, 150 holders, $8K/min volume), **Aggressive** (~50% Full bundle over 40 wallets, buys the push fast, 300
-  holders, $20K/min volume).
-- **The strategy runs the launch** (`strategyStep`, every 2 s): volume from 5 s, a market maker defending dips from
-  15 s, holders once it bonds, and a trend push to the target with its budget, paced to its time. At the target it
-  holds (defending) or takes profit (selling the bag into strength). If the push budget runs out short, it stalls and
-  organic buyers have to carry it the rest of the way.
-- **Your coin's page** (one card, `LaunchControl`): progress to the target, phase (Pushing / Holding / Taking profit /
-  Stalled / Done), push spent against budget, the quiet-window countdown or BUNDLED banner; change target, pause or
-  resume the push, take profit now; the dev bag (sell 25 / 50 / 100%, buy 0.5 / 1 / 5 SOL more), spent, realised,
-  holders, claim fees, Nuke; then DEX and boosts. Other coins trade with the normal panel and your trading wallets.
-- **Strategy harness** (`dev.strategy.harness.test.ts`, right and fast, N=8, a player who takes profit a minute after a
-  stall): Organic reaches $100K every time (+~40 SOL) but $500K+ only a quarter to a third of the time; Balanced gets
-  $100K every time (+~170 SOL), about half at $500K-$1M, a third at $3M; Aggressive reaches $100K-$3M every time
-  (+~80-600 SOL). Failed pushes cost most of their budget.
-- **Under the hood** (engine only, no UI): block-0 bundles (Quick / Clean / Full builds, back MEV), a 5-10 min quiet
+- **Dev table** (beside the Tracker): every launchable tweet, newest first, with its age and status (Open / Rival out /
+  Launched with MC / Stale). Click one to fill out the coin; a launched one opens its page.
+- **Launch form:** name and ticker are text boxes and the picture, launchpad and pair are chosen, all **prefilled from
+  the tweet**: right most of the time, a near miss now and then (`makePrefill`; each field wrong ~10% / 18% / 25% of the
+  time on Easy / Medium / Hard, less for picture and config). Typed names and tickers are checked case, spaces and `$`
+  aside. Then **how it launches** (`LAUNCH_KINDS`), spelled out in wallets and SOL: **Organic** (dev buy, then 4 fresh
+  wallets buy over the first 1-6 s after launch; snipers get in first), **Balanced** (dev buy + 2-3 hop-funded wallets
+  buying in block 0; 1-15 SOL), **Aggressive** (dev buy + 12-25 aged, CEX-funded wallets taking 20-75% of supply in
+  block 0, towards bond). Dev buy slider 0-5 SOL. Summary: wallets, opening MC, supply held, snipers to expect, the
+  bubble-map quiet window, cost and balance after; creator fees or cashback.
+- **Run strategy** (coin page, once it's live; sliders, each part with an on/off switch and its cost): **Push** to a
+  target market cap ($50K-$20M, quick picks $100K-$10M) over 1-20 min; **Volume** at $1K-$50K a minute for 1-60 min;
+  **Holders** 10-500; **Defend dips** with a 1-250 SOL budget past a 5 / 10 / 20% band; **at the target** hold or take
+  profit at 1-10% of the bag a minute. The estimate (`quoteRun`) shows the most it will spend, your bag now and at the
+  target, what it's worth there and what dumping it all there returns, and holders there. The push estimate prices
+  the sell wall too (about half of everything not yours or in the pool, sold into you on the way up). While it runs:
+  phase (Pushing / Holding / Taking profit / Stalled), progress, push spent against budget, what's running; pause the
+  push, take profit, stop all, change it.
+- **Your wallets** (coin page): one row per group with its wallet count, % of supply and value, each with Sell
+  25% / 50% / All: **Dev wallet** (public, DEV on the chart), **Launch wallets**, **Push wallets** (the push buys into
+  these), **Holder wallets**. Buy 0.5 / 1 / 5 SOL more into the dev wallet or the launch wallets; claim fees; Nuke.
+- **Harness** (`dev.strategy.harness.test.ts`, right and fast, N=8, push in 4 min with $5K/min volume, 100 holders and a
+  10 SOL defence, taking profit at 5%/min): all three launches reach $250K every time and come out ahead (Organic
+  ~+70, Balanced ~+230, Aggressive ~+235 SOL). Pushing to $1M-$3M with your own SOL reaches it 2-7 times in 8 and
+  usually loses money: past the narrative's ceiling traders sell everything into you. That's the lesson, not a bug.
+- **Under the hood** (engine only, no direct UI): block-0 bundles (Quick / Clean / Full builds, back MEV), a 5-10 min quiet
   window before bundle checkers can flag you (then a BUNDLED tag, a Tracker callout, fewer buyers, no KOLs), snipers on
   every launch, volume / trend / holder bots, a market maker (Defend / Make market / Distribute), holder build-up and
   waves (fewer real holders the more of the supply you own), dip buyers, bag holders, and one constant-product pool to

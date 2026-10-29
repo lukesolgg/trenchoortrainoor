@@ -14,7 +14,7 @@ const AVATAR_BG = (hue: number) =>
  * Authority accounts use a real profile picture if one is dropped in public/avatars/<handle>.jpg; anything missing
  * falls back to the gradient initial.
  */
-function Avatar({ name, src, hue }: { name: string; src: string | null; hue: number }) {
+export function Avatar({ name, src, hue }: { name: string; src: string | null; hue: number }) {
   const [failed, setFailed] = useState(false);
   return (
     <div
